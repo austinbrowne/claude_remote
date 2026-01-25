@@ -1,0 +1,14 @@
+{
+  "name": "claude-remote-access",
+  "version": "2.0.0",
+  "description": "Remote access to Claude Code with real-time output, TTS, and voice input",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "chokidar": "^3.5.3"
+  }
+}

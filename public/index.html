@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Claude">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230d1117' width='100' height='100' rx='20'/><text y='.9em' font-size='80' x='50%' text-anchor='middle'>⚡</text></svg>">
+  <title>Claude Remote</title>
+  <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --bg-input: #0d1117;
+      --accent: #58a6ff;
+      --accent-dim: #388bfd;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --border: #30363d;
+      --success: #3fb950;
+      --warning: #d29922;
+      --error: #f85149;
+      --user-msg: #1f6feb;
+      --assistant-msg: #238636;
+      --tool-msg: #8957e5;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: var(--bg-secondary);
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      padding-top: max(12px, env(safe-area-inset-top));
+      gap: 12px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--error);
+      flex-shrink: 0;
+    }
+    .status-dot.connected { background: var(--success); }
+
+    .session-selector {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      flex: 1;
+      min-width: 0;
+      max-width: 200px;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .icon-btn:active { transform: scale(0.95); }
+    .icon-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    /* Auth Screen */
+    .auth-screen {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 20px;
+    }
+    .auth-screen.hidden { display: none; }
+
+    .auth-box {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .auth-box h2 {
+      margin-bottom: 20px;
+      font-size: 1.3rem;
+      text-align: center;
+    }
+
+    /* Main App */
+    .main-app {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .main-app.active { display: flex; }
+
+    /* Output Area */
+    .output-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      scroll-behavior: smooth;
+    }
+
+    .message {
+      padding: 12px 16px;
+      border-radius: 16px;
+      max-width: 88%;
+      word-wrap: break-word;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .message.user {
+      background: var(--user-msg);
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+    }
+
+    .message.assistant.speaking {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .message.tool {
+      background: var(--bg-secondary);
+      border-left: 3px solid var(--tool-msg);
+      align-self: flex-start;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 0.85rem;
+      max-width: 95%;
+    }
+
+    .message.tool .tool-name {
+      color: var(--tool-msg);
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .message.tool_result {
+      background: var(--bg-input);
+      border-left: 3px solid var(--text-muted);
+      align-self: flex-start;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      max-width: 95%;
+    }
+
+    .message pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }
+
+    /* Streaming indicator */
+    .streaming {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+    }
+
+    .streaming-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    .streaming-dots span {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: bounce 1.4s infinite ease-in-out;
+    }
+    .streaming-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .streaming-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    /* Input Area */
+    .input-area {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      flex-shrink: 0;
+    }
+
+    .quick-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .quick-btn {
+      padding: 8px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      white-space: nowrap;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .quick-btn:active {
+      background: var(--border);
+      transform: scale(0.95);
+    }
+    .quick-btn.danger {
+      border-color: var(--error);
+      color: var(--error);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    .input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+
+    .command-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 12px 18px;
+      padding-right: 48px;
+      color: var(--text-primary);
+      font-size: 16px;
+      outline: none;
+      resize: none;
+      max-height: 120px;
+      line-height: 1.4;
+    }
+    .command-input:focus { border-color: var(--accent); }
+    .command-input::placeholder { color: var(--text-muted); }
+
+    .voice-btn {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .voice-btn.recording {
+      background: var(--error);
+      color: white;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+
+    .send-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: white;
+      font-size: 1.3rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .send-btn:active {
+      background: var(--accent-dim);
+      transform: scale(0.95);
+    }
+    .send-btn:disabled {
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+    }
+
+    /* Settings Panel */
+    .settings-panel {
+      position: fixed;
+      top: 0;
+      right: -300px;
+      width: 280px;
+      height: 100%;
+      background: var(--bg-secondary);
+      border-left: 1px solid var(--border);
+      padding: 20px;
+      padding-top: max(20px, env(safe-area-inset-top));
+      transition: right 0.3s ease;
+      z-index: 100;
+      overflow-y: auto;
+    }
+    .settings-panel.open { right: 0; }
+
+    .settings-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      z-index: 99;
+    }
+    .settings-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .settings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .settings-header h3 { font-size: 1.1rem; }
+
+    .setting-group {
+      margin-bottom: 20px;
+    }
+
+    .setting-group label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .setting-row span { font-size: 0.95rem; }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 50px;
+      height: 28px;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--bg-tertiary);
+      transition: 0.3s;
+      border-radius: 28px;
+      border: 1px solid var(--border);
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 2px;
+      bottom: 2px;
+      background-color: var(--text-secondary);
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background-color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+      background-color: white;
+    }
+
+    select {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      width: 100%;
+    }
+
+    /* Form elements */
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 16px;
+      font-size: 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text-primary);
+      outline: none;
+      margin-bottom: 16px;
+    }
+    input:focus { border-color: var(--accent); }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+    .btn-primary:active { background: var(--accent-dim); }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      padding: 12px 24px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 1000;
+      font-size: 0.9rem;
+      max-width: 90%;
+      text-align: center;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--error); }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      padding: 40px 20px;
+      text-align: center;
+    }
+
+    .empty-state .icon {
+      font-size: 4rem;
+      margin-bottom: 16px;
+    }
+
+    .empty-state p {
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Auth Screen -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-box">
+      <h2>⚡ Claude Remote</h2>
+      <input type="password" id="token" placeholder="Enter auth token">
+      <button class="btn btn-primary" onclick="connect()">Connect</button>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div class="main-app" id="mainApp">
+    <header class="header">
+      <div class="header-left">
+        <div class="status-dot" id="statusDot"></div>
+        <select class="session-selector" id="sessionSelector" onchange="switchSession()">
+          <option value="">Select session...</option>
+        </select>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">🔄</button>
+        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">🔇</button>
+        <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">⚙️</button>
+      </div>
+    </header>
+
+    <div class="output-area" id="outputArea">
+      <div class="empty-state" id="emptyState">
+        <div class="icon">📡</div>
+        <p>Select a session to monitor</p>
+        <p style="font-size: 0.85rem;">Claude's responses will appear here in real-time</p>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="quick-actions">
+        <button class="quick-btn" onclick="sendPreset('/clear')">🧹 Clear</button>
+        <button class="quick-btn" onclick="sendPreset('/compact')">📦 Compact</button>
+        <button class="quick-btn" onclick="sendPreset('/status')">📊 Status</button>
+        <button class="quick-btn" onclick="sendPreset('y')">✓ Yes</button>
+        <button class="quick-btn danger" onclick="sendEscape()">⎋ Cancel</button>
+      </div>
+      <div class="input-row">
+        <div class="input-wrapper">
+          <textarea class="command-input" id="commandInput" placeholder="Type a command..." rows="1" onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
+          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">🎤</button>
+        </div>
+        <button class="send-btn" id="sendBtn" onclick="sendCommand()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="settings-overlay" id="settingsOverlay" onclick="closeSettings()"></div>
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-header">
+      <h3>Settings</h3>
+      <button class="icon-btn" onclick="closeSettings()">✕</button>
+    </div>
+
+    <div class="setting-group">
+      <label>Voice Output</label>
+      <div class="setting-row">
+        <span>Read responses aloud</span>
+        <label class="toggle">
+          <input type="checkbox" id="ttsEnabled" onchange="updateSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <span>Read tool calls</span>
+        <label class="toggle">
+          <input type="checkbox" id="speakTools" onchange="updateSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>Voice</label>
+      <select id="voiceSelect" onchange="updateSettings()">
+        <option value="default">System Default</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
+      <label>Speech Rate</label>
+      <select id="speechRate" onchange="updateSettings()">
+        <option value="0.8">Slow</option>
+        <option value="1" selected>Normal</option>
+        <option value="1.2">Fast</option>
+        <option value="1.5">Very Fast</option>
+      </select>
+    </div>
+
+    <div class="setting-group">
+      <label>Notifications</label>
+      <div class="setting-row">
+        <span>Notify on response</span>
+        <label class="toggle">
+          <input type="checkbox" id="notifyEnabled" onchange="updateSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting-group" style="margin-top: 40px;">
+      <button class="btn btn-primary" onclick="disconnect()" style="background: var(--error);">Disconnect</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ============================================
+    // State
+    // ============================================
+    let reconnectTimeout = null;
+    let toastTimeout = null;
+    let ws = null;
+    let authToken = sessionStorage.getItem('claude_remote_token') || '';
+    let currentSessionId = null;
+    let isRecording = false;
+    let recognition = null;
+    let synth = window.speechSynthesis;
+    let currentUtterance = null;
+    let settings = {
+      ttsEnabled: localStorage.getItem('tts_enabled') === 'true',
+      speakTools: localStorage.getItem('speak_tools') === 'true',
+      voiceURI: localStorage.getItem('voice_uri') || 'default',
+      speechRate: parseFloat(localStorage.getItem('speech_rate')) || 1,
+      notifyEnabled: localStorage.getItem('notify_enabled') === 'true'
+    };
+    const MAX_MESSAGES = 500;
+
+    // ============================================
+    // WebSocket Send Helper
+    // ============================================
+    function wsSend(payload) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showToast('Not connected', 'error');
+        return false;
+      }
+      try {
+        ws.send(JSON.stringify(payload));
+        return true;
+      } catch (e) {
+        showToast('Send failed', 'error');
+        return false;
+      }
+    }
+
+    // ============================================
+    // Initialization
+    // ============================================
+    document.addEventListener('DOMContentLoaded', () => {
+      if (authToken) {
+        document.getElementById('token').value = authToken;
+        connect();
+      }
+      
+      initVoices();
+      initSpeechRecognition();
+      loadSettings();
+      requestNotificationPermission();
+    });
+
+    function loadSettings() {
+      document.getElementById('ttsEnabled').checked = settings.ttsEnabled;
+      document.getElementById('speakTools').checked = settings.speakTools;
+      document.getElementById('speechRate').value = settings.speechRate.toString();
+      document.getElementById('notifyEnabled').checked = settings.notifyEnabled;
+      updateTTSButton();
+    }
+
+    function initVoices() {
+      const populateVoices = () => {
+        const voices = synth.getVoices();
+        const select = document.getElementById('voiceSelect');
+        select.innerHTML = '<option value="default">System Default</option>';
+        
+        voices.forEach(voice => {
+          const option = document.createElement('option');
+          option.value = voice.voiceURI;
+          option.textContent = `${voice.name} (${voice.lang})`;
+          if (voice.voiceURI === settings.voiceURI) option.selected = true;
+          select.appendChild(option);
+        });
+      };
+      
+      populateVoices();
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = populateVoices;
+      }
+    }
+
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        document.getElementById('voiceBtn').style.display = 'none';
+        return;
+      }
+      
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      
+      recognition.onresult = (event) => {
+        const input = document.getElementById('commandInput');
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        input.value = finalTranscript || interimTranscript;
+        autoResize(input);
+      };
+      
+      recognition.onend = () => {
+        isRecording = false;
+        document.getElementById('voiceBtn').classList.remove('recording');
+      };
+      
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        isRecording = false;
+        document.getElementById('voiceBtn').classList.remove('recording');
+        if (event.error !== 'no-speech') {
+          showToast('Voice input error', 'error');
+        }
+      };
+    }
+
+    function requestNotificationPermission() {
+      if ('Notification' in window && Notification.permission === 'default') {
+        // Will request when user enables notifications in settings
+      }
+    }
+
+    // ============================================
+    // WebSocket Connection
+    // ============================================
+    function connect() {
+      authToken = document.getElementById('token').value;
+      if (!authToken) {
+        showToast('Please enter a token', 'error');
+        return;
+      }
+      
+      sessionStorage.setItem('claude_remote_token', authToken);
+      
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(authToken)}`;
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        document.getElementById('authScreen').classList.add('hidden');
+        document.getElementById('mainApp').classList.add('active');
+        document.getElementById('statusDot').classList.add('connected');
+        showToast('Connected!', 'success');
+      };
+      
+      ws.onclose = (event) => {
+        document.getElementById('statusDot').classList.remove('connected');
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
+        }
+        if (event.code === 4001) {
+          showToast('Invalid token', 'error');
+          disconnect();
+        } else {
+          showToast('Disconnected - reconnecting...', 'error');
+          reconnectTimeout = setTimeout(() => {
+            reconnectTimeout = null;
+            if (authToken && !ws) connect();
+          }, 3000);
+        }
+      };
+      
+      ws.onerror = () => {
+        showToast('Connection error', 'error');
+      };
+      
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      };
+    }
+
+    function disconnect() {
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+      sessionStorage.removeItem('claude_remote_token');
+      authToken = '';
+      if (ws) {
+        ws.close();
+        ws = null;
+      }
+      document.getElementById('mainApp').classList.remove('active');
+      document.getElementById('authScreen').classList.remove('hidden');
+      document.getElementById('token').value = '';
+      closeSettings();
+    }
+
+    // ============================================
+    // Message Handling
+    // ============================================
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'sessions':
+          updateSessionList(msg.data);
+          break;
+          
+        case 'watching':
+          currentSessionId = msg.sessionId;
+          showToast(`Watching: ${msg.session.name}`, 'success');
+          break;
+          
+        case 'history':
+          renderHistory(msg.data);
+          break;
+          
+        case 'claude_output':
+          if (msg.sessionId === currentSessionId) {
+            appendMessage(msg.data);
+            
+            // TTS for assistant messages
+            if (msg.data.type === 'assistant' && settings.ttsEnabled) {
+              speak(msg.data.content);
+            }
+            
+            // TTS for tool calls (if enabled)
+            if (msg.data.type === 'tool' && settings.speakTools) {
+              speak(`Using tool: ${msg.data.tool}`);
+            }
+            
+            // Notification
+            if (msg.data.type === 'assistant' && settings.notifyEnabled && document.hidden) {
+              sendNotification('Claude Response', msg.data.content.substring(0, 100));
+            }
+          }
+          break;
+          
+        case 'inject_result':
+          if (!msg.success) showToast('Failed to send', 'error');
+          break;
+          
+        case 'error':
+          showToast(msg.message, 'error');
+          break;
+      }
+    }
+
+    function updateSessionList(sessions) {
+      const selector = document.getElementById('sessionSelector');
+      const currentValue = selector.value;
+      selector.innerHTML = '<option value="">Select session...</option>';
+      
+      sessions.forEach(session => {
+        const option = document.createElement('option');
+        option.value = session.id;
+        option.textContent = session.name;
+        selector.appendChild(option);
+      });
+      
+      // Restore selection if still exists
+      if (currentValue && sessions.find(s => s.id === currentValue)) {
+        selector.value = currentValue;
+      } else if (sessions.length === 1) {
+        selector.value = sessions[0].id;
+        switchSession();
+      }
+    }
+
+    function switchSession() {
+      const sessionId = document.getElementById('sessionSelector').value;
+      if (!sessionId) return;
+
+      document.getElementById('outputArea').innerHTML = '';
+
+      wsSend({ action: 'watch_session', sessionId: sessionId });
+    }
+
+    function refreshSessions() {
+      wsSend({ action: 'refresh_sessions' });
+      showToast('Refreshed', 'success');
+    }
+
+    // ============================================
+    // Output Rendering
+    // ============================================
+    function renderHistory(history) {
+      const outputArea = document.getElementById('outputArea');
+      outputArea.innerHTML = '';
+      
+      history.forEach(entry => appendMessage(entry, false));
+      outputArea.scrollTop = outputArea.scrollHeight;
+    }
+
+    function appendMessage(data, scroll = true) {
+      const outputArea = document.getElementById('outputArea');
+      document.getElementById('emptyState')?.remove();
+
+      // Remove oldest messages if over limit
+      while (outputArea.children.length >= MAX_MESSAGES) {
+        outputArea.removeChild(outputArea.firstChild);
+      }
+
+      const msg = document.createElement('div');
+      msg.className = `message ${data.type}`;
+      
+      if (data.type === 'tool') {
+        msg.innerHTML = `
+          <div class="tool-name">🔧 ${escapeHtml(data.tool)}</div>
+          <pre>${escapeHtml(formatToolInput(data.input))}</pre>
+        `;
+      } else if (data.type === 'tool_result') {
+        const result = typeof data.result === 'string' 
+          ? data.result 
+          : JSON.stringify(data.result, null, 2);
+        const truncated = result.length > 300 ? result.substring(0, 300) + '...' : result;
+        msg.innerHTML = `<pre>↳ ${escapeHtml(truncated)}</pre>`;
+      } else {
+        const content = typeof data.content === 'string' 
+          ? data.content 
+          : JSON.stringify(data.content);
+        msg.innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+      }
+      
+      outputArea.appendChild(msg);
+      
+      if (scroll) {
+        outputArea.scrollTop = outputArea.scrollHeight;
+      }
+      
+      return msg;
+    }
+
+    function formatToolInput(input) {
+      if (typeof input === 'string') return input;
+      if (input.command) return input.command;
+      if (input.content) return input.content.substring(0, 200) + (input.content.length > 200 ? '...' : '');
+      if (input.path) return input.path;
+      return JSON.stringify(input, null, 2).substring(0, 200);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ============================================
+    // Command Sending
+    // ============================================
+    function sendCommand() {
+      const input = document.getElementById('commandInput');
+      const sendBtn = document.getElementById('sendBtn');
+      const command = input.value.trim();
+
+      if (!command || sendBtn.disabled) return;
+
+      sendBtn.disabled = true;
+
+      if (!wsSend({ action: 'inject', command: command })) {
+        sendBtn.disabled = false;
+        return;
+      }
+
+      appendMessage({ type: 'user', content: command });
+
+      input.value = '';
+      autoResize(input);
+      showToast('Sent!', 'success');
+
+      // Re-enable after a short delay to prevent accidental double-sends
+      setTimeout(() => sendBtn.disabled = false, 300);
+    }
+
+    function sendPreset(cmd) {
+      wsSend({ action: 'inject', command: cmd });
+      appendMessage({ type: 'user', content: cmd });
+      showToast('Sent!', 'success');
+    }
+
+    function sendEscape() {
+      wsSend({ action: 'escape' });
+      showToast('Cancelled', 'success');
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendCommand();
+      }
+    }
+
+    function autoResize(el) {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    }
+
+    // ============================================
+    // Text-to-Speech
+    // ============================================
+    function speak(text) {
+      if (!settings.ttsEnabled || !synth) return;
+      
+      // Stop any current speech
+      synth.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = settings.speechRate;
+      
+      // Find selected voice
+      if (settings.voiceURI !== 'default') {
+        const voices = synth.getVoices();
+        const voice = voices.find(v => v.voiceURI === settings.voiceURI);
+        if (voice) utterance.voice = voice;
+      }
+      
+      // Highlight message being spoken
+      const messages = document.querySelectorAll('.message.assistant');
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg) lastMsg.classList.add('speaking');
+      
+      utterance.onend = () => {
+        if (lastMsg) lastMsg.classList.remove('speaking');
+      };
+      
+      synth.speak(utterance);
+      currentUtterance = utterance;
+    }
+
+    function toggleTTS() {
+      settings.ttsEnabled = !settings.ttsEnabled;
+      localStorage.setItem('tts_enabled', settings.ttsEnabled);
+      document.getElementById('ttsEnabled').checked = settings.ttsEnabled;
+      updateTTSButton();
+      
+      if (!settings.ttsEnabled) {
+        synth.cancel();
+      }
+      
+      showToast(settings.ttsEnabled ? 'TTS enabled' : 'TTS disabled', 'success');
+    }
+
+    function updateTTSButton() {
+      const btn = document.getElementById('ttsToggle');
+      btn.textContent = settings.ttsEnabled ? '🔊' : '🔇';
+      btn.classList.toggle('active', settings.ttsEnabled);
+    }
+
+    // ============================================
+    // Voice Input
+    // ============================================
+    function toggleVoiceInput() {
+      if (!recognition) {
+        showToast('Voice input not supported', 'error');
+        return;
+      }
+      
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        recognition.start();
+        isRecording = true;
+        document.getElementById('voiceBtn').classList.add('recording');
+      }
+    }
+
+    // ============================================
+    // Notifications
+    // ============================================
+    function sendNotification(title, body) {
+      if (!('Notification' in window)) return;
+      
+      if (Notification.permission === 'granted') {
+        new Notification(title, { body, icon: '⚡' });
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            new Notification(title, { body });
+          }
+        });
+      }
+    }
+
+    // ============================================
+    // Settings
+    // ============================================
+    function openSettings() {
+      document.getElementById('settingsPanel').classList.add('open');
+      document.getElementById('settingsOverlay').classList.add('open');
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsPanel').classList.remove('open');
+      document.getElementById('settingsOverlay').classList.remove('open');
+    }
+
+    function updateSettings() {
+      settings.ttsEnabled = document.getElementById('ttsEnabled').checked;
+      settings.speakTools = document.getElementById('speakTools').checked;
+      settings.voiceURI = document.getElementById('voiceSelect').value;
+      settings.speechRate = parseFloat(document.getElementById('speechRate').value);
+      settings.notifyEnabled = document.getElementById('notifyEnabled').checked;
+      
+      localStorage.setItem('tts_enabled', settings.ttsEnabled);
+      localStorage.setItem('speak_tools', settings.speakTools);
+      localStorage.setItem('voice_uri', settings.voiceURI);
+      localStorage.setItem('speech_rate', settings.speechRate);
+      localStorage.setItem('notify_enabled', settings.notifyEnabled);
+      
+      updateTTSButton();
+      
+      // Request notification permission if enabling
+      if (settings.notifyEnabled && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
+    // ============================================
+    // Utilities
+    // ============================================
+    function showToast(message, type = '') {
+      if (toastTimeout) {
+        clearTimeout(toastTimeout);
+        toastTimeout = null;
+      }
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast show ${type}`;
+      toastTimeout = setTimeout(() => {
+        toast.className = 'toast';
+        toastTimeout = null;
+      }, 2500);
+    }
+  </script>
+</body>
+</html>
