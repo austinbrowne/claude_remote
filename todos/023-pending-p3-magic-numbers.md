@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "023"
 tags: [code-review, quality, maintainability]
@@ -41,8 +41,8 @@ const TOOL_RESULT_TRUNCATE_LENGTH = 300;
 
 ## Acceptance Criteria
 
-- [ ] All magic numbers replaced with named constants
-- [ ] Constants grouped at top of file
+- [x] All magic numbers replaced with named constants
+- [x] Constants grouped at top of file
 
 ## Work Log
 

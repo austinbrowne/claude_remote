@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "025"
 tags: [code-review, frontend, race-condition]
@@ -48,8 +48,8 @@ function speak(text) {
 
 ## Acceptance Criteria
 
-- [ ] Previous highlight always cleared before new speech
-- [ ] No orphaned .speaking classes
+- [x] Previous highlight always cleared before new speech
+- [x] No orphaned .speaking classes
 
 ## Work Log
 

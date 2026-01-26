@@ -1000,6 +1000,14 @@
 
   <script>
     // ============================================
+    // Constants
+    // ============================================
+    const PING_TIMEOUT_MS = 3000;              // Pong response timeout before reconnect
+    const TOAST_DURATION_MS = 2500;            // Toast message display duration
+    const PERMISSION_CARD_DELAY_MS = 500;      // Delay before showing permission card
+    const VOICE_LISTEN_DELAY_MS = 500;         // Delay before starting voice recognition after TTS
+
+    // ============================================
     // State
     // ============================================
     let reconnectTimeout = null;
@@ -1008,18 +1016,48 @@
     const MAX_RECONNECT_DELAY = 30000;
     let toastTimeout = null;
     let ws = null;
-    let authToken = sessionStorage.getItem('claude_remote_token') || '';
     let currentSessionId = null;
+    // Session switch state machine to prevent race conditions
+    const SESSION_STATE = { IDLE: 0, SWITCHING: 1, ACTIVE: 2 };
+    let sessionState = SESSION_STATE.IDLE;
+    let pendingSessionId = null;
     let isRecording = false;
     let recognition = null;
     let synth = window.speechSynthesis;
     let currentUtterance = null;
+    let speakingMessageElement = null; // Track currently highlighted message for TTS
+
+    // Safe storage access (handles private browsing mode)
+    function safeGetItem(storage, key, fallback = null) {
+      try {
+        return storage.getItem(key);
+      } catch (e) {
+        console.warn('Storage unavailable:', e.message);
+        return fallback;
+      }
+    }
+    function safeSetItem(storage, key, value) {
+      try {
+        storage.setItem(key, value);
+      } catch (e) {
+        console.warn('Storage unavailable:', e.message);
+      }
+    }
+    function safeRemoveItem(storage, key) {
+      try {
+        storage.removeItem(key);
+      } catch (e) {
+        console.warn('Storage unavailable:', e.message);
+      }
+    }
+
+    let authToken = safeGetItem(sessionStorage, 'claude_remote_token', '');
     let settings = {
-      ttsEnabled: localStorage.getItem('tts_enabled') === 'true',
-      speakTools: localStorage.getItem('speak_tools') === 'true',
-      voiceURI: localStorage.getItem('voice_uri') || 'default',
-      speechRate: parseFloat(localStorage.getItem('speech_rate')) || 1,
-      notifyEnabled: localStorage.getItem('notify_enabled') === 'true'
+      ttsEnabled: safeGetItem(localStorage, 'tts_enabled') === 'true',
+      speakTools: safeGetItem(localStorage, 'speak_tools') === 'true',
+      voiceURI: safeGetItem(localStorage, 'voice_uri', 'default'),
+      speechRate: parseFloat(safeGetItem(localStorage, 'speech_rate')) || 1,
+      notifyEnabled: safeGetItem(localStorage, 'notify_enabled') === 'true'
     };
     const MAX_MESSAGES = 500;
     const recentUserMessages = []; // Track recently sent messages to dedupe
@@ -1236,8 +1274,12 @@
         clearTimeout(pingTimeout);
         pingTimeout = null;
       }
-      sessionStorage.removeItem('claude_remote_token');
+      safeRemoveItem(sessionStorage, 'claude_remote_token');
       authToken = '';
+      // Reset session state
+      sessionState = SESSION_STATE.IDLE;
+      pendingSessionId = null;
+      currentSessionId = null;
       if (ws) {
         ws.close();
         ws = null;
@@ -1265,7 +1307,7 @@
 
       // Send ping, expect pong within 3 seconds
       if (pingTimeout) clearTimeout(pingTimeout);
-      pingTimeout = setTimeout(() => forceReconnect(), 3000);
+      pingTimeout = setTimeout(() => forceReconnect(), PING_TIMEOUT_MS);
 
       try {
         ws.send(JSON.stringify({ action: 'ping' }));
@@ -1317,7 +1359,7 @@
         case 'auth_result':
           if (msg.success) {
             // Save token only after successful auth
-            sessionStorage.setItem('claude_remote_token', authToken);
+            safeSetItem(sessionStorage, 'claude_remote_token', authToken);
             document.getElementById('authScreen').classList.add('hidden');
             document.getElementById('mainApp').classList.add('active');
             const statusDot = document.getElementById('statusDot');
@@ -1344,7 +1386,16 @@
           break;
 
         case 'watching':
-          currentSessionId = msg.sessionId;
+          // Confirm session switch - only accept if this was the pending session
+          if (sessionState === SESSION_STATE.SWITCHING && msg.sessionId === pendingSessionId) {
+            currentSessionId = msg.sessionId;
+            sessionState = SESSION_STATE.ACTIVE;
+            pendingSessionId = null;
+          } else if (sessionState === SESSION_STATE.IDLE) {
+            // Initial connection or reconnection
+            currentSessionId = msg.sessionId;
+            sessionState = SESSION_STATE.ACTIVE;
+          }
           break;
           
         case 'history':
@@ -1352,7 +1403,8 @@
           break;
           
         case 'claude_output':
-          if (msg.sessionId === currentSessionId) {
+          // Only process messages for current session when in ACTIVE state (prevents race conditions)
+          if (sessionState === SESSION_STATE.ACTIVE && msg.sessionId === currentSessionId) {
             // Handle structured AskUserQuestion prompts
             if (msg.data.type === 'ask_user_question') {
               showStructuredPrompt(msg.data.questions);
@@ -1366,7 +1418,7 @@
               const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
               const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
-              // Store pending card and wait 500ms before showing
+              // Store pending card and wait before showing (allows auto-approval to cancel)
               window.pendingPermissionCard = { tool, cmd, isDestructive };
               window.pendingPermissionTimeout = setTimeout(() => {
                 if (window.pendingPermissionCard) {
@@ -1379,7 +1431,7 @@
                   });
                   window.pendingPermissionCard = null;
                 }
-              }, 500);
+              }, PERMISSION_CARD_DELAY_MS);
               break;
             }
             // Cancel pending permission card on tool_result (command was auto-approved)
@@ -1483,6 +1535,10 @@
     function switchSession() {
       const sessionId = document.getElementById('sessionSelector').value;
       if (!sessionId) return;
+
+      // Set switching state to prevent race conditions with in-flight messages
+      sessionState = SESSION_STATE.SWITCHING;
+      pendingSessionId = sessionId;
 
       document.getElementById('outputArea').innerHTML = '';
 
@@ -1794,43 +1850,60 @@
     // ============================================
     function speak(text) {
       if (!settings.ttsEnabled || !synth) return;
-      
+
+      // Clear previous highlight explicitly (onend may not fire on cancel)
+      if (speakingMessageElement) {
+        speakingMessageElement.classList.remove('speaking');
+        speakingMessageElement = null;
+      }
+
       // Stop any current speech
       synth.cancel();
-      
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = settings.speechRate;
-      
+
       // Find selected voice
       if (settings.voiceURI !== 'default') {
         const voices = synth.getVoices();
         const voice = voices.find(v => v.voiceURI === settings.voiceURI);
         if (voice) utterance.voice = voice;
       }
-      
+
       // Highlight message being spoken
       const messages = document.querySelectorAll('.message.assistant');
       const lastMsg = messages[messages.length - 1];
-      if (lastMsg) lastMsg.classList.add('speaking');
-      
+      if (lastMsg) {
+        lastMsg.classList.add('speaking');
+        speakingMessageElement = lastMsg;
+      }
+
       utterance.onend = () => {
-        if (lastMsg) lastMsg.classList.remove('speaking');
+        if (speakingMessageElement) {
+          speakingMessageElement.classList.remove('speaking');
+          speakingMessageElement = null;
+        }
       };
-      
+
       synth.speak(utterance);
       currentUtterance = utterance;
     }
 
     function toggleTTS() {
       settings.ttsEnabled = !settings.ttsEnabled;
-      localStorage.setItem('tts_enabled', settings.ttsEnabled);
+      safeSetItem(localStorage, 'tts_enabled', settings.ttsEnabled);
       document.getElementById('ttsEnabled').checked = settings.ttsEnabled;
       updateTTSButton();
-      
+
       if (!settings.ttsEnabled) {
+        // Clear highlight explicitly since cancel may not fire onend
+        if (speakingMessageElement) {
+          speakingMessageElement.classList.remove('speaking');
+          speakingMessageElement = null;
+        }
         synth.cancel();
       }
-      
+
       showToast(settings.ttsEnabled ? 'TTS enabled' : 'TTS disabled', 'success');
     }
 
@@ -1895,11 +1968,11 @@
       settings.speechRate = parseFloat(document.getElementById('speechRate').value);
       settings.notifyEnabled = document.getElementById('notifyEnabled').checked;
       
-      localStorage.setItem('tts_enabled', settings.ttsEnabled);
-      localStorage.setItem('speak_tools', settings.speakTools);
-      localStorage.setItem('voice_uri', settings.voiceURI);
-      localStorage.setItem('speech_rate', settings.speechRate);
-      localStorage.setItem('notify_enabled', settings.notifyEnabled);
+      safeSetItem(localStorage, 'tts_enabled', settings.ttsEnabled);
+      safeSetItem(localStorage, 'speak_tools', settings.speakTools);
+      safeSetItem(localStorage, 'voice_uri', settings.voiceURI);
+      safeSetItem(localStorage, 'speech_rate', settings.speechRate);
+      safeSetItem(localStorage, 'notify_enabled', settings.notifyEnabled);
       
       updateTTSButton();
       
@@ -1923,7 +1996,7 @@
       toastTimeout = setTimeout(() => {
         toast.className = 'toast';
         toastTimeout = null;
-      }, 2500);
+      }, TOAST_DURATION_MS);
     }
 
     // ============================================
@@ -2253,12 +2326,12 @@
       }
 
       utterance.onend = () => {
-        // Wait 500ms then start listening for response
+        // Wait before starting listening for response (avoids TTS echo detection)
         setTimeout(() => {
           if (currentPrompt && recognition) {
             startListeningForPromptResponse();
           }
-        }, 500);
+        }, VOICE_LISTEN_DELAY_MS);
       };
 
       synth.speak(utterance);

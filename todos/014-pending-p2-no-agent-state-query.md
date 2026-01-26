@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "014"
 tags: [code-review, architecture, agent-native]
@@ -48,9 +48,9 @@ case 'get_state':
 
 ## Acceptance Criteria
 
-- [ ] Agents can query current state via `get_state` action
-- [ ] Response includes watching sessions, settings, client ID
-- [ ] State queryable immediately after reconnection
+- [x] Agents can query current state via `get_state` action
+- [x] Response includes watching sessions, settings, client ID
+- [x] State queryable immediately after reconnection
 
 ## Work Log
 

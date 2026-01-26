@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "018"
 tags: [code-review, quality, refactoring]
@@ -40,8 +40,8 @@ function maybeUnwatchSession(sessionId, excludeWs) {
 
 ## Acceptance Criteria
 
-- [ ] Single helper function for this check
-- [ ] Used in both disconnect and unwatch handlers
+- [x] Single helper function for this check
+- [x] Used in both disconnect and unwatch handlers
 
 ## Work Log
 

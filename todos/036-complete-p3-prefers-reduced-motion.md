@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p3
 issue_id: "036"
 tags:
@@ -56,9 +56,9 @@ Option A - Add prefers-reduced-motion media query.
 
 ## Acceptance Criteria
 
-- [ ] Animation disabled when prefers-reduced-motion is set
-- [ ] Yellow color still visible (just not pulsing)
-- [ ] Tested with system motion settings
+- [x] Animation disabled when prefers-reduced-motion is set
+- [x] Yellow color still visible (just not pulsing)
+- [x] Tested with system motion settings
 
 ## Work Log
 

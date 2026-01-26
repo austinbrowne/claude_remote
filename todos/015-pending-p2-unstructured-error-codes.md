@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "015"
 tags: [code-review, architecture, agent-native]
@@ -63,9 +63,9 @@ sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found', { sessionId: ms
 
 ## Acceptance Criteria
 
-- [ ] All errors include machine-readable `code` field
-- [ ] Error codes documented in README
-- [ ] Details object provides context
+- [x] All errors include machine-readable `code` field
+- [x] Error codes documented in README
+- [x] Details object provides context
 
 ## Work Log
 

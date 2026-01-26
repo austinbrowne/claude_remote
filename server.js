@@ -17,6 +17,24 @@ if (!AUTH_TOKEN || AUTH_TOKEN.length < 32) {
   process.exit(1);
 }
 const MAX_READ_SIZE = 1024 * 1024; // 1MB max per read
+const HISTORY_LINE_LIMIT = 100; // Max history lines to send on session load
+
+// Structured error codes for agent-friendly error handling
+const ErrorCodes = {
+  RATE_LIMITED: 'RATE_LIMITED',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
+  INJECT_FAILED: 'INJECT_FAILED'
+};
+
+function sendError(ws, code, message, details = {}) {
+  ws.send(JSON.stringify({
+    type: 'error',
+    code,
+    message,
+    details
+  }));
+}
 
 // Timing-safe token comparison to prevent timing attacks
 function secureCompare(a, b) {
@@ -517,6 +535,21 @@ function broadcastToClients(message) {
   });
 }
 
+// Check if any other client is watching a session (excludes given ws)
+function isAnyoneWatching(sessionId, excludeWs = null) {
+  for (const [ws, data] of clients) {
+    if (ws !== excludeWs && data.watchingSessions.has(sessionId)) return true;
+  }
+  return false;
+}
+
+// Unwatch session if no other clients are watching
+function maybeUnwatchSession(sessionId, excludeWs) {
+  if (!isAnyoneWatching(sessionId, excludeWs)) {
+    unwatchSession(sessionId);
+  }
+}
+
 // ============================================
 // WebSocket Handling
 // ============================================
@@ -552,6 +585,7 @@ wss.on('connection', (ws, req) => {
   function initializeClient() {
     clients.set(ws, {
       id: clientId,
+      connectedAt: Date.now(),
       watchingSessions: new Set(),
       settings: {
         ttsEnabled: false,
@@ -575,7 +609,7 @@ wss.on('connection', (ws, req) => {
     try {
       // Rate limit check
       if (!messageRateLimit.check()) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded: max 60 messages/minute' }));
+        sendError(ws, ErrorCodes.RATE_LIMITED, 'Rate limit exceeded', { limit: 60, window: 'minute' });
         return;
       }
 
@@ -600,7 +634,7 @@ wss.on('connection', (ws, req) => {
 
       // Require authentication for all other messages
       if (!authenticated) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated. Send auth message first.' }));
+        sendError(ws, ErrorCodes.UNAUTHORIZED, 'Not authenticated', { action: 'auth_required' });
         return;
       }
 
@@ -614,15 +648,7 @@ wss.on('connection', (ws, req) => {
     const clientData = clients.get(ws);
     if (clientData) {
       clientData.watchingSessions.forEach(sessionId => {
-        let otherWatching = false;
-        clients.forEach((otherData, otherWs) => {
-          if (otherWs !== ws && otherData.watchingSessions.has(sessionId)) {
-            otherWatching = true;
-          }
-        });
-        if (!otherWatching) {
-          unwatchSession(sessionId);
-        }
+        maybeUnwatchSession(sessionId, ws);
       });
     }
 
@@ -648,24 +674,13 @@ async function handleClientMessage(ws, msg) {
         }));
         sendRecentHistory(ws, msg.sessionId);
       } else {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Session not found or no log file'
-        }));
+        sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
       break;
       
     case 'unwatch_session':
       clientData.watchingSessions.delete(msg.sessionId);
-      let otherWatching = false;
-      clients.forEach((otherData, otherWs) => {
-        if (otherWs !== ws && otherData.watchingSessions.has(msg.sessionId)) {
-          otherWatching = true;
-        }
-      });
-      if (!otherWatching) {
-        unwatchSession(msg.sessionId);
-      }
+      maybeUnwatchSession(msg.sessionId, ws);
       break;
       
     case 'refresh_sessions':
@@ -681,7 +696,7 @@ async function handleClientMessage(ws, msg) {
       injectCommand(msg.command).then(() => {
         ws.send(JSON.stringify({ type: 'inject_result', success: true }));
       }).catch(err => {
-        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: err.message }));
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
       });
       break;
       
@@ -699,6 +714,16 @@ async function handleClientMessage(ws, msg) {
 
     case 'ping':
       ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+      break;
+
+    case 'get_state':
+      ws.send(JSON.stringify({
+        type: 'state',
+        clientId: clientData.id,
+        watchingSessions: Array.from(clientData.watchingSessions),
+        settings: clientData.settings,
+        connectedAt: clientData.connectedAt
+      }));
       break;
   }
 }
@@ -737,7 +762,7 @@ function sendRecentHistory(ws, sessionId) {
     }
 
     const lines = content.split('\n').filter(line => line.trim());
-    const recentLines = lines.slice(-100);
+    const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
     const history = [];
 
     for (const line of recentLines) {

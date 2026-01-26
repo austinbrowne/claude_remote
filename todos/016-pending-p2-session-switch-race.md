@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "016"
 tags: [code-review, frontend, race-condition]
@@ -78,9 +78,9 @@ if (sessionState === SESSION_STATE.ACTIVE && msg.sessionId === currentSessionId)
 
 ## Acceptance Criteria
 
-- [ ] Messages from old session never appear after switch
-- [ ] State machine tracks transition phases
-- [ ] UI indicates switching state
+- [x] Messages from old session never appear after switch
+- [x] State machine tracks transition phases
+- [x] UI indicates switching state
 
 ## Work Log
 
