@@ -37,59 +37,185 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects');
 // Session Discovery & Watching
 // ============================================
 
-function discoverSessions() {
+// Get active Claude processes with their terminal info
+function getActiveClaude() {
+  return new Promise((resolve) => {
+    // Get Claude processes with TTYs
+    exec('ps -eo pid,tty,command | grep "ttys.*claude" | grep -v grep', (err, stdout) => {
+      if (err || !stdout.trim()) {
+        resolve([]);
+        return;
+      }
+
+      const processes = [];
+      stdout.trim().split('\n').forEach(line => {
+        const match = line.trim().match(/^(\d+)\s+(ttys\d+)\s+(.*)$/);
+        if (match && match[3].match(/^claude(\s|$)/)) {
+          processes.push({ pid: match[1], tty: match[2] });
+        }
+      });
+
+      if (processes.length === 0) {
+        resolve([]);
+        return;
+      }
+
+      // Get cwd for each process
+      let pending = processes.length;
+      const results = [];
+
+      processes.forEach(proc => {
+        exec(`lsof -a -p ${proc.pid} -d cwd 2>/dev/null | tail -1 | awk '{print $NF}'`, (err2, cwd) => {
+          if (!err2 && cwd.trim()) {
+            results.push({
+              pid: proc.pid,
+              tty: proc.tty,
+              cwd: cwd.trim()
+            });
+          }
+          pending--;
+          if (pending === 0) resolve(results);
+        });
+      });
+    });
+  });
+}
+
+// Get iTerm tab names by TTY
+function getITermTabNames() {
+  return new Promise((resolve) => {
+    const appleScript = `
+      tell application "iTerm"
+        set output to ""
+        repeat with w in windows
+          repeat with t in tabs of w
+            set s to current session of t
+            set sessionName to name of s
+            set sessionTTY to tty of s
+            set output to output & sessionName & "|" & sessionTTY & "\\n"
+          end repeat
+        end repeat
+        return output
+      end tell
+    `;
+
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (err, stdout) => {
+      if (err) {
+        resolve({});
+        return;
+      }
+
+      const map = {};
+      stdout.trim().split('\n').forEach(line => {
+        if (!line.includes('|')) return;
+        const [name, ttyPath] = line.split('|');
+        const tty = ttyPath.replace('/dev/', '');
+        // Clean up the name: remove (claude) suffix and sparkle prefix
+        map[tty] = name.replace(/\s*\(claude\)\s*$/, '').replace(/^✳\s*/, '').trim();
+      });
+      resolve(map);
+    });
+  });
+}
+
+async function discoverSessions() {
   const sessions = [];
-  
-  if (!fs.existsSync(CLAUDE_DIR)) {
+
+  // Get active Claude processes
+  const activeProcesses = await getActiveClaude();
+
+  if (activeProcesses.length === 0) {
     return sessions;
   }
 
-  const projectDirs = fs.readdirSync(CLAUDE_DIR);
-  
-  for (const projectHash of projectDirs) {
-    const projectPath = path.join(CLAUDE_DIR, projectHash);
-    const sessionFile = path.join(projectPath, '.session.json');
-    const logsDir = path.join(projectPath, 'logs');
-    
-    if (fs.existsSync(sessionFile)) {
+  // Build cwd -> project data map (check all project dirs)
+  const cwdToProject = {};
+  if (fs.existsSync(CLAUDE_DIR)) {
+    const projectDirs = fs.readdirSync(CLAUDE_DIR);
+    for (const projectHash of projectDirs) {
+      const projectDir = path.join(CLAUDE_DIR, projectHash);
+      // Always scan JSONL files directly - sessions-index.json can be stale after `claude resume`
       try {
-        const sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
-        
-        // Find the most recent log file
-        let latestLog = null;
-        if (fs.existsSync(logsDir)) {
-          const logFiles = fs.readdirSync(logsDir)
-            .filter(f => f.endsWith('.jsonl'))
-            .sort()
-            .reverse();
-          
-          if (logFiles.length > 0) {
-            latestLog = path.join(logsDir, logFiles[0]);
+          const files = fs.readdirSync(projectDir);
+          const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+
+          for (const jsonlFile of jsonlFiles) {
+            const fullPath = path.join(projectDir, jsonlFile);
+            const sessionId = path.basename(jsonlFile, '.jsonl');
+            const stats = fs.statSync(fullPath);
+
+            // Read first 2KB to find cwd field
+            const fd = fs.openSync(fullPath, 'r');
+            const buffer = Buffer.alloc(2000);
+            fs.readSync(fd, buffer, 0, 2000, 0);
+            fs.closeSync(fd);
+
+            const content = buffer.toString('utf8');
+            const cwdMatch = content.match(/"cwd":"([^"]+)"/);
+
+            if (cwdMatch) {
+              const cwd = cwdMatch[1];
+              if (!cwdToProject[cwd]) {
+                cwdToProject[cwd] = { projectHash, indexData: { originalPath: cwd, entries: [] } };
+              }
+              cwdToProject[cwd].indexData.entries.push({
+                sessionId,
+                fullPath,
+                fileMtime: stats.mtime.getTime(),
+                modified: stats.mtime.toISOString()
+              });
+            }
           }
-        }
-        
-        sessions.push({
-          id: projectHash,
-          name: sessionData.projectName || path.basename(sessionData.cwd || '') || projectHash.substring(0, 8),
-          cwd: sessionData.cwd || 'Unknown',
-          lastActive: sessionData.lastActive || fs.statSync(sessionFile).mtime,
-          logFile: latestLog,
-          sessionFile: sessionFile
-        });
-      } catch (e) {
-        // Skip invalid session files
-      }
+        } catch (e) {}
     }
   }
-  
-  // Sort by most recently active
-  sessions.sort((a, b) => new Date(b.lastActive) - new Date(a.lastActive));
-  
+
+  // For each active Claude process, create an entry
+  for (const proc of activeProcesses) {
+    // Use directory name as stable identifier (Claude overwrites iTerm tab titles)
+    const dirName = path.basename(proc.cwd) || `Session ${proc.tty}`;
+    const project = cwdToProject[proc.cwd];
+
+    // Find session file if project exists
+    let logFile = null;
+    let sessionId = `${proc.tty}-${proc.pid}`; // Fallback ID based on process
+    let status = 'unknown';
+    let lastActive = new Date().toISOString();
+
+    if (project) {
+      const entries = (project.indexData.entries || [])
+        .filter(e => fs.existsSync(e.fullPath))
+        .sort((a, b) => new Date(b.modified || b.fileMtime) - new Date(a.modified || a.fileMtime));
+
+      if (entries.length > 0) {
+        const entry = entries[0];
+        logFile = entry.fullPath;
+        sessionId = entry.sessionId;
+        status = getSessionStatus(entry.fullPath);
+        lastActive = entry.modified || new Date(entry.fileMtime).toISOString();
+      }
+    }
+
+    sessions.push({
+      id: sessionId,
+      name: dirName,
+      status: status,
+      cwd: proc.cwd,
+      lastActive: lastActive,
+      logFile: logFile,
+      tty: proc.tty,
+      pid: proc.pid
+    });
+  }
+
+  // Sort by tab name
+  sessions.sort((a, b) => a.name.localeCompare(b.name));
+
   return sessions;
 }
 
-function watchSession(sessionId) {
-  const sessions = discoverSessions();
+async function watchSession(sessionId) {
+  const sessions = await discoverSessions();
   const session = sessions.find(s => s.id === sessionId);
   
   if (!session || !session.logFile) {
@@ -121,6 +247,7 @@ function watchSession(sessionId) {
   });
   
   watcher.on('change', (filePath) => {
+    console.log(`[Watcher] File change detected: ${filePath}`);
     try {
       const stats = fs.statSync(filePath);
       if (stats.size > lastPosition) {
@@ -138,11 +265,16 @@ function watchSession(sessionId) {
             const entry = JSON.parse(line);
             const parsed = parseLogEntry(entry);
             if (parsed) {
-              broadcastToClients({
-                type: 'claude_output',
-                sessionId: sessionId,
-                data: parsed
-              });
+              // Handle single result or array of results
+              const items = Array.isArray(parsed) ? parsed : [parsed];
+              for (const item of items) {
+                console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
+                broadcastToClients({
+                  type: 'claude_output',
+                  sessionId: sessionId,
+                  data: item
+                });
+              }
             }
           } catch (e) {
             // Skip invalid JSON lines
@@ -150,6 +282,18 @@ function watchSession(sessionId) {
         }
 
         lastPosition += bytesToRead;
+
+        // Check and broadcast status changes
+        const newStatus = getSessionStatus(filePath);
+        const sessionData = activeSessions.get(sessionId);
+        if (sessionData && newStatus !== sessionData.lastStatus) {
+          sessionData.lastStatus = newStatus;
+          broadcastToClients({
+            type: 'session_status',
+            sessionId: sessionId,
+            status: newStatus
+          });
+        }
 
         // If more data remains, schedule another read
         if (stats.size > lastPosition) {
@@ -183,10 +327,11 @@ function watchSession(sessionId) {
     watcher,
     logsDirWatcher,
     session,
-    lastPosition
+    lastPosition,
+    lastStatus: getSessionStatus(session.logFile)
   });
   
-  console.log(`[Session] Now watching: ${session.name}`);
+  console.log(`[Session] Now watching: ${session.name} -> ${session.logFile}`);
   
   return session;
 }
@@ -200,69 +345,142 @@ function unwatchSession(sessionId) {
   }
 }
 
-function extractContent(entry) {
-  if (typeof entry.content === 'string') {
-    return entry.content;
+function parseLogEntry(entry) {
+  const results = [];
+  const timestamp = entry.timestamp || new Date().toISOString();
+
+  // Skip progress entries (they're just status updates)
+  if (entry.type === 'progress') return null;
+
+  // Skip system entries
+  if (entry.type === 'system') return null;
+
+  // Assistant messages - extract text and tool uses from message.content
+  if (entry.type === 'assistant' && entry.message?.content) {
+    const content = entry.message.content;
+
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        // Text content - this is what Claude says
+        if (block.type === 'text' && block.text) {
+          results.push({
+            type: 'assistant',
+            content: block.text,
+            timestamp
+          });
+        }
+        // Tool use - Claude calling a tool
+        else if (block.type === 'tool_use') {
+          // Special handling for AskUserQuestion - emit as structured prompt
+          if (block.name === 'AskUserQuestion' && block.input?.questions) {
+            results.push({
+              type: 'ask_user_question',
+              questions: block.input.questions,
+              timestamp
+            });
+          }
+          // Permission-requiring tools - emit as permission_request
+          else if (['Bash', 'Write', 'Edit', 'MultiEdit'].includes(block.name)) {
+            console.log(`[Permission] Detected ${block.name} tool call`);
+            results.push({
+              type: 'permission_request',
+              tool: block.name,
+              input: block.input || {},
+              timestamp
+            });
+          }
+          // Other tools
+          else {
+            results.push({
+              type: 'tool',
+              tool: block.name || 'unknown',
+              input: block.input || {},
+              timestamp
+            });
+          }
+        }
+      }
+    } else if (typeof content === 'string') {
+      results.push({
+        type: 'assistant',
+        content: content,
+        timestamp
+      });
+    }
   }
-  if (Array.isArray(entry.content)) {
-    return entry.content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n');
+
+  // User messages - could be human input or tool results
+  if (entry.type === 'user') {
+    // Tool result - always emit when toolUseResult exists (even if no output)
+    // This signals the tool completed, which is needed to dismiss permission cards
+    if (entry.toolUseResult) {
+      const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+      results.push({
+        type: 'tool_result',
+        result: result.trim() || '(completed)',
+        isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
+        timestamp
+      });
+    }
+    // Human input
+    else if (entry.message?.content) {
+      const content = entry.message.content;
+      if (typeof content === 'string') {
+        results.push({
+          type: 'user',
+          content: content,
+          timestamp
+        });
+      } else if (Array.isArray(content)) {
+        // Check for actual user text (not tool results)
+        for (const block of content) {
+          if (block.type === 'text' && block.text) {
+            results.push({
+              type: 'user',
+              content: block.text,
+              timestamp
+            });
+          }
+          // Skip tool_result blocks in user messages - we handle those via toolUseResult
+        }
+      }
+    }
   }
-  return entry.message || '';
+
+  // Return first result, or null if none
+  // For multiple results (like text + tool use), we'll broadcast them separately
+  if (results.length === 0) return null;
+  if (results.length === 1) return results[0];
+
+  // Multiple items - return as array for special handling
+  return results;
 }
 
-function parseLogEntry(entry) {
-  // Skip internal/system entries
-  if (entry.type === 'system' && !entry.content) return null;
+function getSessionStatus(logFile) {
+  try {
+    const stats = fs.statSync(logFile);
+    if (stats.size === 0) return 'idle';
 
-  // Assistant messages (Claude's responses)
-  if (entry.type === 'assistant' || entry.role === 'assistant') {
-    const content = extractContent(entry);
-    if (!content) return null;
+    // Read last 5KB to find last entry (avoid reading entire file)
+    const fd = fs.openSync(logFile, 'r');
+    const size = Math.min(stats.size, 5000);
+    const buffer = Buffer.alloc(size);
+    fs.readSync(fd, buffer, 0, size, stats.size - size);
+    fs.closeSync(fd);
 
-    return {
-      type: 'assistant',
-      content: content,
-      timestamp: entry.timestamp || new Date().toISOString()
-    };
-  }
+    const lines = buffer.toString('utf8').split('\n').filter(l => l.trim());
+    if (lines.length === 0) return 'idle';
 
-  // User messages
-  if (entry.type === 'user' || entry.role === 'user') {
-    const content = extractContent(entry);
-    if (!content) return null;
+    // Parse last complete line
+    const lastLine = lines[lines.length - 1];
+    const entry = JSON.parse(lastLine);
 
-    return {
-      type: 'user',
-      content: content,
-      timestamp: entry.timestamp || new Date().toISOString()
-    };
+    if (entry.type === 'assistant') return 'waiting';
+    if (entry.type === 'progress') return 'processing';
+    return 'active';
+  } catch (e) {
+    return 'unknown';
   }
-  
-  // Tool use
-  if (entry.type === 'tool_use' || entry.tool) {
-    return {
-      type: 'tool',
-      tool: entry.name || entry.tool || 'unknown',
-      input: entry.input || entry.arguments || {},
-      timestamp: entry.timestamp || new Date().toISOString()
-    };
-  }
-  
-  // Tool results
-  if (entry.type === 'tool_result') {
-    return {
-      type: 'tool_result',
-      toolUseId: entry.tool_use_id,
-      result: entry.content || entry.result || entry.output || '',
-      isError: entry.is_error || false,
-      timestamp: entry.timestamp || new Date().toISOString()
-    };
-  }
-  
-  return null;
 }
 
 function broadcastToClients(message) {
@@ -301,12 +519,14 @@ wss.on('connection', (ws, req) => {
   });
   
   console.log(`[Client] Connected: ${clientId}`);
-  
+
   // Send initial session list
-  ws.send(JSON.stringify({
-    type: 'sessions',
-    data: discoverSessions()
-  }));
+  discoverSessions().then(sessions => {
+    ws.send(JSON.stringify({
+      type: 'sessions',
+      data: sessions
+    }));
+  });
   
   ws.on('message', (message) => {
     try {
@@ -338,12 +558,12 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-function handleClientMessage(ws, msg) {
+async function handleClientMessage(ws, msg) {
   const clientData = clients.get(ws);
-  
+
   switch (msg.action) {
     case 'watch_session':
-      const session = watchSession(msg.sessionId);
+      const session = await watchSession(msg.sessionId);
       if (session) {
         clientData.watchingSessions.add(msg.sessionId);
         ws.send(JSON.stringify({
@@ -374,10 +594,12 @@ function handleClientMessage(ws, msg) {
       break;
       
     case 'refresh_sessions':
-      ws.send(JSON.stringify({
-        type: 'sessions',
-        data: discoverSessions()
-      }));
+      discoverSessions().then(sessions => {
+        ws.send(JSON.stringify({
+          type: 'sessions',
+          data: sessions
+        }));
+      });
       break;
       
     case 'inject':
@@ -398,6 +620,10 @@ function handleClientMessage(ws, msg) {
       
     case 'update_settings':
       Object.assign(clientData.settings, msg.settings);
+      break;
+
+    case 'ping':
+      ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
       break;
   }
 }
@@ -421,7 +647,10 @@ function sendRecentHistory(ws, sessionId) {
       try {
         const entry = JSON.parse(line);
         const parsed = parseLogEntry(entry);
-        if (parsed) history.push(parsed);
+        if (parsed) {
+          const items = Array.isArray(parsed) ? parsed : [parsed];
+          history.push(...items);
+        }
       } catch (e) {}
     }
     
@@ -436,44 +665,48 @@ function sendRecentHistory(ws, sessionId) {
 // ============================================
 
 function injectCommand(command) {
-  const escapedCommand = command
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\n');
+  // Use clipboard for reliable text injection
+  return new Promise((resolve, reject) => {
+    // First, copy to clipboard using pbcopy
+    const pbcopy = exec('pbcopy', (error) => {
+      if (error) {
+        reject(new Error('Failed to copy to clipboard'));
+        return;
+      }
 
-  const appleScript = `
-    tell application "Terminal"
-      activate
-      delay 0.2
-      tell application "System Events"
-        tell process "Terminal"
-          keystroke "${escapedCommand}"
+      // Then paste and press return
+      const appleScript = `
+        tell application "iTerm" to activate
+        delay 0.15
+        tell application "System Events" to tell process "iTerm2"
+          keystroke "v" using command down
           delay 0.1
           keystroke return
         end tell
-      end tell
-    end tell
-  `;
+      `;
 
-  return new Promise((resolve, reject) => {
-    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr || error.message));
-      } else {
-        console.log(`[Inject] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
-        resolve();
-      }
+      exec(`osascript -e '${appleScript}'`, (err, stdout, stderr) => {
+        if (err) {
+          reject(new Error(stderr || err.message));
+        } else {
+          console.log(`[Inject] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
+          resolve();
+        }
+      });
     });
+
+    pbcopy.stdin.write(command);
+    pbcopy.stdin.end();
   });
 }
 
 function sendEscapeKey() {
   const appleScript = `
-    tell application "Terminal"
+    tell application "iTerm"
       activate
       delay 0.2
       tell application "System Events"
-        tell process "Terminal"
+        tell process "iTerm2"
           key code 53
         end tell
       end tell
@@ -497,14 +730,15 @@ app.get('/health', (req, res) => {
 });
 
 // Detailed health requires authentication
-app.get('/health/detailed', (req, res) => {
+app.get('/health/detailed', async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (token !== AUTH_TOKEN) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+  const sessions = await discoverSessions();
   res.json({
     status: 'ok',
-    sessions: discoverSessions().length,
+    sessions: sessions.length,
     clients: clients.size
   });
 });
@@ -553,8 +787,8 @@ process.on('SIGINT', shutdown);
 // Start Server
 // ============================================
 
-server.listen(PORT, () => {
-  const sessions = discoverSessions();
+server.listen(PORT, async () => {
+  const sessions = await discoverSessions();
   console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
 ║         Claude Code Remote Access                             ║
@@ -570,7 +804,7 @@ server.listen(PORT, () => {
 ║    ✓ Voice input                                              ║
 ║    ✓ Push notifications                                       ║
 ╠═══════════════════════════════════════════════════════════════╣
-║  Sessions: ${sessions.length.toString().padEnd(50)}║
+║  Active Sessions: ${sessions.length.toString().padEnd(43)}║
 ${sessions.slice(0, 3).map(s => `║    • ${s.name.substring(0, 50).padEnd(53)}║`).join('\n')}
 ╚═══════════════════════════════════════════════════════════════╝
   `);
