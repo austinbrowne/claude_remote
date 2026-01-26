@@ -86,22 +86,36 @@ function getActiveClaude() {
         return;
       }
 
-      // Get cwd for each process
-      let pending = processes.length;
-      const results = [];
+      // Batch all PIDs in single lsof call (performance: O(1) instead of O(N))
+      const pids = processes.map(p => p.pid).join(',');
+      exec(`lsof -a -p ${pids} -d cwd 2>/dev/null`, (err2, lsofOutput) => {
+        if (err2 || !lsofOutput) {
+          resolve([]);
+          return;
+        }
 
-      processes.forEach(proc => {
-        exec(`lsof -a -p ${proc.pid} -d cwd 2>/dev/null | tail -1 | awk '{print $NF}'`, (err2, cwd) => {
-          if (!err2 && cwd.trim()) {
-            results.push({
-              pid: proc.pid,
-              tty: proc.tty,
-              cwd: cwd.trim()
-            });
+        // Parse lsof output to map PID -> cwd
+        const pidToCwd = {};
+        lsofOutput.split('\n').forEach(line => {
+          // lsof format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 9 && parts[3] === 'cwd') {
+            const pid = parts[1];
+            const cwd = parts[parts.length - 1]; // NAME is last field
+            pidToCwd[pid] = cwd;
           }
-          pending--;
-          if (pending === 0) resolve(results);
         });
+
+        // Build results with cwd from batched lookup
+        const results = processes
+          .filter(proc => pidToCwd[proc.pid])
+          .map(proc => ({
+            pid: proc.pid,
+            tty: proc.tty,
+            cwd: pidToCwd[proc.pid]
+          }));
+
+        resolve(results);
       });
     });
   });

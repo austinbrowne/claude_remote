@@ -1163,25 +1163,19 @@
     // ============================================
     // WebSocket Connection
     // ============================================
-    function connect() {
-      authToken = document.getElementById('token').value;
-      if (!authToken) {
-        showToast('Please enter a token', 'error');
-        return;
-      }
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // Connect without token in URL (security: prevents token in logs/history)
-      const wsUrl = `${protocol}//${window.location.host}`;
-
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
+    // Shared WebSocket handler setup (DRY - used by connect and reconnect)
+    function setupWebSocketHandlers(websocket, sessionToRewatch) {
+      websocket.onopen = () => {
         // Authenticate via message instead of URL query (more secure)
-        ws.send(JSON.stringify({ action: 'auth', token: authToken }));
+        websocket.send(JSON.stringify({ action: 'auth', token: authToken }));
+        // Save session for re-watching after auth succeeds
+        if (sessionToRewatch) {
+          window.pendingReconnectSession = sessionToRewatch;
+        }
       };
 
-      ws.onclose = (event) => {
+      websocket.onclose = (event) => {
         const statusDot = document.getElementById('statusDot');
         statusDot.classList.remove('connected');
 
@@ -1208,14 +1202,29 @@
         }
       };
 
-      ws.onerror = () => {
+      websocket.onerror = () => {
         showToast('Connection error', 'error');
       };
-      
-      ws.onmessage = (event) => {
+
+      websocket.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         handleMessage(msg);
       };
+    }
+
+    function connect() {
+      authToken = document.getElementById('token').value;
+      if (!authToken) {
+        showToast('Please enter a token', 'error');
+        return;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      // Connect without token in URL (security: prevents token in logs/history)
+      const wsUrl = `${protocol}//${window.location.host}`;
+
+      ws = new WebSocket(wsUrl);
+      setupWebSocketHandlers(ws, null);
     }
 
     function disconnect() {
@@ -1297,50 +1306,7 @@
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}`;
       ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        // Authenticate via message
-        ws.send(JSON.stringify({ action: 'auth', token: authToken }));
-
-        // Re-watch session after auth succeeds (handled in auth_result)
-        window.pendingReconnectSession = savedSessionId;
-      };
-
-      ws.onclose = (event) => {
-        const statusDot = document.getElementById('statusDot');
-        statusDot.classList.remove('connected');
-
-        if (event.code === 4001) {
-          statusDot.classList.remove('reconnecting');
-          showToast('Invalid token', 'error');
-          disconnect();
-          return;
-        }
-
-        // Schedule reconnect with exponential backoff
-        if (authToken && !reconnectTimeout) {
-          statusDot.classList.add('reconnecting');
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
-          showToast(`Disconnected - reconnecting in ${Math.round(delay/1000)}s...`, 'error');
-          reconnectAttempts++;
-
-          reconnectTimeout = setTimeout(() => {
-            reconnectTimeout = null;
-            reconnect();
-          }, delay);
-        } else {
-          statusDot.classList.remove('reconnecting');
-        }
-      };
-
-      ws.onerror = () => {
-        showToast('Connection error', 'error');
-      };
-
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
-      };
+      setupWebSocketHandlers(ws, savedSessionId);
     }
 
     // ============================================
