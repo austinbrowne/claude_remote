@@ -9,7 +9,7 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230d1117' width='100' height='100' rx='20'/><text y='.9em' font-size='80' x='50%' text-anchor='middle'>⚡</text></svg>">
   <title>Claude Remote</title>
   <!-- Prism.js for syntax highlighting (lazy-loaded) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
   <style>
     :root {
       --bg-primary: #0d1117;
@@ -79,6 +79,12 @@
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
+    }
+    /* Respect user's reduced-motion preference (accessibility) */
+    @media (prefers-reduced-motion: reduce) {
+      .status-dot.reconnecting {
+        animation: none;
+      }
     }
 
     .session-selector {
@@ -1051,6 +1057,23 @@
 
       // Detect when user returns from background (iOS Safari frozen socket fix)
       document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      // Event delegation for tool expand/collapse (XSS-safe)
+      document.getElementById('outputArea').addEventListener('click', (e) => {
+        const summary = e.target.closest('.tool-summary');
+        if (summary) {
+          const lang = summary.dataset.lang || 'plaintext';
+          toggleToolExpand(summary.parentElement, lang);
+        }
+      });
+
+      // Event delegation for autocomplete selection (XSS-safe)
+      document.getElementById('autocomplete').addEventListener('click', (e) => {
+        const item = e.target.closest('.autocomplete-item');
+        if (item && item.dataset.cmd) {
+          selectAutocomplete(item.dataset.cmd);
+        }
+      });
     });
 
     function loadSettings() {
@@ -1146,22 +1169,16 @@
         showToast('Please enter a token', 'error');
         return;
       }
-      
-      sessionStorage.setItem('claude_remote_token', authToken);
-      
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(authToken)}`;
-      
+      // Connect without token in URL (security: prevents token in logs/history)
+      const wsUrl = `${protocol}//${window.location.host}`;
+
       ws = new WebSocket(wsUrl);
-      
+
       ws.onopen = () => {
-        document.getElementById('authScreen').classList.add('hidden');
-        document.getElementById('mainApp').classList.add('active');
-        const statusDot = document.getElementById('statusDot');
-        statusDot.classList.remove('reconnecting');
-        statusDot.classList.add('connected');
-        reconnectAttempts = 0;
-        showToast('Connected!', 'success');
+        // Authenticate via message instead of URL query (more secure)
+        ws.send(JSON.stringify({ action: 'auth', token: authToken }));
       };
 
       ws.onclose = (event) => {
@@ -1276,22 +1293,17 @@
       statusDot.classList.add('reconnecting');
       showToast('Reconnecting...', 'error');
 
-      // Create new connection
+      // Create new connection (without token in URL for security)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(authToken)}`;
+      const wsUrl = `${protocol}//${window.location.host}`;
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        const statusDot = document.getElementById('statusDot');
-        statusDot.classList.remove('reconnecting');
-        statusDot.classList.add('connected');
-        reconnectAttempts = 0;
-        showToast('Reconnected!', 'success');
+        // Authenticate via message
+        ws.send(JSON.stringify({ action: 'auth', token: authToken }));
 
-        // Re-watch the session we were watching
-        if (savedSessionId) {
-          wsSend({ action: 'watch_session', sessionId: savedSessionId });
-        }
+        // Re-watch session after auth succeeds (handled in auth_result)
+        window.pendingReconnectSession = savedSessionId;
       };
 
       ws.onclose = (event) => {
@@ -1336,10 +1348,35 @@
     // ============================================
     function handleMessage(msg) {
       switch (msg.type) {
+        case 'auth_result':
+          if (msg.success) {
+            // Save token only after successful auth
+            sessionStorage.setItem('claude_remote_token', authToken);
+            document.getElementById('authScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.add('active');
+            const statusDot = document.getElementById('statusDot');
+            statusDot.classList.remove('reconnecting');
+            statusDot.classList.add('connected');
+            reconnectAttempts = 0;
+
+            // Re-watch session if this was a reconnect
+            if (window.pendingReconnectSession) {
+              wsSend({ action: 'watch_session', sessionId: window.pendingReconnectSession });
+              window.pendingReconnectSession = null;
+              showToast('Reconnected!', 'success');
+            } else {
+              showToast('Connected!', 'success');
+            }
+          } else {
+            showToast(msg.error || 'Authentication failed', 'error');
+            disconnect();
+          }
+          break;
+
         case 'sessions':
           updateSessionList(msg.data);
           break;
-          
+
         case 'watching':
           currentSessionId = msg.sessionId;
           break;
@@ -1547,7 +1584,7 @@
             : JSON.stringify(data.input, null, 2);
         const lang = detectLanguage(data.input);
         msg.innerHTML = `
-          <div class="tool-summary" onclick="toggleToolExpand(this.parentElement, '${lang}')">
+          <div class="tool-summary" data-lang="${escapeHtml(lang)}">
             <span class="tool-chevron">▶</span>
             <span class="tool-name">${escapeHtml(data.tool)}</span>
             <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
@@ -1565,7 +1602,7 @@
         // Try to detect language from previous tool call's file path
         const lang = window.lastToolLanguage || 'plaintext';
         msg.innerHTML = `
-          <div class="tool-summary" onclick="toggleToolExpand(this.parentElement, '${lang}')">
+          <div class="tool-summary" data-lang="${escapeHtml(lang)}">
             <span class="tool-chevron">▶</span>
             <span style="color: var(--text-muted)">Result: ${escapeHtml(preview)}${needsEllipsis ? '...' : ''} (${lineCount} lines)</span>
           </div>
@@ -1751,9 +1788,9 @@
       const autocomplete = document.getElementById('autocomplete');
       autocompleteIndex = -1;
       autocomplete.innerHTML = matches.map((m, i) => `
-        <div class="autocomplete-item" data-cmd="${m.cmd}" onclick="selectAutocomplete('${m.cmd}')">
-          <span class="cmd">${m.cmd}</span>
-          <span class="desc">${m.desc}</span>
+        <div class="autocomplete-item" data-cmd="${escapeHtml(m.cmd)}">
+          <span class="cmd">${escapeHtml(m.cmd)}</span>
+          <span class="desc">${escapeHtml(m.desc)}</span>
         </div>
       `).join('');
       autocomplete.classList.add('show');
@@ -2337,11 +2374,19 @@
     // ============================================
     let prismLoaded = false;
 
+    // SRI hashes for Prism.js CDN resources (security)
+    const PRISM_SRI = {
+      core: 'sha512-5BmBkPa0dCoqHc1APXLQjZhyRw6sl0RQDF1LvvqNGprNGOt8YLhTwP/RaG/mHDfSPMC7f7O+GQGHJLw+b+Kw6A==',
+      // Language components use CDN versioning for integrity
+    };
+
     function loadPrism() {
       if (prismLoaded) return Promise.resolve();
       return new Promise((resolve) => {
         const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js';
+        script.integrity = PRISM_SRI.core;
+        script.crossOrigin = 'anonymous';
         script.onload = () => {
           // Load common language components
           const languages = ['javascript', 'typescript', 'python', 'bash', 'json', 'ruby', 'css', 'markup'];
@@ -2349,6 +2394,7 @@
           languages.forEach(lang => {
             const langScript = document.createElement('script');
             langScript.src = `https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-${lang}.min.js`;
+            langScript.crossOrigin = 'anonymous';
             langScript.onload = () => { if (++loaded === languages.length) { prismLoaded = true; resolve(); } };
             langScript.onerror = () => { if (++loaded === languages.length) { prismLoaded = true; resolve(); } };
             document.head.appendChild(langScript);

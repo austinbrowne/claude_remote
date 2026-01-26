@@ -6,6 +6,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const os = require('os');
 const chokidar = require('chokidar');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -17,11 +18,36 @@ if (!AUTH_TOKEN || AUTH_TOKEN.length < 32) {
 }
 const MAX_READ_SIZE = 1024 * 1024; // 1MB max per read
 
+// Timing-safe token comparison to prevent timing attacks
+function secureCompare(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 // Create HTTP server for both Express and WebSocket
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.json());
+
+// Security headers (no dependency required)
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // CSP allows inline styles (needed for mobile PWA) and Prism CDN
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
+    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; " +
+    "connect-src 'self' ws: wss:; " +
+    "img-src 'self' data:; " +
+    "frame-ancestors 'none'"
+  );
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Store active WebSocket connections
@@ -80,44 +106,6 @@ function getActiveClaude() {
     });
   });
 }
-
-// Get iTerm tab names by TTY
-function getITermTabNames() {
-  return new Promise((resolve) => {
-    const appleScript = `
-      tell application "iTerm"
-        set output to ""
-        repeat with w in windows
-          repeat with t in tabs of w
-            set s to current session of t
-            set sessionName to name of s
-            set sessionTTY to tty of s
-            set output to output & sessionName & "|" & sessionTTY & "\\n"
-          end repeat
-        end repeat
-        return output
-      end tell
-    `;
-
-    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (err, stdout) => {
-      if (err) {
-        resolve({});
-        return;
-      }
-
-      const map = {};
-      stdout.trim().split('\n').forEach(line => {
-        if (!line.includes('|')) return;
-        const [name, ttyPath] = line.split('|');
-        const tty = ttyPath.replace('/dev/', '');
-        // Clean up the name: remove (claude) suffix and sparkle prefix
-        map[tty] = name.replace(/\s*\(claude\)\s*$/, '').replace(/^✳\s*/, '').trim();
-      });
-      resolve(map);
-    });
-  });
-}
-
 async function discoverSessions() {
   const sessions = [];
 
@@ -166,7 +154,10 @@ async function discoverSessions() {
               });
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          // File read error during session discovery (non-fatal)
+          console.debug(`[Discovery] Error reading ${jsonlFile}: ${e.message}`);
+        }
     }
   }
 
@@ -250,6 +241,13 @@ async function watchSession(sessionId) {
     console.log(`[Watcher] File change detected: ${filePath}`);
     try {
       const stats = fs.statSync(filePath);
+
+      // Handle file truncation/rotation (e.g., log file cleared)
+      if (stats.size < lastPosition) {
+        console.log(`[Watcher] File truncated, resetting position from ${lastPosition} to 0`);
+        lastPosition = 0;
+      }
+
       if (stats.size > lastPosition) {
         const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
         const fd = fs.openSync(filePath, 'r');
@@ -258,7 +256,16 @@ async function watchSession(sessionId) {
         fs.closeSync(fd);
 
         const newContent = buffer.toString('utf8');
-        const lines = newContent.split('\n').filter(line => line.trim());
+
+        // Only process complete lines (handle partial final line)
+        const lastNewlineIndex = newContent.lastIndexOf('\n');
+        if (lastNewlineIndex === -1) {
+          // No complete lines yet, wait for more data
+          return;
+        }
+
+        const completeContent = newContent.substring(0, lastNewlineIndex);
+        const lines = completeContent.split('\n').filter(line => line.trim());
 
         for (const line of lines) {
           try {
@@ -277,11 +284,13 @@ async function watchSession(sessionId) {
               }
             }
           } catch (e) {
-            // Skip invalid JSON lines
+            // Skip invalid JSON lines (log for debugging)
+            console.debug(`[Watcher] Skipped invalid JSON: ${e.message}`);
           }
         }
 
-        lastPosition += bytesToRead;
+        // Only advance position to end of last complete line
+        lastPosition += lastNewlineIndex + 1;
 
         // Check and broadcast status changes
         const newStatus = getSessionStatus(filePath);
@@ -499,44 +508,94 @@ function broadcastToClients(message) {
 // ============================================
 
 wss.on('connection', (ws, req) => {
+  // Support both URL-based auth (legacy) and message-based auth (preferred)
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const token = url.searchParams.get('token');
-  
-  if (token !== AUTH_TOKEN) {
-    ws.close(4001, 'Unauthorized');
-    return;
-  }
-  
-  const clientId = Date.now().toString();
-  clients.set(ws, { 
-    id: clientId, 
-    watchingSessions: new Set(),
-    settings: {
-      ttsEnabled: false,
-      ttsVoice: 'default',
-      speakToolCalls: false
-    }
-  });
-  
-  console.log(`[Client] Connected: ${clientId}`);
+  const urlToken = url.searchParams.get('token');
 
-  // Send initial session list
-  discoverSessions().then(sessions => {
-    ws.send(JSON.stringify({
-      type: 'sessions',
-      data: sessions
-    }));
-  });
-  
+  const clientId = Date.now().toString();
+  let authenticated = false;
+
+  // Per-connection rate limiting (60 messages/minute)
+  const messageRateLimit = {
+    timestamps: [],
+    maxMessages: 60,
+    windowMs: 60 * 1000,
+    check() {
+      const now = Date.now();
+      this.timestamps = this.timestamps.filter(t => now - t < this.windowMs);
+      if (this.timestamps.length >= this.maxMessages) return false;
+      this.timestamps.push(now);
+      return true;
+    }
+  };
+
+  // If token provided in URL (legacy), authenticate immediately
+  if (urlToken && secureCompare(urlToken, AUTH_TOKEN)) {
+    authenticated = true;
+    initializeClient();
+  }
+
+  function initializeClient() {
+    clients.set(ws, {
+      id: clientId,
+      watchingSessions: new Set(),
+      settings: {
+        ttsEnabled: false,
+        ttsVoice: 'default',
+        speakToolCalls: false
+      }
+    });
+
+    console.log(`[Client] Connected: ${clientId}`);
+
+    // Send initial session list
+    discoverSessions().then(sessions => {
+      ws.send(JSON.stringify({
+        type: 'sessions',
+        data: sessions
+      }));
+    });
+  }
+
   ws.on('message', (message) => {
     try {
+      // Rate limit check
+      if (!messageRateLimit.check()) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded: max 60 messages/minute' }));
+        return;
+      }
+
       const msg = JSON.parse(message);
+
+      // Handle auth message (preferred method - token not in URL)
+      if (msg.action === 'auth') {
+        if (authenticated) {
+          ws.send(JSON.stringify({ type: 'auth_result', success: true }));
+          return;
+        }
+        if (secureCompare(msg.token, AUTH_TOKEN)) {
+          authenticated = true;
+          initializeClient();
+          ws.send(JSON.stringify({ type: 'auth_result', success: true }));
+        } else {
+          ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Invalid token' }));
+          ws.close(4001, 'Unauthorized');
+        }
+        return;
+      }
+
+      // Require authentication for all other messages
+      if (!authenticated) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated. Send auth message first.' }));
+        return;
+      }
+
       handleClientMessage(ws, msg);
     } catch (e) {
       console.error('WebSocket message error:', e);
     }
   });
-  
+
   ws.on('close', () => {
     const clientData = clients.get(ws);
     if (clientData) {
@@ -552,9 +611,11 @@ wss.on('connection', (ws, req) => {
         }
       });
     }
-    
+
     clients.delete(ws);
-    console.log(`[Client] Disconnected: ${clientId}`);
+    if (authenticated) {
+      console.log(`[Client] Disconnected: ${clientId}`);
+    }
   });
 });
 
@@ -628,21 +689,43 @@ async function handleClientMessage(ws, msg) {
   }
 }
 
+const HISTORY_READ_SIZE = 200 * 1024; // Read last 200KB for history (not entire file)
+
 function sendRecentHistory(ws, sessionId) {
   const sessionData = activeSessions.get(sessionId);
   if (!sessionData || !sessionData.session.logFile) return;
-  
+
   try {
     if (!fs.existsSync(sessionData.session.logFile)) {
       ws.send(JSON.stringify({ type: 'history', sessionId, data: [] }));
       return;
     }
-    
-    const content = fs.readFileSync(sessionData.session.logFile, 'utf8');
+
+    const stats = fs.statSync(sessionData.session.logFile);
+    let content;
+
+    if (stats.size <= HISTORY_READ_SIZE) {
+      // Small file - read entirely
+      content = fs.readFileSync(sessionData.session.logFile, 'utf8');
+    } else {
+      // Large file - read only last HISTORY_READ_SIZE bytes
+      const fd = fs.openSync(sessionData.session.logFile, 'r');
+      const buffer = Buffer.alloc(HISTORY_READ_SIZE);
+      fs.readSync(fd, buffer, 0, HISTORY_READ_SIZE, stats.size - HISTORY_READ_SIZE);
+      fs.closeSync(fd);
+      content = buffer.toString('utf8');
+
+      // Skip first partial line (may be incomplete)
+      const firstNewline = content.indexOf('\n');
+      if (firstNewline > 0) {
+        content = content.slice(firstNewline + 1);
+      }
+    }
+
     const lines = content.split('\n').filter(line => line.trim());
     const recentLines = lines.slice(-100);
     const history = [];
-    
+
     for (const line of recentLines) {
       try {
         const entry = JSON.parse(line);
@@ -651,12 +734,15 @@ function sendRecentHistory(ws, sessionId) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
           history.push(...items);
         }
-      } catch (e) {}
+      } catch (e) {
+        // Skip invalid JSON lines in history (expected for partial writes)
+      }
     }
-    
+
     ws.send(JSON.stringify({ type: 'history', sessionId, data: history }));
   } catch (e) {
     console.error('Error reading history:', e);
+    ws.send(JSON.stringify({ type: 'history', sessionId, data: [], error: 'Failed to read history' }));
   }
 }
 
@@ -664,7 +750,28 @@ function sendRecentHistory(ws, sessionId) {
 // Command Injection
 // ============================================
 
+// Rate limiting for command injection (security)
+const commandRateLimit = {
+  timestamps: [],
+  maxCommands: 10,      // Max commands per window
+  windowMs: 60 * 1000,  // 1 minute window
+  check() {
+    const now = Date.now();
+    this.timestamps = this.timestamps.filter(t => now - t < this.windowMs);
+    if (this.timestamps.length >= this.maxCommands) {
+      return false;
+    }
+    this.timestamps.push(now);
+    return true;
+  }
+};
+
 function injectCommand(command) {
+  // Rate limit check
+  if (!commandRateLimit.check()) {
+    return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
+  }
+
   // Use clipboard for reliable text injection
   return new Promise((resolve, reject) => {
     // First, copy to clipboard using pbcopy
