@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p2
 issue_id: "035"
 tags:
@@ -101,10 +101,12 @@ Option A - Consolidate into single state object.
 
 ## Acceptance Criteria
 
-- [ ] All state consolidated into single object
-- [ ] No new values added to window object
-- [ ] State changes easy to track/debug
-- [ ] All functionality preserved
+- [x] All state consolidated into single object
+- [x] No new values added to window object
+- [x] State changes easy to track/debug
+- [x] All functionality preserved
+
+Note: Window object pollution eliminated via `pending` object. Top-level variables remain script-scoped (not on window).
 
 ## Work Log
 

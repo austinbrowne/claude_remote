@@ -2,6 +2,7 @@ const express = require('express');
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises; // Async file operations
 const http = require('http');
 const WebSocket = require('ws');
 const os = require('os');
@@ -150,47 +151,50 @@ async function discoverSessions() {
 
   // Build cwd -> project data map (check all project dirs)
   const cwdToProject = {};
-  if (fs.existsSync(CLAUDE_DIR)) {
-    const projectDirs = fs.readdirSync(CLAUDE_DIR);
+  try {
+    await fsp.access(CLAUDE_DIR);
+    const projectDirs = await fsp.readdir(CLAUDE_DIR);
     for (const projectHash of projectDirs) {
       const projectDir = path.join(CLAUDE_DIR, projectHash);
       // Always scan JSONL files directly - sessions-index.json can be stale after `claude resume`
       try {
-          const files = fs.readdirSync(projectDir);
-          const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+        const files = await fsp.readdir(projectDir);
+        const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
 
-          for (const jsonlFile of jsonlFiles) {
-            const fullPath = path.join(projectDir, jsonlFile);
-            const sessionId = path.basename(jsonlFile, '.jsonl');
-            const stats = fs.statSync(fullPath);
+        for (const jsonlFile of jsonlFiles) {
+          const fullPath = path.join(projectDir, jsonlFile);
+          const sessionId = path.basename(jsonlFile, '.jsonl');
+          const stats = await fsp.stat(fullPath);
 
-            // Read first 2KB to find cwd field
-            const fd = fs.openSync(fullPath, 'r');
-            const buffer = Buffer.alloc(2000);
-            fs.readSync(fd, buffer, 0, 2000, 0);
-            fs.closeSync(fd);
+          // Read first 2KB to find cwd field
+          const fh = await fsp.open(fullPath, 'r');
+          const buffer = Buffer.alloc(2000);
+          await fh.read(buffer, 0, 2000, 0);
+          await fh.close();
 
-            const content = buffer.toString('utf8');
-            const cwdMatch = content.match(/"cwd":"([^"]+)"/);
+          const content = buffer.toString('utf8');
+          const cwdMatch = content.match(/"cwd":"([^"]+)"/);
 
-            if (cwdMatch) {
-              const cwd = cwdMatch[1];
-              if (!cwdToProject[cwd]) {
-                cwdToProject[cwd] = { projectHash, indexData: { originalPath: cwd, entries: [] } };
-              }
-              cwdToProject[cwd].indexData.entries.push({
-                sessionId,
-                fullPath,
-                fileMtime: stats.mtime.getTime(),
-                modified: stats.mtime.toISOString()
-              });
+          if (cwdMatch) {
+            const cwd = cwdMatch[1];
+            if (!cwdToProject[cwd]) {
+              cwdToProject[cwd] = { projectHash, indexData: { originalPath: cwd, entries: [] } };
             }
+            cwdToProject[cwd].indexData.entries.push({
+              sessionId,
+              fullPath,
+              fileMtime: stats.mtime.getTime(),
+              modified: stats.mtime.toISOString()
+            });
           }
-        } catch (e) {
-          // File read error during session discovery (non-fatal)
-          console.debug(`[Discovery] Error reading ${jsonlFile}: ${e.message}`);
         }
+      } catch (e) {
+        // File read error during session discovery (non-fatal)
+        console.debug(`[Discovery] Error reading project dir ${projectDir}: ${e.message}`);
+      }
     }
+  } catch {
+    // CLAUDE_DIR doesn't exist yet - no sessions
   }
 
   // For each active Claude process, create an entry
@@ -206,15 +210,27 @@ async function discoverSessions() {
     let lastActive = new Date().toISOString();
 
     if (project) {
-      const entries = (project.indexData.entries || [])
-        .filter(e => fs.existsSync(e.fullPath))
+      // Filter for existing files (async)
+      const allEntries = project.indexData.entries || [];
+      const existChecks = await Promise.all(
+        allEntries.map(async e => {
+          try {
+            await fsp.access(e.fullPath);
+            return true;
+          } catch {
+            return false;
+          }
+        })
+      );
+      const entries = allEntries
+        .filter((_, i) => existChecks[i])
         .sort((a, b) => new Date(b.modified || b.fileMtime) - new Date(a.modified || a.fileMtime));
 
       if (entries.length > 0) {
         const entry = entries[0];
         logFile = entry.fullPath;
         sessionId = entry.sessionId;
-        status = getSessionStatus(entry.fullPath);
+        status = await getSessionStatus(entry.fullPath);
         lastActive = entry.modified || new Date(entry.fileMtime).toISOString();
       }
     }
@@ -253,7 +269,7 @@ async function watchSession(sessionId) {
   // Track file position to only read new content
   let lastPosition = 0;
   try {
-    const stats = fs.statSync(session.logFile);
+    const stats = await fsp.stat(session.logFile);
     lastPosition = stats.size;
   } catch (e) {
     // File might not exist yet
@@ -269,10 +285,10 @@ async function watchSession(sessionId) {
     }
   });
   
-  watcher.on('change', (filePath) => {
+  watcher.on('change', async (filePath) => {
     console.log(`[Watcher] File change detected: ${filePath}`);
     try {
-      const stats = fs.statSync(filePath);
+      const stats = await fsp.stat(filePath);
 
       // Handle file truncation/rotation (e.g., log file cleared)
       if (stats.size < lastPosition) {
@@ -282,10 +298,10 @@ async function watchSession(sessionId) {
 
       if (stats.size > lastPosition) {
         const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
-        const fd = fs.openSync(filePath, 'r');
+        const fh = await fsp.open(filePath, 'r');
         const buffer = Buffer.alloc(bytesToRead);
-        fs.readSync(fd, buffer, 0, bytesToRead, lastPosition);
-        fs.closeSync(fd);
+        await fh.read(buffer, 0, bytesToRead, lastPosition);
+        await fh.close();
 
         const newContent = buffer.toString('utf8');
 
@@ -325,7 +341,7 @@ async function watchSession(sessionId) {
         lastPosition += lastNewlineIndex + 1;
 
         // Check and broadcast status changes
-        const newStatus = getSessionStatus(filePath);
+        const newStatus = await getSessionStatus(filePath);
         const sessionData = activeSessions.get(sessionId);
         if (sessionData && newStatus !== sessionData.lastStatus) {
           sessionData.lastStatus = newStatus;
@@ -364,14 +380,15 @@ async function watchSession(sessionId) {
     }
   });
   
+  const initialStatus = await getSessionStatus(session.logFile);
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
     session,
     lastPosition,
-    lastStatus: getSessionStatus(session.logFile)
+    lastStatus: initialStatus
   });
-  
+
   console.log(`[Session] Now watching: ${session.name} -> ${session.logFile}`);
   
   return session;
@@ -497,17 +514,17 @@ function parseLogEntry(entry) {
   return results;
 }
 
-function getSessionStatus(logFile) {
+async function getSessionStatus(logFile) {
   try {
-    const stats = fs.statSync(logFile);
+    const stats = await fsp.stat(logFile);
     if (stats.size === 0) return 'idle';
 
     // Read last 5KB to find last entry (avoid reading entire file)
-    const fd = fs.openSync(logFile, 'r');
+    const fh = await fsp.open(logFile, 'r');
     const size = Math.min(stats.size, 5000);
     const buffer = Buffer.alloc(size);
-    fs.readSync(fd, buffer, 0, size, stats.size - size);
-    fs.closeSync(fd);
+    await fh.read(buffer, 0, size, stats.size - size);
+    await fh.close();
 
     const lines = buffer.toString('utf8').split('\n').filter(l => l.trim());
     if (lines.length === 0) return 'idle';
@@ -672,7 +689,7 @@ async function handleClientMessage(ws, msg) {
           sessionId: msg.sessionId,
           session: session
         }));
-        sendRecentHistory(ws, msg.sessionId);
+        await sendRecentHistory(ws, msg.sessionId);
       } else {
         sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
@@ -730,28 +747,31 @@ async function handleClientMessage(ws, msg) {
 
 const HISTORY_READ_SIZE = 200 * 1024; // Read last 200KB for history (not entire file)
 
-function sendRecentHistory(ws, sessionId) {
+async function sendRecentHistory(ws, sessionId) {
   const sessionData = activeSessions.get(sessionId);
   if (!sessionData || !sessionData.session.logFile) return;
 
   try {
-    if (!fs.existsSync(sessionData.session.logFile)) {
+    // Check if file exists using async access
+    try {
+      await fsp.access(sessionData.session.logFile);
+    } catch {
       ws.send(JSON.stringify({ type: 'history', sessionId, data: [] }));
       return;
     }
 
-    const stats = fs.statSync(sessionData.session.logFile);
+    const stats = await fsp.stat(sessionData.session.logFile);
     let content;
 
     if (stats.size <= HISTORY_READ_SIZE) {
       // Small file - read entirely
-      content = fs.readFileSync(sessionData.session.logFile, 'utf8');
+      content = await fsp.readFile(sessionData.session.logFile, 'utf8');
     } else {
       // Large file - read only last HISTORY_READ_SIZE bytes
-      const fd = fs.openSync(sessionData.session.logFile, 'r');
+      const fh = await fsp.open(sessionData.session.logFile, 'r');
       const buffer = Buffer.alloc(HISTORY_READ_SIZE);
-      fs.readSync(fd, buffer, 0, HISTORY_READ_SIZE, stats.size - HISTORY_READ_SIZE);
-      fs.closeSync(fd);
+      await fh.read(buffer, 0, HISTORY_READ_SIZE, stats.size - HISTORY_READ_SIZE);
+      await fh.close();
       content = buffer.toString('utf8');
 
       // Skip first partial line (may be incomplete)

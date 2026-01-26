@@ -1062,6 +1062,15 @@
     const MAX_MESSAGES = 500;
     const recentUserMessages = []; // Track recently sent messages to dedupe
 
+    // Pending operations (avoid window object pollution)
+    const pending = {
+      reconnectSession: null,      // Session to rewatch after reconnect
+      permissionCard: null,        // { tool, cmd, isDestructive }
+      permissionTimeout: null,     // Timeout ID for permission card delay
+      lastPermissionCardTime: 0,   // Timestamp of last permission card shown
+      lastToolLanguage: 'plaintext' // Last tool language for syntax highlighting
+    };
+
     // ============================================
     // WebSocket Send Helper
     // ============================================
@@ -1209,7 +1218,7 @@
         websocket.send(JSON.stringify({ action: 'auth', token: authToken }));
         // Save session for re-watching after auth succeeds
         if (sessionToRewatch) {
-          window.pendingReconnectSession = sessionToRewatch;
+          pending.reconnectSession = sessionToRewatch;
         }
       };
 
@@ -1368,9 +1377,9 @@
             reconnectAttempts = 0;
 
             // Re-watch session if this was a reconnect
-            if (window.pendingReconnectSession) {
-              wsSend({ action: 'watch_session', sessionId: window.pendingReconnectSession });
-              window.pendingReconnectSession = null;
+            if (pending.reconnectSession) {
+              wsSend({ action: 'watch_session', sessionId: pending.reconnectSession });
+              pending.reconnectSession = null;
               showToast('Reconnected!', 'success');
             } else {
               showToast('Connected!', 'success');
@@ -1419,27 +1428,27 @@
               const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
               // Store pending card and wait before showing (allows auto-approval to cancel)
-              window.pendingPermissionCard = { tool, cmd, isDestructive };
-              window.pendingPermissionTimeout = setTimeout(() => {
-                if (window.pendingPermissionCard) {
-                  window.lastPermissionCardTime = Date.now();
+              pending.permissionCard = { tool, cmd, isDestructive };
+              pending.permissionTimeout = setTimeout(() => {
+                if (pending.permissionCard) {
+                  pending.lastPermissionCardTime = Date.now();
                   showPromptCard({
                     type: 'permission',
-                    text: `Allow ${window.pendingPermissionCard.tool}?`,
-                    command: window.pendingPermissionCard.cmd,
-                    isDestructive: window.pendingPermissionCard.isDestructive
+                    text: `Allow ${pending.permissionCard.tool}?`,
+                    command: pending.permissionCard.cmd,
+                    isDestructive: pending.permissionCard.isDestructive
                   });
-                  window.pendingPermissionCard = null;
+                  pending.permissionCard = null;
                 }
               }, PERMISSION_CARD_DELAY_MS);
               break;
             }
             // Cancel pending permission card on tool_result (command was auto-approved)
             if (msg.data.type === 'tool_result') {
-              if (window.pendingPermissionTimeout) {
-                clearTimeout(window.pendingPermissionTimeout);
-                window.pendingPermissionTimeout = null;
-                window.pendingPermissionCard = null;
+              if (pending.permissionTimeout) {
+                clearTimeout(pending.permissionTimeout);
+                pending.permissionTimeout = null;
+                pending.permissionCard = null;
               }
               // Dismiss existing permission card immediately
               if (currentPrompt?.type === 'permission') {
@@ -1574,7 +1583,7 @@
             const tool = last.tool;
             const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
             const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
-            window.lastPermissionCardTime = Date.now();
+            pending.lastPermissionCardTime = Date.now();
             showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: cmd, isDestructive });
           }
         }
@@ -1622,7 +1631,7 @@
         // Show ellipsis if first line truncated OR multiple lines exist
         const needsEllipsis = lines[0].length > 50 || lineCount > 1;
         // Try to detect language from previous tool call's file path
-        const lang = window.lastToolLanguage || 'plaintext';
+        const lang = pending.lastToolLanguage || 'plaintext';
         msg.innerHTML = `
           <div class="tool-summary" data-lang="${escapeHtml(lang)}">
             <span class="tool-chevron">▶</span>
@@ -1680,7 +1689,7 @@
       }
 
       // Track language for tool_result pairing
-      window.lastToolLanguage = language;
+      pending.lastToolLanguage = language;
     }
 
     function escapeHtml(text) {
