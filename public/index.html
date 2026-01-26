@@ -2089,6 +2089,7 @@
       const prompt = {
         type: 'multiChoice',
         text: q.question,
+        multiSelect: q.multiSelect === true,  // Pass through multi-select flag
         options: q.options.map((opt, i) => ({
           num: (i + 1).toString(),
           text: opt.description ? `${opt.label}: ${opt.description}` : opt.label
@@ -2144,7 +2145,8 @@
 
         case 'multiChoice':
           content.innerHTML = `<p>${escapeHtml(question)}</p>`;
-          const useDropdown = prompt.options.length > 5;
+          const useDropdown = prompt.options.length > 5 && !prompt.multiSelect;
+          const isMulti = prompt.multiSelect;
           if (useDropdown) {
             content.innerHTML += `
               <select class="prompt-select" id="promptSelect">
@@ -2154,14 +2156,14 @@
             `;
             actions.innerHTML = `<button class="prompt-btn primary" onclick="submitDropdownChoice()">Select</button>`;
           } else {
-            content.innerHTML += `<div class="prompt-options-scroll">
+            content.innerHTML += `<div class="prompt-options-scroll" data-multi="${isMulti}">
               ${prompt.options.map((opt, i) => `
-                <div class="prompt-option" data-value="${opt.num}" onclick="selectOption(this)" tabindex="0" role="radio" aria-checked="false">
-                  <span>${escapeHtml(opt.num)}. ${escapeHtml(opt.text)}</span>
+                <div class="prompt-option" data-value="${opt.num}" onclick="selectOption(this, ${isMulti})" tabindex="0" role="${isMulti ? 'checkbox' : 'radio'}" aria-checked="false">
+                  <span>${isMulti ? '☐ ' : ''}${escapeHtml(opt.num)}. ${escapeHtml(opt.text)}</span>
                 </div>
               `).join('')}
             </div>`;
-            actions.innerHTML = `<button class="prompt-btn primary" onclick="submitChoice()">Select</button>`;
+            actions.innerHTML = `<button class="prompt-btn primary" onclick="submitChoice(${isMulti})">Select</button>`;
           }
           break;
 
@@ -2218,11 +2220,20 @@
           } else {
             next = current < 0 ? options.length - 1 : (current - 1 + options.length) % options.length;
           }
-          selectOption(options[next]);
+          const isMulti = card.querySelector('.prompt-options-scroll')?.dataset.multi === 'true';
+          selectOption(options[next], isMulti);
           options[next].focus();
         } else if (e.key === 'Enter' && document.activeElement?.classList.contains('prompt-option')) {
           e.preventDefault();
-          submitChoice();
+          const isMulti = card.querySelector('.prompt-options-scroll')?.dataset.multi === 'true';
+          submitChoice(isMulti);
+        } else if (e.key === ' ' && document.activeElement?.classList.contains('prompt-option')) {
+          // Space toggles selection in multi-select mode
+          e.preventDefault();
+          const isMulti = card.querySelector('.prompt-options-scroll')?.dataset.multi === 'true';
+          if (isMulti) {
+            selectOption(document.activeElement, true);
+          }
         }
       };
     }
@@ -2259,19 +2270,37 @@
       }
     }
 
-    function selectOption(el) {
-      document.querySelectorAll('.prompt-option').forEach(o => {
-        o.classList.remove('selected');
-        o.setAttribute('aria-checked', 'false');
-      });
-      el.classList.add('selected');
-      el.setAttribute('aria-checked', 'true');
+    function selectOption(el, isMulti = false) {
+      if (isMulti) {
+        // Toggle selection for multi-select
+        const isSelected = el.classList.toggle('selected');
+        el.setAttribute('aria-checked', isSelected ? 'true' : 'false');
+        // Update checkbox visual
+        const span = el.querySelector('span');
+        if (span) {
+          span.textContent = span.textContent.replace(/^[☐☑] /, isSelected ? '☑ ' : '☐ ');
+        }
+      } else {
+        // Single select - deselect others first
+        document.querySelectorAll('.prompt-option').forEach(o => {
+          o.classList.remove('selected');
+          o.setAttribute('aria-checked', 'false');
+        });
+        el.classList.add('selected');
+        el.setAttribute('aria-checked', 'true');
+      }
     }
 
-    function submitChoice() {
-      const selected = document.querySelector('.prompt-option.selected');
-      if (selected) {
-        respondToPrompt(selected.dataset.value);
+    function submitChoice(isMulti = false) {
+      const selected = document.querySelectorAll('.prompt-option.selected');
+      if (selected.length > 0) {
+        if (isMulti) {
+          // Join multiple selections with commas
+          const values = Array.from(selected).map(el => el.dataset.value).join(',');
+          respondToPrompt(values);
+        } else {
+          respondToPrompt(selected[0].dataset.value);
+        }
       } else {
         showToast('Please select an option', 'error');
       }
