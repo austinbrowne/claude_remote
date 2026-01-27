@@ -187,6 +187,88 @@
       border-left: 3px solid var(--tool-msg);
     }
 
+    /* Status Bar */
+    .status-bar {
+      background: var(--bg-secondary);
+      padding: 8px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+    .status-bar.hidden { display: none; }
+    .status-text {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--text-secondary);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .token-usage {
+      color: var(--text-secondary);
+      font-family: monospace;
+    }
+
+    /* Task Panel */
+    .task-panel {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .task-panel.hidden { display: none; }
+    .task-header {
+      padding: 10px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .task-list {
+      padding: 0 16px 10px;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    .task-list.collapsed { display: none; }
+    .task-item {
+      padding: 5px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+    .task-item.completed { color: var(--text-secondary); text-decoration: line-through; }
+    .task-item.in_progress { color: var(--accent); }
+    .task-checkbox {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+    .task-checkbox.checked {
+      background: var(--success);
+      border-color: var(--success);
+      color: white;
+    }
+    .task-checkbox.in-progress {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
     /* Auth Screen */
     .auth-screen {
       flex: 1;
@@ -831,6 +913,12 @@
       border: 1px solid var(--border);
     }
 
+    .prompt-btn.allow-always {
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+
     .prompt-options-scroll {
       max-height: 300px;
       overflow-y: auto;
@@ -963,6 +1051,27 @@
         <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">⚙️</button>
       </div>
     </header>
+
+    <!-- Status Bar with activity indicator and token usage -->
+    <div id="statusBar" class="status-bar hidden">
+      <div class="status-text">
+        <span class="status-spinner"></span>
+        <span id="statusVerb">Working...</span>
+      </div>
+      <div class="token-usage">
+        <span id="tokenInput">0</span> in / <span id="tokenOutput">0</span> out
+      </div>
+    </div>
+
+    <!-- Task Progress Panel -->
+    <div id="taskPanel" class="task-panel hidden">
+      <div class="task-header" onclick="toggleTaskPanel()">
+        <span>Tasks</span>
+        <span id="taskProgress">0/0</span>
+        <span class="expand-icon">&#9660;</span>
+      </div>
+      <div id="taskList" class="task-list"></div>
+    </div>
 
     <div class="output-area" id="outputArea">
       <div class="empty-state" id="emptyState">
@@ -1624,18 +1733,72 @@
           }
           break;
 
+        case 'status_update':
+          handleStatusUpdate(msg);
+          break;
+
+        case 'token_usage':
+          handleTokenUsage(msg);
+          break;
+
+        case 'task_create':
+          handleTaskCreate(msg);
+          break;
+
+        case 'task_update':
+          handleTaskUpdate(msg);
+          break;
+
+        case 'task_list':
+          handleTaskList(msg);
+          break;
+
+        case 'subagent_starting':
+          // Store pending description for correlation with subagent_start
+          pendingSubagentInfo = {
+            description: msg.description,
+            type: msg.agentType,
+            timestamp: Date.now()
+          };
+          break;
+
         case 'subagent_start':
+          // Correlate with pending description if available
+          const info = pendingSubagentInfo || {};
           activeSubagents.set(msg.agentId, {
             status: 'running',
             startTime: msg.timestamp,
-            description: '',
+            description: msg.description || info.description || msg.agentId.substring(0, 8),
+            agentType: msg.agentType || info.type || 'general',
+            currentTool: null,
+            inputTokens: 0,
+            outputTokens: 0,
             lastActivity: Date.now()
           });
+          pendingSubagentInfo = null;
           updateSubagentIndicator();
           break;
 
         case 'subagent_output':
           handleSubagentOutput(msg.agentId, msg.data);
+          break;
+
+        case 'subagent_tool':
+          if (activeSubagents.has(msg.agentId)) {
+            const agent = activeSubagents.get(msg.agentId);
+            agent.currentTool = msg.tool;
+            agent.lastActivity = Date.now();
+            updateSubagentIndicator();
+          }
+          break;
+
+        case 'subagent_tokens':
+          if (activeSubagents.has(msg.agentId)) {
+            const agent = activeSubagents.get(msg.agentId);
+            agent.inputTokens = (agent.inputTokens || 0) + (msg.input || 0);
+            agent.outputTokens = (agent.outputTokens || 0) + (msg.output || 0);
+            updateSubagentIndicator();
+          }
           break;
 
         case 'subagent_stop':
@@ -1707,6 +1870,13 @@
 
       document.getElementById('outputArea').innerHTML = '';
 
+      // Reset session-specific state
+      resetSessionTokens();
+      clearTasks();
+      activeSubagents.clear();
+      updateSubagentIndicator();
+      document.getElementById('statusBar')?.classList.add('hidden');
+
       wsSend({ action: 'watch_session', sessionId: sessionId });
     }
 
@@ -1737,10 +1907,9 @@
           if (sessionOption?.dataset.status === 'waiting') {
             const input = last.input || {};
             const tool = last.tool;
-            const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
-            const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
+            const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((input.command || '').toLowerCase());
             pending.lastPermissionCardTime = Date.now();
-            showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: cmd, isDestructive });
+            showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive });
           }
         }
       }
@@ -2284,14 +2453,14 @@
           }
           permissionHtml += `<p>${escapeHtml(question)}</p>`;
           if (prompt.command) {
-            permissionHtml += `<div class="prompt-command-preview"><code>${escapeHtml(prompt.command)}</code></div>`;
+            permissionHtml += `<div class="prompt-command-preview"><code>${escapeHtml(formatPermissionDisplay(prompt.tool, prompt.command))}</code></div>`;
           }
           content.innerHTML = permissionHtml;
-          const yesClass = prompt.isDestructive ? 'secondary' : 'primary';
-          const noClass = prompt.isDestructive ? 'primary destructive' : 'secondary';
+          // Claude Code uses numbered options: 1=Always Allow, 2=Yes (this time), 3=No
           actions.innerHTML = `
-            <button class="prompt-btn ${yesClass}" onclick="respondToPrompt('y')">Yes</button>
-            <button class="prompt-btn ${noClass}" onclick="respondToPrompt('n')">No</button>
+            <button class="prompt-btn allow-always" onclick="respondToPermission('1', '${prompt.tool || ''}')">Always Allow</button>
+            <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" onclick="respondToPrompt('2')">Yes</button>
+            <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" onclick="respondToPrompt('3')">No</button>
           `;
           break;
 
@@ -2400,6 +2569,52 @@
           }
         }
       };
+    }
+
+    // Format permission display based on tool type
+    function formatPermissionDisplay(tool, input) {
+      if (typeof input === 'string') return input; // Already formatted
+      switch(tool) {
+        case 'Bash':
+          return input?.command || 'Run command';
+        case 'WebFetch':
+          return sanitizeUrl(input?.url) || 'Fetch URL';
+        case 'Edit':
+        case 'Write':
+        case 'MultiEdit':
+          return input?.file_path || 'Modify file';
+        case 'NotebookEdit':
+          return input?.notebook_path || 'Edit notebook';
+        default:
+          // MCP tools - show truncated JSON input
+          if (typeof input === 'object') {
+            const str = JSON.stringify(input, null, 2);
+            return str.length > 200 ? str.substring(0, 200) + '...' : str;
+          }
+          return String(input || 'Execute');
+      }
+    }
+
+    // Sanitize URLs to remove potentially sensitive query params
+    function sanitizeUrl(url) {
+      if (!url) return null;
+      try {
+        const parsed = new URL(url);
+        return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+      } catch {
+        return url;
+      }
+    }
+
+    // Track which tools have been "always allowed" (local tracking for UI only)
+    const alwaysAllowedTools = new Set();
+
+    // Handle permission response with tool tracking
+    function respondToPermission(response, tool) {
+      if (response === '1' && tool) {
+        alwaysAllowedTools.add(tool);
+      }
+      respondToPrompt(response);
     }
 
     function respondToPrompt(response) {
@@ -2535,6 +2750,140 @@
     }
 
     // ============================================
+    // Status Bar and Token Tracking
+    // ============================================
+    let sessionTokens = { input: 0, output: 0 };
+    let statusTimeout = null;
+
+    function handleStatusUpdate(data) {
+      const statusBar = document.getElementById('statusBar');
+      const statusVerb = document.getElementById('statusVerb');
+
+      statusBar.classList.remove('hidden');
+      statusVerb.textContent = data.text || 'Working...';
+
+      // Auto-hide after 5 seconds of no updates
+      clearTimeout(statusTimeout);
+      statusTimeout = setTimeout(() => {
+        statusBar.classList.add('hidden');
+      }, 5000);
+    }
+
+    function handleTokenUsage(data) {
+      sessionTokens.input += data.input || 0;
+      sessionTokens.output += data.output || 0;
+
+      document.getElementById('tokenInput').textContent = formatTokens(sessionTokens.input);
+      document.getElementById('tokenOutput').textContent = formatTokens(sessionTokens.output);
+
+      // Show the status bar when we receive token updates
+      const statusBar = document.getElementById('statusBar');
+      statusBar.classList.remove('hidden');
+
+      clearTimeout(statusTimeout);
+      statusTimeout = setTimeout(() => {
+        statusBar.classList.add('hidden');
+      }, 5000);
+    }
+
+    function formatTokens(n) {
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return n.toString();
+    }
+
+    function resetSessionTokens() {
+      sessionTokens = { input: 0, output: 0 };
+      document.getElementById('tokenInput').textContent = '0';
+      document.getElementById('tokenOutput').textContent = '0';
+    }
+
+    // ============================================
+    // Task Progress Panel
+    // ============================================
+    const tasks = new Map(); // id -> { subject, status, description, activeForm }
+    let taskPanelExpanded = true;
+    let pendingSubagentInfo = null;
+
+    function handleTaskCreate(data) {
+      tasks.set(data.id, {
+        subject: data.subject,
+        status: data.status || 'pending',
+        description: data.description,
+        activeForm: data.activeForm
+      });
+      renderTasks();
+    }
+
+    function handleTaskUpdate(data) {
+      const task = tasks.get(data.id);
+      if (task) {
+        if (data.status) task.status = data.status;
+        if (data.subject) task.subject = data.subject;
+        renderTasks();
+      }
+    }
+
+    function handleTaskList(data) {
+      // Replace all tasks with the authoritative list
+      tasks.clear();
+      if (data.tasks && Array.isArray(data.tasks)) {
+        for (const task of data.tasks) {
+          tasks.set(task.id, {
+            subject: task.subject,
+            status: task.status,
+            description: task.description || ''
+          });
+        }
+      }
+      renderTasks();
+    }
+
+    function toggleTaskPanel() {
+      taskPanelExpanded = !taskPanelExpanded;
+      const list = document.getElementById('taskList');
+      const icon = document.querySelector('.task-panel .expand-icon');
+      if (list) list.classList.toggle('collapsed', !taskPanelExpanded);
+      if (icon) icon.innerHTML = taskPanelExpanded ? '&#9660;' : '&#9654;';
+    }
+
+    function renderTasks() {
+      const panel = document.getElementById('taskPanel');
+      const list = document.getElementById('taskList');
+      const progress = document.getElementById('taskProgress');
+
+      if (!panel || !list || !progress) return;
+
+      if (tasks.size === 0) {
+        panel.classList.add('hidden');
+        return;
+      }
+
+      panel.classList.remove('hidden');
+
+      const completed = [...tasks.values()].filter(t => t.status === 'completed').length;
+      progress.textContent = `${completed}/${tasks.size}`;
+
+      list.innerHTML = [...tasks.entries()].map(([id, task]) => {
+        const checkboxClass = task.status === 'completed' ? 'checked' :
+                              task.status === 'in_progress' ? 'in-progress' : '';
+        const checkmark = task.status === 'completed' ? '&#10003;' :
+                          task.status === 'in_progress' ? '&#8226;' : '';
+        return `
+          <div class="task-item ${task.status}">
+            <div class="task-checkbox ${checkboxClass}">${checkmark}</div>
+            <span>${escapeHtml(task.subject || '')}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function clearTasks() {
+      tasks.clear();
+      renderTasks();
+    }
+
+    // ============================================
     // Subagent Handling
     // ============================================
     function updateSubagentIndicator() {
@@ -2547,14 +2896,24 @@
         indicator.classList.remove('hidden');
         indicator.querySelector('.subagent-count').textContent = count;
 
-        // Build list of active subagents
+        // Build list of active subagents with enhanced details
         const list = indicator.querySelector('.subagent-list');
         list.innerHTML = '';
         activeSubagents.forEach((data, agentId) => {
           const item = document.createElement('div');
           item.className = 'subagent-item';
+
           const statusIcon = data.status === 'waiting' ? '⏳' : '🔄';
-          item.textContent = `${statusIcon} ${agentId.substring(0, 7)}: ${data.description || data.status}`;
+          const name = data.description || agentId.substring(0, 8);
+          const toolInfo = data.currentTool ? `Using: ${data.currentTool}` : 'Working...';
+          const tokens = (data.inputTokens || data.outputTokens) ?
+            `${formatTokens(data.inputTokens || 0)} in / ${formatTokens(data.outputTokens || 0)} out` : '';
+
+          item.innerHTML = `
+            <div style="font-weight:500">${statusIcon} ${escapeHtml(name)}</div>
+            <div style="font-size:0.7rem;color:var(--accent)">${toolInfo}</div>
+            ${tokens ? `<div style="font-size:0.65rem;color:var(--text-secondary);font-family:monospace">${tokens}</div>` : ''}
+          `;
           list.appendChild(item);
         });
       }

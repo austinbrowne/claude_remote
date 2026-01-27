@@ -20,6 +20,33 @@ if (!AUTH_TOKEN || AUTH_TOKEN.length < 32) {
 const MAX_READ_SIZE = 1024 * 1024; // 1MB max per read
 const HISTORY_LINE_LIMIT = 100; // Max history lines to send on session load
 
+// Track pending subagent descriptions for correlation with subagent IDs
+const pendingSubagentDescriptions = new Map(); // timestamp -> { description, type }
+
+// Format MCP tool names for readability
+// mcp__github__create_issue -> GitHub: create_issue
+function formatMcpToolName(name) {
+  const parts = name.split('__');
+  if (parts.length >= 3) {
+    const server = parts[1].charAt(0).toUpperCase() + parts[1].slice(1);
+    return `${server}: ${parts.slice(2).join('_')}`;
+  }
+  return name;
+}
+
+// Redact sensitive fields from MCP tool inputs
+function sanitizeMcpInput(input) {
+  if (!input) return {};
+  const safe = { ...input };
+  const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth', 'credential'];
+  for (const key of Object.keys(safe)) {
+    if (sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
+      safe[key] = '[REDACTED]';
+    }
+  }
+  return safe;
+}
+
 // Structured error codes for agent-friendly error handling
 const ErrorCodes = {
   RATE_LIMITED: 'RATE_LIMITED',
@@ -504,11 +531,29 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   }
   sessionData.subagentPositions.set(agentId, lastPosition);
 
-  // Broadcast subagent start
+  // Try to correlate with pending subagent description (within 10 seconds)
+  let description = null;
+  let agentType = null;
+  const now = Date.now();
+  for (const [timestamp, info] of pendingSubagentDescriptions) {
+    if (now - timestamp < 10000) { // Within 10 seconds
+      description = info.description;
+      agentType = info.type;
+      pendingSubagentDescriptions.delete(timestamp);
+      break;
+    } else if (now - timestamp > 30000) {
+      // Clean up old entries
+      pendingSubagentDescriptions.delete(timestamp);
+    }
+  }
+
+  // Broadcast subagent start with correlated description
   broadcastToClients({
     type: 'subagent_start',
     sessionId,
     agentId,
+    description: description || agentId.substring(0, 8),
+    agentType: agentType || 'general',
     timestamp: Date.now()
   });
 
@@ -560,6 +605,26 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
                   agentId,
                   data: item
                 });
+
+                // Emit specific events for tool usage and token tracking
+                if (item.type === 'tool' || item.type === 'permission_request') {
+                  broadcastToClients({
+                    type: 'subagent_tool',
+                    sessionId,
+                    agentId,
+                    tool: item.tool,
+                    input: item.input
+                  });
+                }
+                if (item.type === 'token_usage') {
+                  broadcastToClients({
+                    type: 'subagent_tokens',
+                    sessionId,
+                    agentId,
+                    input: item.input,
+                    output: item.output
+                  });
+                }
               }
             }
           } catch (e) {
@@ -634,8 +699,14 @@ function parseLogEntry(entry) {
   const results = [];
   const timestamp = entry.timestamp || new Date().toISOString();
 
-  // Skip progress entries (they're just status updates)
-  if (entry.type === 'progress') return null;
+  // Handle progress entries - broadcast status updates
+  if (entry.type === 'progress') {
+    return [{
+      type: 'status_update',
+      text: entry.message || entry.status || 'Working...',
+      timestamp: entry.timestamp || new Date().toISOString()
+    }];
+  }
 
   // Skip system entries
   if (entry.type === 'system') return null;
@@ -665,12 +736,49 @@ function parseLogEntry(entry) {
             });
           }
           // Permission-requiring tools - emit as permission_request
-          else if (['Bash', 'Write', 'Edit', 'MultiEdit'].includes(block.name)) {
+          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
+          const isMcpTool = block.name && block.name.startsWith('mcp__');
+
+          if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
             console.log(`[Permission] Detected ${block.name} tool call`);
             results.push({
               type: 'permission_request',
-              tool: block.name,
-              input: block.input || {},
+              tool: isMcpTool ? formatMcpToolName(block.name) : block.name,
+              input: isMcpTool ? sanitizeMcpInput(block.input) : (block.input || {}),
+              timestamp
+            });
+          }
+          // Task management tools - emit for task tracking
+          else if (block.name === 'TaskCreate') {
+            results.push({
+              type: 'task_create',
+              id: 'pending-' + Date.now(),
+              subject: block.input?.subject,
+              description: block.input?.description,
+              activeForm: block.input?.activeForm,
+              status: 'pending'
+            });
+          }
+          else if (block.name === 'TaskUpdate') {
+            results.push({
+              type: 'task_update',
+              id: block.input?.taskId,
+              status: block.input?.status,
+              subject: block.input?.subject
+            });
+          }
+          else if (block.name === 'Task') {
+            // Subagent being spawned - track description for correlation
+            const agentDescription = block.input?.description || 'Subagent';
+            const agentType = block.input?.subagent_type || 'general';
+            pendingSubagentDescriptions.set(Date.now(), {
+              description: agentDescription,
+              type: agentType
+            });
+            results.push({
+              type: 'subagent_starting',
+              description: agentDescription,
+              agentType: agentType,
               timestamp
             });
           }
@@ -689,6 +797,18 @@ function parseLogEntry(entry) {
       results.push({
         type: 'assistant',
         content: content,
+        timestamp
+      });
+    }
+
+    // Extract token usage from assistant messages
+    if (entry.message?.usage) {
+      results.push({
+        type: 'token_usage',
+        input: entry.message.usage.input_tokens || 0,
+        output: entry.message.usage.output_tokens || 0,
+        cacheRead: entry.message.usage.cache_read_input_tokens || 0,
+        cacheWrite: entry.message.usage.cache_creation_input_tokens || 0,
         timestamp
       });
     }
