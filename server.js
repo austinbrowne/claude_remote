@@ -20,6 +20,29 @@ if (!AUTH_TOKEN || AUTH_TOKEN.length < 32) {
 const MAX_READ_SIZE = 1024 * 1024; // 1MB max per read
 const HISTORY_LINE_LIMIT = 100; // Max history lines to send on session load
 
+// Claude Code spinner verbs (from tengu_spinner_words)
+// These are the 90 verbs Claude Code randomly displays while processing
+const SPINNER_VERBS = [
+  'Accomplishing', 'Actioning', 'Actualizing', 'Baking', 'Booping', 'Brewing',
+  'Calculating', 'Cerebrating', 'Channelling', 'Churning', 'Clauding', 'Coalescing',
+  'Cogitating', 'Combobulating', 'Computing', 'Concocting', 'Conjuring', 'Considering',
+  'Contemplating', 'Cooking', 'Crafting', 'Creating', 'Crunching', 'Deciphering',
+  'Deliberating', 'Determining', 'Discombobulating', 'Divining', 'Doing', 'Effecting',
+  'Elucidating', 'Enchanting', 'Envisioning', 'Finagling', 'Flibbertigibbeting', 'Forging',
+  'Forming', 'Frolicking', 'Generating', 'Germinating', 'Hatching', 'Herding', 'Honking',
+  'Hustling', 'Ideating', 'Imagining', 'Incubating', 'Inferring', 'Jiving', 'Manifesting',
+  'Marinating', 'Meandering', 'Moseying', 'Mulling', 'Mustering', 'Musing', 'Noodling',
+  'Percolating', 'Perusing', 'Philosophising', 'Pondering', 'Pontificating', 'Processing',
+  'Puttering', 'Puzzling', 'Reticulating', 'Ruminating', 'Scheming', 'Schlepping', 'Shimmying',
+  'Shucking', 'Simmering', 'Smooshing', 'Spelunking', 'Spinning', 'Stewing', 'Sussing',
+  'Synthesizing', 'Thinking', 'Tinkering', 'Transmuting', 'Unfurling', 'Unravelling', 'Vibing',
+  'Wandering', 'Whirring', 'Wibbling', 'Wizarding', 'Working', 'Wrangling'
+];
+
+function getRandomSpinnerVerb() {
+  return SPINNER_VERBS[Math.floor(Math.random() * SPINNER_VERBS.length)];
+}
+
 // Track pending subagent descriptions for correlation with subagent IDs
 const pendingSubagentDescriptions = new Map(); // timestamp -> { description, type }
 
@@ -699,24 +722,11 @@ function parseLogEntry(entry) {
   const results = [];
   const timestamp = entry.timestamp || new Date().toISOString();
 
-  // Handle progress entries - broadcast status updates
-  // Progress entries have data.type (e.g., "bash_progress") and data.output
+  // Handle progress entries - broadcast status updates with random spinner verb
   if (entry.type === 'progress') {
-    const progressType = entry.data?.type || '';
-    const output = entry.data?.output || '';
-    // Format based on progress type
-    let text = 'Working...';
-    if (progressType === 'bash_progress') {
-      text = output ? `Running: ${output.split('\n')[0].substring(0, 50)}` : 'Running command...';
-    } else if (progressType.includes('thinking') || progressType.includes('symbiont')) {
-      text = 'Thinking...';
-    } else if (output) {
-      text = output.substring(0, 50);
-    }
     return [{
       type: 'status_update',
-      text,
-      progressType,
+      text: `${getRandomSpinnerVerb()}...`,
       timestamp: entry.timestamp || new Date().toISOString()
     }];
   }
@@ -738,36 +748,20 @@ function parseLogEntry(entry) {
             timestamp
           });
         }
-        // Thinking content - emit status update (this is what shows as "symbioting" in terminal)
+        // Thinking content - emit status update with random spinner verb
         else if (block.type === 'thinking') {
           results.push({
             type: 'status_update',
-            text: 'Thinking...',
+            text: `${getRandomSpinnerVerb()}...`,
             timestamp
           });
         }
         // Tool use - Claude calling a tool
         else if (block.type === 'tool_use') {
-          // Emit status update for all tool uses (like terminal's spinner verbs)
-          const toolVerbs = {
-            'Read': 'Reading...',
-            'Grep': 'Searching...',
-            'Glob': 'Finding files...',
-            'Bash': 'Running command...',
-            'Write': 'Writing...',
-            'Edit': 'Editing...',
-            'MultiEdit': 'Editing...',
-            'WebFetch': 'Fetching...',
-            'WebSearch': 'Searching web...',
-            'Task': 'Spawning agent...',
-            'TaskCreate': 'Creating task...',
-            'TaskUpdate': 'Updating task...',
-            'TaskList': 'Listing tasks...'
-          };
-          const verb = toolVerbs[block.name] || `Using ${block.name}...`;
+          // Emit status update with random spinner verb (like terminal)
           results.push({
             type: 'status_update',
-            text: verb,
+            text: `${getRandomSpinnerVerb()}...`,
             tool: block.name,
             timestamp
           });
@@ -1100,7 +1094,14 @@ async function handleClientMessage(ws, msg) {
         }));
       });
       break;
-      
+
+    case 'catch_up':
+      // Send recent history when client returns from background
+      if (msg.sessionId) {
+        sendRecentHistory(ws, msg.sessionId);
+      }
+      break;
+
     case 'inject':
       // Get TTY from session for targeted injection (works on background tabs)
       const injectSessionData = msg.sessionId ? activeSessions.get(msg.sessionId) : null;

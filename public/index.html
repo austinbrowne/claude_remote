@@ -1546,6 +1546,10 @@
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && authToken) {
         checkConnectionHealth();
+        // Request catch-up for any missed messages while backgrounded
+        if (currentSessionId && ws?.readyState === WebSocket.OPEN) {
+          wsSend({ action: 'catch_up', sessionId: currentSessionId });
+        }
       }
     }
 
