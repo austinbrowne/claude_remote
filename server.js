@@ -700,10 +700,23 @@ function parseLogEntry(entry) {
   const timestamp = entry.timestamp || new Date().toISOString();
 
   // Handle progress entries - broadcast status updates
+  // Progress entries have data.type (e.g., "bash_progress") and data.output
   if (entry.type === 'progress') {
+    const progressType = entry.data?.type || '';
+    const output = entry.data?.output || '';
+    // Format based on progress type
+    let text = 'Working...';
+    if (progressType === 'bash_progress') {
+      text = output ? `Running: ${output.split('\n')[0].substring(0, 50)}` : 'Running command...';
+    } else if (progressType.includes('thinking') || progressType.includes('symbiont')) {
+      text = 'Thinking...';
+    } else if (output) {
+      text = output.substring(0, 50);
+    }
     return [{
       type: 'status_update',
-      text: entry.message || entry.status || 'Working...',
+      text,
+      progressType,
       timestamp: entry.timestamp || new Date().toISOString()
     }];
   }

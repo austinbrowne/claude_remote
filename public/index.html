@@ -2456,10 +2456,10 @@
             permissionHtml += `<div class="prompt-command-preview"><code>${escapeHtml(formatPermissionDisplay(prompt.tool, prompt.command))}</code></div>`;
           }
           content.innerHTML = permissionHtml;
-          // Claude Code uses numbered options: 1=Always Allow, 2=Yes (this time), 3=No
+          // Claude Code uses numbered options: 1=Yes (once), 2=Yes and always allow, 3=No
           actions.innerHTML = `
-            <button class="prompt-btn allow-always" onclick="respondToPermission('1', '${prompt.tool || ''}')">Always Allow</button>
-            <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" onclick="respondToPrompt('2')">Yes</button>
+            <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" onclick="respondToPrompt('1')">Yes</button>
+            <button class="prompt-btn allow-always" onclick="respondToPermission('2', '${prompt.tool || ''}')">Always Allow</button>
             <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" onclick="respondToPrompt('3')">No</button>
           `;
           break;
