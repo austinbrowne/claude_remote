@@ -278,7 +278,9 @@ async function watchSession(sessionId) {
   // Watch the log file for changes
   const watcher = chokidar.watch(session.logFile, {
     persistent: true,
-    usePolling: false,  // Use native FSEvents on macOS
+    usePolling: true,   // Use polling - FSEvents can miss updates
+    interval: 500,      // Poll every 500ms
+    binaryInterval: 500,
     awaitWriteFinish: {
       stabilityThreshold: 100,
       pollInterval: 100
@@ -381,9 +383,16 @@ async function watchSession(sessionId) {
   });
   
   const initialStatus = await getSessionStatus(session.logFile);
+
+  // Fallback polling interval - check file every 2 seconds in case watcher misses events
+  const pollInterval = setInterval(() => {
+    watcher.emit('change', session.logFile);
+  }, 2000);
+
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
+    pollInterval,
     session,
     lastPosition,
     lastStatus: initialStatus,
@@ -408,6 +417,7 @@ function unwatchSession(sessionId) {
     sessionData.logsDirWatcher?.close();
     sessionData.subagentsDirWatcher?.close();
     sessionData.subagentsParentWatcher?.close();
+    if (sessionData.pollInterval) clearInterval(sessionData.pollInterval);
 
     // Clean up subagent watchers
     sessionData.subagentWatchers?.forEach((watcher, agentId) => {
@@ -505,6 +515,8 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   // Set up file watcher
   const watcher = chokidar.watch(logFile, {
     persistent: true,
+    usePolling: true,
+    interval: 500,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }
   });
 
