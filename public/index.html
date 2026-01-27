@@ -1021,6 +1021,7 @@
     const SESSION_STATE = { IDLE: 0, SWITCHING: 1, ACTIVE: 2 };
     let sessionState = SESSION_STATE.IDLE;
     let pendingSessionId = null;
+    let pendingPromptMessage = null;  // Queue for prompts arriving during state transitions
     let isRecording = false;
     let recognition = null;
     let synth = window.speechSynthesis;
@@ -1427,6 +1428,23 @@
             currentSessionId = msg.sessionId;
             sessionState = SESSION_STATE.ACTIVE;
           }
+          // Process any queued prompt that arrived during state transition
+          if (sessionState === SESSION_STATE.ACTIVE && pendingPromptMessage) {
+            const queued = pendingPromptMessage;
+            pendingPromptMessage = null;
+            if (queued.sessionId === currentSessionId) {
+              if (queued.data.type === 'ask_user_question') {
+                showStructuredPrompt(queued.data.questions);
+              } else if (queued.data.type === 'permission_request') {
+                showPromptCard({
+                  type: 'permission',
+                  text: `Allow ${queued.data.tool}?`,
+                  command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
+                  isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase())
+                });
+              }
+            }
+          }
           break;
           
         case 'history':
@@ -1434,74 +1452,79 @@
           break;
           
         case 'claude_output':
-          // Only process messages for current session when in ACTIVE state (prevents race conditions)
-          if (sessionState === SESSION_STATE.ACTIVE && msg.sessionId === currentSessionId) {
-            // Handle structured AskUserQuestion prompts
-            if (msg.data.type === 'ask_user_question') {
-              showStructuredPrompt(msg.data.questions);
-              break;
+          // Queue prompt messages that arrive during state transitions (not ACTIVE yet)
+          if (sessionState !== SESSION_STATE.ACTIVE || msg.sessionId !== currentSessionId) {
+            if (msg.data.type === 'ask_user_question' || msg.data.type === 'permission_request') {
+              pendingPromptMessage = msg;
             }
-            // Handle permission requests (Bash, Write, Edit, etc.)
-            // Delay showing card - if tool_result comes quickly, it was auto-approved
-            if (msg.data.type === 'permission_request') {
-              const input = msg.data.input || {};
-              const tool = msg.data.tool;
-              const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
-              const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
+            break;
+          }
+          // Only process messages for current session when in ACTIVE state
+          // Handle structured AskUserQuestion prompts
+          if (msg.data.type === 'ask_user_question') {
+            showStructuredPrompt(msg.data.questions);
+            break;
+          }
+          // Handle permission requests (Bash, Write, Edit, etc.)
+          // Delay showing card - if tool_result comes quickly, it was auto-approved
+          if (msg.data.type === 'permission_request') {
+            const input = msg.data.input || {};
+            const tool = msg.data.tool;
+            const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
+            const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
-              // Store pending card and wait before showing (allows auto-approval to cancel)
-              pending.permissionCard = { tool, cmd, isDestructive };
-              pending.permissionTimeout = setTimeout(() => {
-                if (pending.permissionCard) {
-                  pending.lastPermissionCardTime = Date.now();
-                  showPromptCard({
-                    type: 'permission',
-                    text: `Allow ${pending.permissionCard.tool}?`,
-                    command: pending.permissionCard.cmd,
-                    isDestructive: pending.permissionCard.isDestructive
-                  });
-                  pending.permissionCard = null;
-                }
-              }, PERMISSION_CARD_DELAY_MS);
-              break;
-            }
-            // Cancel pending permission card on tool_result (command was auto-approved)
-            if (msg.data.type === 'tool_result') {
-              if (pending.permissionTimeout) {
-                clearTimeout(pending.permissionTimeout);
-                pending.permissionTimeout = null;
+            // Store pending card and wait before showing (allows auto-approval to cancel)
+            pending.permissionCard = { tool, cmd, isDestructive };
+            pending.permissionTimeout = setTimeout(() => {
+              if (pending.permissionCard) {
+                pending.lastPermissionCardTime = Date.now();
+                showPromptCard({
+                  type: 'permission',
+                  text: `Allow ${pending.permissionCard.tool}?`,
+                  command: pending.permissionCard.cmd,
+                  isDestructive: pending.permissionCard.isDestructive
+                });
                 pending.permissionCard = null;
               }
-              // Dismiss existing permission card immediately
-              if (currentPrompt?.type === 'permission') {
-                hidePromptCard();
-              }
+            }, PERMISSION_CARD_DELAY_MS);
+            break;
+          }
+          // Cancel pending permission card on tool_result (command was auto-approved)
+          if (msg.data.type === 'tool_result') {
+            if (pending.permissionTimeout) {
+              clearTimeout(pending.permissionTimeout);
+              pending.permissionTimeout = null;
+              pending.permissionCard = null;
             }
-            // Dedupe user messages we just sent
-            if (msg.data.type === 'user') {
-              const content = typeof msg.data.content === 'string' ? msg.data.content : JSON.stringify(msg.data.content);
-              const idx = recentUserMessages.indexOf(content);
-              if (idx !== -1) {
-                recentUserMessages.splice(idx, 1);
-                break; // Skip this duplicate
-              }
+            // Dismiss existing permission card immediately
+            if (currentPrompt?.type === 'permission') {
+              hidePromptCard();
             }
-            appendMessage(msg.data);
-            
-            // TTS for assistant messages
-            if (msg.data.type === 'assistant' && settings.ttsEnabled) {
-              speak(msg.data.content);
+          }
+          // Dedupe user messages we just sent
+          if (msg.data.type === 'user') {
+            const content = typeof msg.data.content === 'string' ? msg.data.content : JSON.stringify(msg.data.content);
+            const idx = recentUserMessages.indexOf(content);
+            if (idx !== -1) {
+              recentUserMessages.splice(idx, 1);
+              break; // Skip this duplicate
             }
-            
-            // TTS for tool calls (if enabled)
-            if (msg.data.type === 'tool' && settings.speakTools) {
-              speak(`Using tool: ${msg.data.tool}`);
-            }
-            
-            // Notification
-            if (msg.data.type === 'assistant' && settings.notifyEnabled && document.hidden) {
-              sendNotification('Claude Response', msg.data.content.substring(0, 100));
-            }
+          }
+          appendMessage(msg.data);
+
+          // TTS for assistant messages
+          if (msg.data.type === 'assistant' && settings.ttsEnabled) {
+            speak(msg.data.content);
+          }
+
+          // TTS for tool calls (if enabled)
+          if (msg.data.type === 'tool' && settings.speakTools) {
+            speak(`Using tool: ${msg.data.tool}`);
+          }
+
+          // Notification
+          if (msg.data.type === 'assistant' && settings.notifyEnabled && document.hidden) {
+            sendNotification('Claude Response', msg.data.content.substring(0, 100));
           }
           break;
           
@@ -2293,6 +2316,8 @@
       const text = input?.value?.trim();
       if (text) {
         respondToPrompt(text);
+      } else {
+        showToast('Please enter a response', 'error');
       }
     }
 
