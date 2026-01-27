@@ -1243,7 +1243,34 @@
       notifyEnabled: safeGetItem(localStorage, 'notify_enabled') === 'true'
     };
     const MAX_MESSAGES = 500;
-    const recentUserMessages = []; // Track recently sent messages to dedupe
+    const recentUserMessages = new Map(); // Track recently sent messages to dedupe: normalized content -> timestamp
+
+    // Normalize content for deduplication (handle whitespace/encoding differences)
+    function normalizeForDedup(content) {
+      if (typeof content !== 'string') content = JSON.stringify(content);
+      return content.trim().replace(/\s+/g, ' ');
+    }
+
+    // Add message to dedup tracker (expires after 10 seconds)
+    function trackSentMessage(content) {
+      const key = normalizeForDedup(content);
+      recentUserMessages.set(key, Date.now());
+      // Cleanup old entries
+      const now = Date.now();
+      for (const [k, t] of recentUserMessages) {
+        if (now - t > 10000) recentUserMessages.delete(k);
+      }
+    }
+
+    // Check if message should be deduped
+    function shouldDedupeMessage(content) {
+      const key = normalizeForDedup(content);
+      if (recentUserMessages.has(key)) {
+        recentUserMessages.delete(key);
+        return true;
+      }
+      return false;
+    }
 
     // Pending operations (avoid window object pollution)
     const pending = {
@@ -1700,10 +1727,7 @@
           }
           // Dedupe user messages we just sent
           if (msg.data.type === 'user') {
-            const content = typeof msg.data.content === 'string' ? msg.data.content : JSON.stringify(msg.data.content);
-            const idx = recentUserMessages.indexOf(content);
-            if (idx !== -1) {
-              recentUserMessages.splice(idx, 1);
+            if (shouldDedupeMessage(msg.data.content)) {
               break; // Skip this duplicate
             }
           }
@@ -2040,8 +2064,7 @@
         return;
       }
 
-      recentUserMessages.push(command);
-      if (recentUserMessages.length > 10) recentUserMessages.shift();
+      trackSentMessage(command);
       appendMessage({ type: 'user', content: command });
 
       input.value = '';
@@ -2054,8 +2077,7 @@
 
     function sendPreset(cmd) {
       wsSend({ action: 'inject', command: cmd });
-      recentUserMessages.push(cmd);
-      if (recentUserMessages.length > 10) recentUserMessages.shift();
+      trackSentMessage(cmd);
       appendMessage({ type: 'user', content: cmd });
       showToast('Sent!', 'success');
     }
@@ -2628,8 +2650,7 @@
       const success = wsSend({ action: 'inject', command: response });
 
       if (success) {
-        recentUserMessages.push(response);
-        if (recentUserMessages.length > 10) recentUserMessages.shift();
+        trackSentMessage(response);
         appendMessage({ type: 'user', content: response });
         if (settings.ttsEnabled) {
           speak(`Sent: ${response}`);
