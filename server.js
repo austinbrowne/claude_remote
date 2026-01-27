@@ -429,15 +429,8 @@ const SUBAGENT_IDLE_TIMEOUT = 30000; // 30 seconds of inactivity = stopped
 function watchSubagentsDirectory(sessionId, subagentsDir) {
   // Check if directory exists first
   fsp.access(subagentsDir).then(() => {
-    // Directory exists, scan for existing subagent files
-    // For existing files, start from end (don't replay old prompts)
-    fsp.readdir(subagentsDir).then(files => {
-      files.filter(f => f.endsWith('.jsonl')).forEach(file => {
-        const agentId = path.basename(file, '.jsonl').replace('agent-', '');
-        const filePath = path.join(subagentsDir, file);
-        watchSubagent(sessionId, agentId, filePath, false); // existing file
-      });
-    }).catch(() => {});
+    // Don't scan existing files - they're old/completed subagents
+    // Only watch for NEW subagent files created while we're connected
 
     // Watch for new subagent files
     const subagentsDirWatcher = chokidar.watch(subagentsDir, {
