@@ -1074,6 +1074,8 @@
     // ============================================
     // WebSocket Send Helper
     // ============================================
+    let pendingInjectResolve = null;
+
     function wsSend(payload) {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         showToast('Not connected', 'error');
@@ -1086,6 +1088,26 @@
         showToast('Send failed', 'error');
         return false;
       }
+    }
+
+    // Send inject command and wait for completion
+    function injectAndWait(command, timeout = 5000) {
+      return new Promise((resolve, reject) => {
+        if (!wsSend({ action: 'inject', command })) {
+          reject(new Error('Failed to send'));
+          return;
+        }
+        const timer = setTimeout(() => {
+          pendingInjectResolve = null;
+          reject(new Error('Inject timeout'));
+        }, timeout);
+        pendingInjectResolve = (success) => {
+          clearTimeout(timer);
+          pendingInjectResolve = null;
+          if (success) resolve();
+          else reject(new Error('Inject failed'));
+        };
+      });
     }
 
     // ============================================
@@ -1492,7 +1514,11 @@
           break;
 
         case 'inject_result':
-          if (!msg.success) showToast('Failed to send', 'error');
+          if (pendingInjectResolve) {
+            pendingInjectResolve(msg.success);
+          } else if (!msg.success) {
+            showToast('Failed to send', 'error');
+          }
           break;
 
         case 'error':
@@ -2291,13 +2317,34 @@
       }
     }
 
-    function submitChoice(isMulti = false) {
+    async function submitChoice(isMulti = false) {
       const selected = document.querySelectorAll('.prompt-option.selected');
       if (selected.length > 0) {
-        if (isMulti) {
-          // Join multiple selections with commas
-          const values = Array.from(selected).map(el => el.dataset.value).join(',');
-          respondToPrompt(values);
+        if (isMulti && selected.length > 1) {
+          // Multi-select: send each selection sequentially with long delays
+          // Claude Code expects: type "1" Enter (toggle), type "3" Enter (toggle), Enter (submit)
+          const card = document.getElementById('promptCard');
+          card.classList.add('loading');
+          navigator.vibrate?.(50);
+
+          const values = Array.from(selected).map(el => el.dataset.value);
+          try {
+            for (let i = 0; i < values.length; i++) {
+              showToast(`Selecting option ${values[i]}...`, 'info');
+              await injectAndWait(values[i]);
+              // Long delay to ensure terminal processes the keystroke
+              await new Promise(r => setTimeout(r, 1000));
+            }
+            // Final empty Enter to submit selections
+            showToast('Submitting...', 'info');
+            await injectAndWait('');
+            appendMessage({ type: 'user', content: values.join(', ') });
+            hidePromptCard();
+          } catch (e) {
+            console.error('Multi-select failed:', e);
+            showToast('Multi-select failed: ' + e.message, 'error');
+            card.classList.remove('loading');
+          }
         } else {
           respondToPrompt(selected[0].dataset.value);
         }

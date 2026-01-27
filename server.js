@@ -831,7 +831,12 @@ function injectCommand(command) {
     return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
   }
 
-  // Use clipboard for reliable text injection
+  // For short commands (single digits, empty), use direct keystroke to avoid clipboard races
+  if (command.length <= 1) {
+    return injectCommandDirect(command);
+  }
+
+  // Use clipboard for longer text injection
   return new Promise((resolve, reject) => {
     // First, copy to clipboard using pbcopy
     const pbcopy = exec('pbcopy', (error) => {
@@ -843,10 +848,10 @@ function injectCommand(command) {
       // Then paste and press return
       const appleScript = `
         tell application "iTerm" to activate
-        delay 0.15
+        delay 0.4
         tell application "System Events" to tell process "iTerm2"
           keystroke "v" using command down
-          delay 0.1
+          delay 0.3
           keystroke return
         end tell
       `;
@@ -863,6 +868,43 @@ function injectCommand(command) {
 
     pbcopy.stdin.write(command);
     pbcopy.stdin.end();
+  });
+}
+
+// Direct keystroke injection (avoids clipboard race conditions)
+function injectCommandDirect(command) {
+  return new Promise((resolve, reject) => {
+    // Escape the command for AppleScript string
+    const escaped = command.replace(/"/g, '\\"');
+
+    const appleScript = command.length === 0
+      ? `
+        tell application "iTerm" to activate
+        delay 0.3
+        tell application "System Events" to tell process "iTerm2"
+          key code 48
+          delay 0.2
+          keystroke return
+        end tell
+      `
+      : `
+        tell application "iTerm" to activate
+        delay 0.3
+        tell application "System Events" to tell process "iTerm2"
+          keystroke "${escaped}"
+          delay 0.2
+          keystroke return
+        end tell
+      `;
+
+    exec(`osascript -e '${appleScript}'`, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr || err.message));
+      } else {
+        console.log(`[Inject Direct] ${command || '(Tab+Enter for submit)'}`);
+        resolve();
+      }
+    });
   });
 }
 
