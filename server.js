@@ -738,8 +738,40 @@ function parseLogEntry(entry) {
             timestamp
           });
         }
+        // Thinking content - emit status update (this is what shows as "symbioting" in terminal)
+        else if (block.type === 'thinking') {
+          results.push({
+            type: 'status_update',
+            text: 'Thinking...',
+            timestamp
+          });
+        }
         // Tool use - Claude calling a tool
         else if (block.type === 'tool_use') {
+          // Emit status update for all tool uses (like terminal's spinner verbs)
+          const toolVerbs = {
+            'Read': 'Reading...',
+            'Grep': 'Searching...',
+            'Glob': 'Finding files...',
+            'Bash': 'Running command...',
+            'Write': 'Writing...',
+            'Edit': 'Editing...',
+            'MultiEdit': 'Editing...',
+            'WebFetch': 'Fetching...',
+            'WebSearch': 'Searching web...',
+            'Task': 'Spawning agent...',
+            'TaskCreate': 'Creating task...',
+            'TaskUpdate': 'Updating task...',
+            'TaskList': 'Listing tasks...'
+          };
+          const verb = toolVerbs[block.name] || `Using ${block.name}...`;
+          results.push({
+            type: 'status_update',
+            text: verb,
+            tool: block.name,
+            timestamp
+          });
+
           // Special handling for AskUserQuestion - emit as structured prompt
           if (block.name === 'AskUserQuestion' && block.input?.questions) {
             results.push({

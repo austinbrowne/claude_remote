@@ -1731,6 +1731,16 @@
               break; // Skip this duplicate
             }
           }
+          // Route status updates to the status handler
+          if (msg.data.type === 'status_update') {
+            handleStatusUpdate(msg.data);
+            break;
+          }
+          // Route token usage to token handler
+          if (msg.data.type === 'token_usage') {
+            handleTokenUsage(msg.data);
+            break;
+          }
           appendMessage(msg.data);
 
           // TTS for assistant messages
