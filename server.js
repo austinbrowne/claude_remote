@@ -1102,19 +1102,55 @@ async function handleClientMessage(ws, msg) {
       break;
       
     case 'inject':
-      injectCommand(msg.command).then(() => {
-        ws.send(JSON.stringify({ type: 'inject_result', success: true }));
-      }).catch(err => {
-        ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
-      });
+      // Get TTY from session for targeted injection (works on background tabs)
+      const injectSessionData = msg.sessionId ? activeSessions.get(msg.sessionId) : null;
+      const injectTty = injectSessionData?.session?.tty;
+
+      if (injectTty) {
+        injectCommandToTty(msg.command, injectTty).then(() => {
+          ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+        }).catch(err => {
+          // Fallback to legacy if TTY injection fails
+          console.log(`[Inject] TTY injection failed, trying legacy: ${err.message}`);
+          injectCommandLegacy(msg.command).then(() => {
+            ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+          }).catch(legacyErr => {
+            ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: legacyErr.message }));
+          });
+        });
+      } else {
+        // No TTY available, use legacy injection
+        injectCommandLegacy(msg.command).then(() => {
+          ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+        }).catch(err => {
+          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
+        });
+      }
       break;
-      
+
     case 'escape':
-      sendEscapeKey().then(() => {
-        ws.send(JSON.stringify({ type: 'escape_result', success: true }));
-      }).catch(err => {
-        ws.send(JSON.stringify({ type: 'escape_result', success: false, error: err.message }));
-      });
+      // Get TTY from session for targeted escape (works on background tabs)
+      const escapeSessionData = msg.sessionId ? activeSessions.get(msg.sessionId) : null;
+      const escapeTty = escapeSessionData?.session?.tty;
+
+      if (escapeTty) {
+        sendEscapeKeyToTty(escapeTty).then(() => {
+          ws.send(JSON.stringify({ type: 'escape_result', success: true }));
+        }).catch(err => {
+          // Fallback to legacy
+          sendEscapeKeyLegacy().then(() => {
+            ws.send(JSON.stringify({ type: 'escape_result', success: true }));
+          }).catch(legacyErr => {
+            ws.send(JSON.stringify({ type: 'escape_result', success: false, error: legacyErr.message }));
+          });
+        });
+      } else {
+        sendEscapeKeyLegacy().then(() => {
+          ws.send(JSON.stringify({ type: 'escape_result', success: true }));
+        }).catch(err => {
+          ws.send(JSON.stringify({ type: 'escape_result', success: false, error: err.message }));
+        });
+      }
       break;
       
     case 'update_settings':
@@ -1217,27 +1253,99 @@ const commandRateLimit = {
   }
 };
 
-function injectCommand(command) {
+// Inject command to a specific iTerm session by TTY (works on background tabs)
+function injectCommandToTty(command, tty) {
   // Rate limit check
   if (!commandRateLimit.check()) {
     return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
   }
 
-  // For short commands (single digits, empty), use direct keystroke to avoid clipboard races
-  if (command.length <= 1) {
-    return injectCommandDirect(command);
+  return new Promise((resolve, reject) => {
+    // Escape the command for AppleScript string
+    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const targetTty = `/dev/${tty}`;
+
+    // Use iTerm's native write text command - works on any session without activation
+    // Write text without auto-newline, then explicitly send carriage return (ASCII 13) to submit
+    const appleScript = `
+      tell application "iTerm2"
+        repeat with w in windows
+          repeat with t in tabs of w
+            repeat with s in sessions of t
+              if tty of s is "${targetTty}" then
+                tell s
+                  write text "${escaped}" newline no
+                  write text (ASCII character 13) newline no
+                end tell
+                return "ok"
+              end if
+            end repeat
+          end repeat
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (err, stdout, stderr) => {
+      if (err) {
+        reject(new Error(stderr || err.message));
+      } else if (stdout.trim() === 'not found') {
+        reject(new Error(`Session with TTY ${tty} not found`));
+      } else {
+        console.log(`[Inject TTY ${tty}] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Send escape key to a specific iTerm session by TTY
+function sendEscapeKeyToTty(tty) {
+  return new Promise((resolve, reject) => {
+    const targetTty = `/dev/${tty}`;
+
+    // Write escape character (ASCII 27) directly to the session
+    const appleScript = `
+      tell application "iTerm2"
+        repeat with w in windows
+          repeat with t in tabs of w
+            repeat with s in sessions of t
+              if tty of s is "${targetTty}" then
+                tell s to write text (ASCII character 27) newline no
+                return "ok"
+              end if
+            end repeat
+          end repeat
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (error, stdout) => {
+      if (error) reject(error);
+      else if (stdout.trim() === 'not found') {
+        reject(new Error(`Session with TTY ${tty} not found`));
+      } else {
+        console.log(`[Inject TTY ${tty}] Escape key`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Legacy injection (activates iTerm - used as fallback)
+function injectCommandLegacy(command) {
+  if (!commandRateLimit.check()) {
+    return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
   }
 
-  // Use clipboard for longer text injection
   return new Promise((resolve, reject) => {
-    // First, copy to clipboard using pbcopy
     const pbcopy = exec('pbcopy', (error) => {
       if (error) {
         reject(new Error('Failed to copy to clipboard'));
         return;
       }
 
-      // Then paste and press return
       const appleScript = `
         tell application "iTerm" to activate
         delay 0.4
@@ -1252,7 +1360,7 @@ function injectCommand(command) {
         if (err) {
           reject(new Error(stderr || err.message));
         } else {
-          console.log(`[Inject] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
+          console.log(`[Inject Legacy] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
           resolve();
         }
       });
@@ -1263,44 +1371,7 @@ function injectCommand(command) {
   });
 }
 
-// Direct keystroke injection (avoids clipboard race conditions)
-function injectCommandDirect(command) {
-  return new Promise((resolve, reject) => {
-    // Escape the command for AppleScript string
-    const escaped = command.replace(/"/g, '\\"');
-
-    const appleScript = command.length === 0
-      ? `
-        tell application "iTerm" to activate
-        delay 0.3
-        tell application "System Events" to tell process "iTerm2"
-          key code 48
-          delay 0.2
-          keystroke return
-        end tell
-      `
-      : `
-        tell application "iTerm" to activate
-        delay 0.3
-        tell application "System Events" to tell process "iTerm2"
-          keystroke "${escaped}"
-          delay 0.2
-          keystroke return
-        end tell
-      `;
-
-    exec(`osascript -e '${appleScript}'`, (err, stdout, stderr) => {
-      if (err) {
-        reject(new Error(stderr || err.message));
-      } else {
-        console.log(`[Inject Direct] ${command || '(Tab+Enter for submit)'}`);
-        resolve();
-      }
-    });
-  });
-}
-
-function sendEscapeKey() {
+function sendEscapeKeyLegacy() {
   const appleScript = `
     tell application "iTerm"
       activate
@@ -1317,7 +1388,7 @@ function sendEscapeKey() {
     exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (error) => {
       if (error) reject(error);
       else {
-        console.log('[Inject] Escape key');
+        console.log('[Inject Legacy] Escape key');
         resolve();
       }
     });

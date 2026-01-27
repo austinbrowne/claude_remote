@@ -1308,7 +1308,7 @@
     // Send inject command and wait for completion
     function injectAndWait(command, timeout = 5000) {
       return new Promise((resolve, reject) => {
-        if (!wsSend({ action: 'inject', command })) {
+        if (!wsSend({ action: 'inject', command, sessionId: currentSessionId })) {
           reject(new Error('Failed to send'));
           return;
         }
@@ -2069,7 +2069,7 @@
 
       sendBtn.disabled = true;
 
-      if (!wsSend({ action: 'inject', command: command })) {
+      if (!wsSend({ action: 'inject', command: command, sessionId: currentSessionId })) {
         sendBtn.disabled = false;
         return;
       }
@@ -2086,14 +2086,14 @@
     }
 
     function sendPreset(cmd) {
-      wsSend({ action: 'inject', command: cmd });
+      wsSend({ action: 'inject', command: cmd, sessionId: currentSessionId });
       trackSentMessage(cmd);
       appendMessage({ type: 'user', content: cmd });
       showToast('Sent!', 'success');
     }
 
     function sendEscape() {
-      wsSend({ action: 'escape' });
+      wsSend({ action: 'escape', sessionId: currentSessionId });
       showToast('Cancelled', 'success');
     }
 
@@ -2657,7 +2657,7 @@
       navigator.vibrate?.(50);
 
       // Send response
-      const success = wsSend({ action: 'inject', command: response });
+      const success = wsSend({ action: 'inject', command: response, sessionId: currentSessionId });
 
       if (success) {
         trackSentMessage(response);
