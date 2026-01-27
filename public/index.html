@@ -1084,6 +1084,8 @@
     let reconnectTimeout = null;
     let reconnectAttempts = 0;
     let pingTimeout = null;
+    let pingInterval = null;
+    const PING_INTERVAL_MS = 15000;           // Heartbeat every 15 seconds
     const MAX_RECONNECT_DELAY = 30000;
     let toastTimeout = null;
     let ws = null;
@@ -1382,6 +1384,10 @@
         clearTimeout(pingTimeout);
         pingTimeout = null;
       }
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
       safeRemoveItem(sessionStorage, 'claude_remote_token');
       authToken = '';
       // Reset session state
@@ -1428,6 +1434,8 @@
     function forceReconnect() {
       if (pingTimeout) clearTimeout(pingTimeout);
       pingTimeout = null;
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = null;
       if (ws) {
         ws.onclose = null;
         ws.onerror = null;
@@ -1474,6 +1482,10 @@
             statusDot.classList.remove('reconnecting');
             statusDot.classList.add('connected');
             reconnectAttempts = 0;
+
+            // Start heartbeat to detect dead connections
+            if (pingInterval) clearInterval(pingInterval);
+            pingInterval = setInterval(() => checkConnectionHealth(), PING_INTERVAL_MS);
 
             // Re-watch session if this was a reconnect
             if (pending.reconnectSession) {
