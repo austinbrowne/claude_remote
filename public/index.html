@@ -2332,13 +2332,17 @@
           span.textContent = span.textContent.replace(/^[☐☑] /, isSelected ? '☑ ' : '☐ ');
         }
       } else {
-        // Single select - deselect others first
+        // Single select - toggle if clicking same option, otherwise switch
+        const wasSelected = el.classList.contains('selected');
         document.querySelectorAll('.prompt-option').forEach(o => {
           o.classList.remove('selected');
           o.setAttribute('aria-checked', 'false');
         });
-        el.classList.add('selected');
-        el.setAttribute('aria-checked', 'true');
+        if (!wasSelected) {
+          el.classList.add('selected');
+          el.setAttribute('aria-checked', 'true');
+        }
+        // If wasSelected, clicking again deselects it (allows freeform input)
       }
     }
 
