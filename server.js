@@ -386,8 +386,15 @@ async function watchSession(sessionId) {
     logsDirWatcher,
     session,
     lastPosition,
-    lastStatus: initialStatus
+    lastStatus: initialStatus,
+    subagentWatchers: new Map(),  // Track subagent file watchers
+    subagentPositions: new Map(), // Track read positions per subagent
+    subagentTimeouts: new Map()   // Track inactivity timeouts per subagent
   });
+
+  // Watch for subagents in {sessionDir}/subagents/
+  const subagentsDir = path.join(logsDir, sessionId, 'subagents');
+  watchSubagentsDirectory(sessionId, subagentsDir);
 
   console.log(`[Session] Now watching: ${session.name} -> ${session.logFile}`);
   
@@ -396,10 +403,226 @@ async function watchSession(sessionId) {
 
 function unwatchSession(sessionId) {
   if (activeSessions.has(sessionId)) {
-    const { watcher, logsDirWatcher } = activeSessions.get(sessionId);
-    watcher.close();
-    logsDirWatcher?.close();
+    const sessionData = activeSessions.get(sessionId);
+    sessionData.watcher.close();
+    sessionData.logsDirWatcher?.close();
+    sessionData.subagentsDirWatcher?.close();
+    sessionData.subagentsParentWatcher?.close();
+
+    // Clean up subagent watchers
+    sessionData.subagentWatchers?.forEach((watcher, agentId) => {
+      watcher.close();
+      console.log(`[Subagent] Stopped watching: ${agentId}`);
+    });
+    sessionData.subagentTimeouts?.forEach(timeout => clearTimeout(timeout));
+
     activeSessions.delete(sessionId);
+  }
+}
+
+// ============================================
+// Subagent Watching
+// ============================================
+
+const SUBAGENT_IDLE_TIMEOUT = 30000; // 30 seconds of inactivity = stopped
+
+function watchSubagentsDirectory(sessionId, subagentsDir) {
+  // Check if directory exists first
+  fsp.access(subagentsDir).then(() => {
+    // Directory exists, scan for existing subagent files
+    fsp.readdir(subagentsDir).then(files => {
+      files.filter(f => f.endsWith('.jsonl')).forEach(file => {
+        const agentId = path.basename(file, '.jsonl').replace('agent-', '');
+        const filePath = path.join(subagentsDir, file);
+        watchSubagent(sessionId, agentId, filePath);
+      });
+    }).catch(() => {});
+
+    // Watch for new subagent files
+    const subagentsDirWatcher = chokidar.watch(subagentsDir, {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }
+    });
+
+    subagentsDirWatcher.on('add', (filePath) => {
+      if (filePath.endsWith('.jsonl')) {
+        const agentId = path.basename(filePath, '.jsonl').replace('agent-', '');
+        watchSubagent(sessionId, agentId, filePath);
+      }
+    });
+
+    // Store watcher for cleanup
+    const sessionData = activeSessions.get(sessionId);
+    if (sessionData) {
+      sessionData.subagentsDirWatcher = subagentsDirWatcher;
+    }
+  }).catch(() => {
+    // Directory doesn't exist yet - watch parent for its creation
+    const parentDir = path.dirname(subagentsDir);
+    const parentWatcher = chokidar.watch(parentDir, {
+      persistent: true,
+      ignoreInitial: true,
+      depth: 0
+    });
+
+    parentWatcher.on('addDir', (dirPath) => {
+      if (dirPath === subagentsDir) {
+        parentWatcher.close();
+        watchSubagentsDirectory(sessionId, subagentsDir);
+      }
+    });
+
+    const sessionData = activeSessions.get(sessionId);
+    if (sessionData) {
+      sessionData.subagentsParentWatcher = parentWatcher;
+    }
+  });
+}
+
+async function watchSubagent(sessionId, agentId, logFile) {
+  const sessionData = activeSessions.get(sessionId);
+  if (!sessionData) return;
+
+  // Already watching this subagent
+  if (sessionData.subagentWatchers.has(agentId)) return;
+
+  console.log(`[Subagent] Now watching: ${agentId} -> ${logFile}`);
+
+  // Initialize read position
+  let lastPosition = 0;
+  try {
+    const stats = await fsp.stat(logFile);
+    // For new subagents, start from 0 to catch all output
+    // (unlike main session where we skip to end)
+    lastPosition = 0;
+  } catch (e) {
+    // File might not exist yet
+  }
+  sessionData.subagentPositions.set(agentId, lastPosition);
+
+  // Broadcast subagent start
+  broadcastToClients({
+    type: 'subagent_start',
+    sessionId,
+    agentId,
+    timestamp: Date.now()
+  });
+
+  // Set up file watcher
+  const watcher = chokidar.watch(logFile, {
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }
+  });
+
+  watcher.on('change', async (filePath) => {
+    try {
+      const stats = await fsp.stat(filePath);
+      let position = sessionData.subagentPositions.get(agentId) || 0;
+
+      // Handle truncation
+      if (stats.size < position) {
+        position = 0;
+      }
+
+      if (stats.size > position) {
+        const bytesToRead = Math.min(stats.size - position, MAX_READ_SIZE);
+        const fh = await fsp.open(filePath, 'r');
+        const buffer = Buffer.alloc(bytesToRead);
+        await fh.read(buffer, 0, bytesToRead, position);
+        await fh.close();
+
+        const newContent = buffer.toString('utf8');
+        const lastNewlineIndex = newContent.lastIndexOf('\n');
+        if (lastNewlineIndex === -1) return;
+
+        const completeContent = newContent.substring(0, lastNewlineIndex);
+        const lines = completeContent.split('\n').filter(l => l.trim());
+
+        for (const line of lines) {
+          try {
+            const entry = JSON.parse(line);
+            const parsed = parseLogEntry(entry);
+            if (parsed) {
+              const items = Array.isArray(parsed) ? parsed : [parsed];
+              for (const item of items) {
+                // Add subagent context to the item
+                item.subagentId = agentId;
+                console.log(`[Subagent ${agentId}] ${item.type}`);
+                broadcastToClients({
+                  type: 'subagent_output',
+                  sessionId,
+                  agentId,
+                  data: item
+                });
+              }
+            }
+          } catch (e) {
+            // Skip invalid JSON
+          }
+        }
+
+        sessionData.subagentPositions.set(agentId, position + lastNewlineIndex + 1);
+
+        // Reset idle timeout
+        resetSubagentIdleTimeout(sessionId, agentId);
+      }
+    } catch (e) {
+      console.error(`[Subagent ${agentId}] Error:`, e.message);
+    }
+  });
+
+  // Also trigger initial read to catch existing content
+  watcher.emit('change', logFile);
+
+  sessionData.subagentWatchers.set(agentId, watcher);
+
+  // Set initial idle timeout
+  resetSubagentIdleTimeout(sessionId, agentId);
+}
+
+function resetSubagentIdleTimeout(sessionId, agentId) {
+  const sessionData = activeSessions.get(sessionId);
+  if (!sessionData) return;
+
+  // Clear existing timeout
+  const existingTimeout = sessionData.subagentTimeouts.get(agentId);
+  if (existingTimeout) {
+    clearTimeout(existingTimeout);
+  }
+
+  // Set new timeout
+  const timeout = setTimeout(() => {
+    stopSubagent(sessionId, agentId);
+  }, SUBAGENT_IDLE_TIMEOUT);
+
+  sessionData.subagentTimeouts.set(agentId, timeout);
+}
+
+function stopSubagent(sessionId, agentId) {
+  const sessionData = activeSessions.get(sessionId);
+  if (!sessionData) return;
+
+  const watcher = sessionData.subagentWatchers.get(agentId);
+  if (watcher) {
+    watcher.close();
+    sessionData.subagentWatchers.delete(agentId);
+    sessionData.subagentPositions.delete(agentId);
+
+    const timeout = sessionData.subagentTimeouts.get(agentId);
+    if (timeout) {
+      clearTimeout(timeout);
+      sessionData.subagentTimeouts.delete(agentId);
+    }
+
+    console.log(`[Subagent ${agentId}] Stopped (idle timeout)`);
+
+    broadcastToClients({
+      type: 'subagent_stop',
+      sessionId,
+      agentId,
+      timestamp: Date.now()
+    });
   }
 }
 

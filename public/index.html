@@ -121,6 +121,72 @@
     .icon-btn:active { transform: scale(0.95); }
     .icon-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
+    /* Subagent Indicator */
+    .subagent-indicator {
+      position: relative;
+      padding: 4px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--tool-msg);
+      border-radius: 16px;
+      font-size: 0.8rem;
+      color: var(--tool-msg);
+      cursor: pointer;
+    }
+    .subagent-indicator.hidden { display: none; }
+    .subagent-badge {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .subagent-list {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      min-width: 200px;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .subagent-indicator:hover .subagent-list,
+    .subagent-indicator:focus .subagent-list {
+      display: block;
+    }
+    .subagent-item {
+      padding: 6px 8px;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .subagent-item:last-child { border-bottom: none; }
+
+    /* Subagent message styling */
+    .message.subagent-message {
+      opacity: 0.8;
+      border-left: 2px solid var(--tool-msg);
+      padding-left: 8px;
+    }
+    .subagent-prefix {
+      color: var(--tool-msg);
+      font-weight: 600;
+      font-size: 0.85em;
+    }
+
+    /* Subagent context in prompt cards */
+    .subagent-context {
+      background: var(--bg-tertiary);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--tool-msg);
+      margin-bottom: 10px;
+      border-left: 3px solid var(--tool-msg);
+    }
+
     /* Auth Screen */
     .auth-screen {
       flex: 1;
@@ -886,6 +952,11 @@
           <option value="">Select session...</option>
         </select>
       </div>
+      <!-- Subagent Indicator -->
+      <div class="subagent-indicator hidden" id="subagentIndicator">
+        <span class="subagent-badge">🤖 <span class="subagent-count">0</span></span>
+        <div class="subagent-list"></div>
+      </div>
       <div class="header-actions">
         <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">🔄</button>
         <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">🔇</button>
@@ -1071,6 +1142,9 @@
       lastPermissionCardTime: 0,   // Timestamp of last permission card shown
       lastToolLanguage: 'plaintext' // Last tool language for syntax highlighting
     };
+
+    // Active subagents: agentId -> { status, startTime, description, lastActivity }
+    const activeSubagents = new Map();
 
     // ============================================
     // WebSocket Send Helper
@@ -1534,6 +1608,25 @@
           if (msg.sessionId === currentSessionId && msg.status === 'processing' && currentPrompt) {
             hidePromptCard();
           }
+          break;
+
+        case 'subagent_start':
+          activeSubagents.set(msg.agentId, {
+            status: 'running',
+            startTime: msg.timestamp,
+            description: '',
+            lastActivity: Date.now()
+          });
+          updateSubagentIndicator();
+          break;
+
+        case 'subagent_output':
+          handleSubagentOutput(msg.agentId, msg.data);
+          break;
+
+        case 'subagent_stop':
+          activeSubagents.delete(msg.agentId);
+          updateSubagentIndicator();
           break;
 
         case 'inject_result':
@@ -2129,7 +2222,7 @@
       return null;
     }
 
-    function showStructuredPrompt(questions) {
+    function showStructuredPrompt(questions, subagentId = null) {
       // Defensive checks
       if (!Array.isArray(questions) || questions.length === 0) return;
       const q = questions[0];
@@ -2139,6 +2232,7 @@
         type: 'multiChoice',
         text: q.question,
         multiSelect: q.multiSelect === true,  // Pass through multi-select flag
+        subagentId: subagentId,               // Track which subagent needs response
         options: q.options.map((opt, i) => ({
           num: (i + 1).toString(),
           text: opt.description ? `${opt.label}: ${opt.description}` : opt.label
@@ -2170,10 +2264,15 @@
 
       switch (prompt.type) {
         case 'permission':
-          content.innerHTML = `<p>${escapeHtml(question)}</p>`;
-          if (prompt.command) {
-            content.innerHTML += `<div class="prompt-command-preview"><code>${escapeHtml(prompt.command)}</code></div>`;
+          let permissionHtml = '';
+          if (prompt.subagentId) {
+            permissionHtml += `<div class="subagent-context">🤖 Subagent: ${prompt.subagentId.substring(0, 7)}</div>`;
           }
+          permissionHtml += `<p>${escapeHtml(question)}</p>`;
+          if (prompt.command) {
+            permissionHtml += `<div class="prompt-command-preview"><code>${escapeHtml(prompt.command)}</code></div>`;
+          }
+          content.innerHTML = permissionHtml;
           const yesClass = prompt.isDestructive ? 'secondary' : 'primary';
           const noClass = prompt.isDestructive ? 'primary destructive' : 'secondary';
           actions.innerHTML = `
@@ -2193,7 +2292,9 @@
           break;
 
         case 'multiChoice':
-          content.innerHTML = `<p>${escapeHtml(question)}</p>`;
+          let multiHtml = prompt.subagentId ? `<div class="subagent-context">🤖 Subagent: ${prompt.subagentId.substring(0, 7)}</div>` : '';
+          multiHtml += `<p>${escapeHtml(question)}</p>`;
+          content.innerHTML = multiHtml;
           const useDropdown = prompt.options.length > 5 && !prompt.multiSelect;
           const isMulti = prompt.multiSelect;
           if (useDropdown) {
@@ -2416,6 +2517,117 @@
       const currentCount = document.querySelectorAll('.message').length;
       if (currentCount > promptMessageIndex + 2) {
         document.getElementById('promptCard').classList.add('stale');
+      }
+    }
+
+    // ============================================
+    // Subagent Handling
+    // ============================================
+    function updateSubagentIndicator() {
+      const indicator = document.getElementById('subagentIndicator');
+      const count = activeSubagents.size;
+
+      if (count === 0) {
+        indicator.classList.add('hidden');
+      } else {
+        indicator.classList.remove('hidden');
+        indicator.querySelector('.subagent-count').textContent = count;
+
+        // Build list of active subagents
+        const list = indicator.querySelector('.subagent-list');
+        list.innerHTML = '';
+        activeSubagents.forEach((data, agentId) => {
+          const item = document.createElement('div');
+          item.className = 'subagent-item';
+          const statusIcon = data.status === 'waiting' ? '⏳' : '🔄';
+          item.textContent = `${statusIcon} ${agentId.substring(0, 7)}: ${data.description || data.status}`;
+          list.appendChild(item);
+        });
+      }
+    }
+
+    function handleSubagentOutput(agentId, data) {
+      // Update subagent activity tracking
+      const subagent = activeSubagents.get(agentId);
+      if (subagent) {
+        subagent.lastActivity = Date.now();
+
+        // Update description based on message type
+        if (data.type === 'tool') {
+          subagent.description = `Using ${data.tool}`;
+          subagent.status = 'running';
+        } else if (data.type === 'assistant') {
+          subagent.description = data.content?.substring(0, 30) + '...' || 'Thinking...';
+        }
+
+        // Check if it's waiting for input
+        if (data.type === 'permission_request' || data.type === 'ask_user_question') {
+          subagent.status = 'waiting';
+          subagent.description = 'Waiting for input';
+        }
+
+        updateSubagentIndicator();
+      }
+
+      // Handle subagent permission requests
+      if (data.type === 'permission_request') {
+        const input = data.input || {};
+        const tool = data.tool;
+        const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
+        const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
+
+        showPromptCard({
+          type: 'permission',
+          text: `Allow ${tool}?`,
+          command: cmd,
+          isDestructive: isDestructive,
+          subagentId: agentId
+        });
+        return;
+      }
+
+      // Handle subagent AskUserQuestion
+      if (data.type === 'ask_user_question') {
+        showStructuredPrompt(data.questions, agentId);
+        return;
+      }
+
+      // Append subagent messages to output (with prefix)
+      if (data.type === 'tool' || data.type === 'assistant' || data.type === 'tool_result') {
+        appendSubagentMessage(agentId, data);
+      }
+    }
+
+    function appendSubagentMessage(agentId, data) {
+      const outputArea = document.getElementById('outputArea');
+      const div = document.createElement('div');
+      div.className = `message ${data.type} subagent-message`;
+      div.dataset.subagent = agentId;
+
+      const prefix = document.createElement('span');
+      prefix.className = 'subagent-prefix';
+      prefix.textContent = `[${agentId.substring(0, 7)}] `;
+
+      if (data.type === 'assistant') {
+        div.appendChild(prefix);
+        div.appendChild(document.createTextNode(data.content));
+      } else if (data.type === 'tool') {
+        div.appendChild(prefix);
+        const toolSpan = document.createElement('span');
+        toolSpan.className = 'tool-name';
+        toolSpan.textContent = data.tool;
+        div.appendChild(toolSpan);
+      } else if (data.type === 'tool_result') {
+        div.appendChild(prefix);
+        div.appendChild(document.createTextNode(data.result?.substring(0, 100) || '(completed)'));
+      }
+
+      outputArea.appendChild(div);
+      outputArea.scrollTop = outputArea.scrollHeight;
+
+      // Trim messages if too many
+      while (outputArea.children.length > MAX_MESSAGES) {
+        outputArea.removeChild(outputArea.firstChild);
       }
     }
 

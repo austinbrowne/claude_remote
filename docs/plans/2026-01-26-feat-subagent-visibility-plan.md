@@ -259,24 +259,24 @@ function respondToPrompt(response) {
 
 ### Server (server.js)
 
-- [ ] Add `subagentWatchers` Map to session data structure
-- [ ] Watch `{sessionDir}/subagents/` for new files
-- [ ] Create `watchSubagent(sessionId, agentId, logFile)` function
-- [ ] Broadcast `subagent_start` when new agent file detected
-- [ ] Broadcast `subagent_output` for each parsed message
-- [ ] Detect and broadcast `subagent_stop` (timeout or final message)
-- [ ] Clean up subagent watchers on session switch/disconnect
-- [ ] Handle `inject` action with `subagentId` for routing
+- [x] Add `subagentWatchers` Map to session data structure
+- [x] Watch `{sessionDir}/subagents/` for new files
+- [x] Create `watchSubagent(sessionId, agentId, logFile)` function
+- [x] Broadcast `subagent_start` when new agent file detected
+- [x] Broadcast `subagent_output` for each parsed message
+- [x] Detect and broadcast `subagent_stop` (timeout or final message)
+- [x] Clean up subagent watchers on session switch/disconnect
+- [x] Handle `inject` action with `subagentId` for routing (N/A - Claude Code handles routing)
 
 ### Client (public/index.html)
 
-- [ ] Add `activeSubagents` Map state
-- [ ] Handle `subagent_start`, `subagent_output`, `subagent_stop` messages
-- [ ] Add subagent indicator UI component
-- [ ] Update `showPromptCard` to accept `subagentId`
-- [ ] Update `respondToPrompt` to route to correct subagent
-- [ ] Add CSS for subagent indicator and list
-- [ ] Show subagent prefix on tool/assistant messages
+- [x] Add `activeSubagents` Map state
+- [x] Handle `subagent_start`, `subagent_output`, `subagent_stop` messages
+- [x] Add subagent indicator UI component
+- [x] Update `showPromptCard` to accept `subagentId`
+- [x] Update `respondToPrompt` to route to correct subagent (N/A - Claude Code handles routing)
+- [x] Add CSS for subagent indicator and list
+- [x] Show subagent prefix on tool/assistant messages
 
 ## Files to Modify
 
