@@ -1145,6 +1145,8 @@
 
     // Active subagents: agentId -> { status, startTime, description, lastActivity }
     const activeSubagents = new Map();
+    // Pending subagent permissions: agentId -> { timeout, card }
+    const pendingSubagentPermissions = new Map();
 
     // ============================================
     // WebSocket Send Helper
@@ -2569,20 +2571,45 @@
         updateSubagentIndicator();
       }
 
-      // Handle subagent permission requests
+      // Handle tool_result FIRST - cancel pending permission or dismiss shown card
+      if (data.type === 'tool_result') {
+        // Cancel pending permission card (auto-approved before delay)
+        const pending = pendingSubagentPermissions.get(agentId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          pendingSubagentPermissions.delete(agentId);
+        }
+        // Dismiss shown permission card
+        if (currentPrompt?.type === 'permission' && currentPrompt?.subagentId === agentId) {
+          hidePromptCard();
+        }
+        return;
+      }
+
+      // Handle subagent permission requests with delay (allows auto-approve to cancel)
       if (data.type === 'permission_request') {
         const input = data.input || {};
         const tool = data.tool;
         const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
         const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
-        showPromptCard({
-          type: 'permission',
-          text: `Allow ${tool}?`,
-          command: cmd,
-          isDestructive: isDestructive,
-          subagentId: agentId
-        });
+        // Cancel any existing pending permission for this subagent
+        const existing = pendingSubagentPermissions.get(agentId);
+        if (existing) clearTimeout(existing.timeout);
+
+        // Delay showing card - if tool_result comes quickly, it was auto-approved
+        const timeout = setTimeout(() => {
+          pendingSubagentPermissions.delete(agentId);
+          showPromptCard({
+            type: 'permission',
+            text: `Allow ${tool}?`,
+            command: cmd,
+            isDestructive: isDestructive,
+            subagentId: agentId
+          });
+        }, PERMISSION_CARD_DELAY_MS);
+
+        pendingSubagentPermissions.set(agentId, { timeout, tool, cmd, isDestructive });
         return;
       }
 
@@ -2592,10 +2619,7 @@
         return;
       }
 
-      // Append subagent messages to output (with prefix)
-      if (data.type === 'tool' || data.type === 'assistant' || data.type === 'tool_result') {
-        appendSubagentMessage(agentId, data);
-      }
+      // Subagent activity shown in indicator only - don't spam output
     }
 
     function appendSubagentMessage(agentId, data) {

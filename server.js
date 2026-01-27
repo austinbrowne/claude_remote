@@ -430,11 +430,12 @@ function watchSubagentsDirectory(sessionId, subagentsDir) {
   // Check if directory exists first
   fsp.access(subagentsDir).then(() => {
     // Directory exists, scan for existing subagent files
+    // For existing files, start from end (don't replay old prompts)
     fsp.readdir(subagentsDir).then(files => {
       files.filter(f => f.endsWith('.jsonl')).forEach(file => {
         const agentId = path.basename(file, '.jsonl').replace('agent-', '');
         const filePath = path.join(subagentsDir, file);
-        watchSubagent(sessionId, agentId, filePath);
+        watchSubagent(sessionId, agentId, filePath, false); // existing file
       });
     }).catch(() => {});
 
@@ -448,7 +449,7 @@ function watchSubagentsDirectory(sessionId, subagentsDir) {
     subagentsDirWatcher.on('add', (filePath) => {
       if (filePath.endsWith('.jsonl')) {
         const agentId = path.basename(filePath, '.jsonl').replace('agent-', '');
-        watchSubagent(sessionId, agentId, filePath);
+        watchSubagent(sessionId, agentId, filePath, true); // new file
       }
     });
 
@@ -480,22 +481,21 @@ function watchSubagentsDirectory(sessionId, subagentsDir) {
   });
 }
 
-async function watchSubagent(sessionId, agentId, logFile) {
+async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   const sessionData = activeSessions.get(sessionId);
   if (!sessionData) return;
 
   // Already watching this subagent
   if (sessionData.subagentWatchers.has(agentId)) return;
 
-  console.log(`[Subagent] Now watching: ${agentId} -> ${logFile}`);
+  console.log(`[Subagent] Now watching: ${agentId} -> ${logFile} (${isNew ? 'new' : 'existing'})`);
 
-  // Initialize read position
+  // Initialize read position - ALWAYS start from end
+  // Subagent history isn't useful - we only want live permissions waiting for input
   let lastPosition = 0;
   try {
     const stats = await fsp.stat(logFile);
-    // For new subagents, start from 0 to catch all output
-    // (unlike main session where we skip to end)
-    lastPosition = 0;
+    lastPosition = stats.size; // Start from end, only process new content
   } catch (e) {
     // File might not exist yet
   }
@@ -572,8 +572,7 @@ async function watchSubagent(sessionId, agentId, logFile) {
     }
   });
 
-  // Also trigger initial read to catch existing content
-  watcher.emit('change', logFile);
+  // No initial read - we start from end of file, only want live content
 
   sessionData.subagentWatchers.set(agentId, watcher);
 
