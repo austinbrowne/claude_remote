@@ -1546,9 +1546,23 @@
     // ============================================
     // Reconnection Logic (iOS Safari frozen socket fix)
     // ============================================
+    let lastVisibleTime = Date.now();
+
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && authToken) {
-        checkConnectionHealth();
+        const now = Date.now();
+        const backgroundDuration = now - lastVisibleTime;
+
+        // If backgrounded for more than 5 seconds, force full reconnect
+        // This prevents iOS Safari from sending stale buffered messages
+        if (backgroundDuration > 5000) {
+          console.log(`[Visibility] Backgrounded for ${backgroundDuration}ms, forcing reconnect`);
+          forceReconnect();
+        } else {
+          checkConnectionHealth();
+        }
+      } else if (document.visibilityState === 'hidden') {
+        lastVisibleTime = Date.now();
       }
     }
 
@@ -1943,19 +1957,46 @@
       outputArea.scrollTop = outputArea.scrollHeight;
 
       // Check if last history item needs a prompt (permission or question)
+      // But ONLY if there's no user message after it (meaning it's unanswered)
       if (history.length > 0) {
         const last = history[history.length - 1];
-        if (last.type === 'ask_user_question' && last.questions) {
-          showStructuredPrompt(last.questions);
-        } else if (last.type === 'permission_request') {
-          // Only show if session is waiting (not already executing)
-          const sessionOption = document.querySelector(`#sessionSelector option[value="${currentSessionId}"]`);
-          if (sessionOption?.dataset.status === 'waiting') {
-            const input = last.input || {};
-            const tool = last.tool;
-            const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((input.command || '').toLowerCase());
-            pending.lastPermissionCardTime = Date.now();
-            showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive });
+
+        // Find index of last prompt-like message
+        let lastPromptIndex = -1;
+        for (let i = history.length - 1; i >= 0; i--) {
+          const entry = history[i];
+          if (entry.type === 'ask_user_question' || entry.type === 'permission_request' ||
+              (entry.type === 'assistant' && detectPromptType(entry.content || ''))) {
+            lastPromptIndex = i;
+            break;
+          }
+        }
+
+        // Check if there's a user message after the last prompt (meaning it's answered)
+        let hasUserResponseAfterPrompt = false;
+        if (lastPromptIndex >= 0) {
+          for (let i = lastPromptIndex + 1; i < history.length; i++) {
+            if (history[i].type === 'user') {
+              hasUserResponseAfterPrompt = true;
+              break;
+            }
+          }
+        }
+
+        // Only show prompt if unanswered
+        if (!hasUserResponseAfterPrompt) {
+          if (last.type === 'ask_user_question' && last.questions) {
+            showStructuredPrompt(last.questions);
+          } else if (last.type === 'permission_request') {
+            // Only show if session is waiting (not already executing)
+            const sessionOption = document.querySelector(`#sessionSelector option[value="${currentSessionId}"]`);
+            if (sessionOption?.dataset.status === 'waiting') {
+              const input = last.input || {};
+              const tool = last.tool;
+              const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((input.command || '').toLowerCase());
+              pending.lastPermissionCardTime = Date.now();
+              showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive });
+            }
           }
         }
       }
