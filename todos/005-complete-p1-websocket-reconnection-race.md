@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 priority: p1
 issue_id: "005"
 tags: [code-review, frontend, race-condition]
