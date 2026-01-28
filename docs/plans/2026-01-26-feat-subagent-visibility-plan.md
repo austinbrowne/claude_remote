@@ -293,12 +293,12 @@ function respondToPrompt(response) {
 
 ## Acceptance Criteria
 
-- [ ] Can see count of active subagents in header
-- [ ] Can see individual subagent status (running, waiting for input)
-- [ ] Subagent permission prompts appear on mobile
-- [ ] Can respond to subagent permissions from mobile
-- [ ] Subagent tool calls visible in output (with agent prefix)
-- [ ] Subagent indicator disappears when all complete
+- [x] Can see count of active subagents in header
+- [x] Can see individual subagent status (running, waiting for input)
+- [x] Subagent permission prompts appear on mobile
+- [x] Can respond to subagent permissions from mobile
+- [x] Subagent tool calls visible in output (with agent prefix) - Changed: now shown only in indicator badge, not in output stream
+- [x] Subagent indicator disappears when all complete
 
 ## Testing
 

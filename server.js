@@ -189,6 +189,20 @@ function getActiveClaude() {
     });
   });
 }
+
+// Get git branch for a directory (returns null if not a git repo)
+function getGitBranch(cwd) {
+  return new Promise((resolve) => {
+    exec('git rev-parse --abbrev-ref HEAD', { cwd }, (err, stdout) => {
+      if (err || !stdout.trim()) {
+        resolve(null);
+        return;
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
+
 async function discoverSessions() {
   const sessions = [];
 
@@ -247,11 +261,17 @@ async function discoverSessions() {
     // CLAUDE_DIR doesn't exist yet - no sessions
   }
 
+  // Track assigned session IDs to avoid duplicates when multiple processes share cwd
+  const assignedSessionIds = new Set();
+
   // For each active Claude process, create an entry
   for (const proc of activeProcesses) {
     // Use directory name as stable identifier (Claude overwrites iTerm tab titles)
     const dirName = path.basename(proc.cwd) || `Session ${proc.tty}`;
     const project = cwdToProject[proc.cwd];
+
+    // Get git branch (runs in parallel with file checks below)
+    const branchPromise = getGitBranch(proc.cwd);
 
     // Find session file if project exists
     let logFile = null;
@@ -277,19 +297,26 @@ async function discoverSessions() {
         .sort((a, b) => new Date(b.modified || b.fileMtime) - new Date(a.modified || a.fileMtime));
 
       if (entries.length > 0) {
-        const entry = entries[0];
-        logFile = entry.fullPath;
-        sessionId = entry.sessionId;
-        status = await getSessionStatus(entry.fullPath);
-        lastActive = entry.modified || new Date(entry.fileMtime).toISOString();
+        // Find first unassigned session (handles multiple processes in same cwd)
+        const entry = entries.find(e => !assignedSessionIds.has(e.sessionId));
+        if (entry) {
+          logFile = entry.fullPath;
+          sessionId = entry.sessionId;
+          assignedSessionIds.add(sessionId);
+          status = await getSessionStatus(entry.fullPath);
+          lastActive = entry.modified || new Date(entry.fileMtime).toISOString();
+        }
       }
     }
+
+    const branch = await branchPromise;
 
     sessions.push({
       id: sessionId,
       name: dirName,
       status: status,
       cwd: proc.cwd,
+      branch: branch,
       lastActive: lastActive,
       logFile: logFile,
       tty: proc.tty,
