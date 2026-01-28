@@ -1546,10 +1546,6 @@
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && authToken) {
         checkConnectionHealth();
-        // Request catch-up for any missed messages while backgrounded
-        if (currentSessionId && ws?.readyState === WebSocket.OPEN) {
-          wsSend({ action: 'catch_up', sessionId: currentSessionId });
-        }
       }
     }
 
@@ -1920,6 +1916,13 @@
 
     function refreshSessions() {
       wsSend({ action: 'refresh_sessions' });
+      // Hard reset current session (like switching away and back)
+      if (currentSessionId) {
+        const savedSession = currentSessionId;
+        currentSessionId = null;
+        sessionState = SESSION_STATE.IDLE;
+        selectSession(savedSession);
+      }
       showToast('Refreshed', 'success');
     }
 
