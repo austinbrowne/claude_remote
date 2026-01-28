@@ -1202,7 +1202,20 @@ async function handleClientMessage(ws, msg) {
         }
       })();
       break;
-      
+
+    case 'mode_toggle':
+      // Send Shift+Tab to cycle modes (requires activating iTerm)
+      (async () => {
+        try {
+          await sendModeToggle();
+          ws.send(JSON.stringify({ type: 'mode_toggle_result', success: true }));
+        } catch (err) {
+          console.error(`[Mode Toggle] Failed: ${err.message}`);
+          ws.send(JSON.stringify({ type: 'mode_toggle_result', success: false, error: err.message }));
+        }
+      })();
+      break;
+
     case 'update_settings':
       Object.assign(clientData.settings, msg.settings);
       break;
@@ -1382,6 +1395,29 @@ function sendEscapeKeyToTty(tty) {
         reject(new Error(`Session with TTY ${tty} not found`));
       } else {
         console.log(`[Inject TTY ${tty}] Escape key`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Send Shift+Tab to toggle mode (activates iTerm - no background option)
+function sendModeToggle() {
+  return new Promise((resolve, reject) => {
+    const appleScript = `
+      tell application "iTerm2" to activate
+      delay 0.1
+      tell application "System Events"
+        key code 48 using shift down
+      end tell
+    `;
+
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (error) => {
+      if (error) {
+        console.error('[Mode Toggle] Failed:', error.message);
+        reject(error);
+      } else {
+        console.log('[Mode Toggle] Sent Shift+Tab');
         resolve();
       }
     });

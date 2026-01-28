@@ -1101,6 +1101,8 @@
 
     <div class="input-area">
       <div class="quick-actions">
+        <button class="quick-btn" onclick="sendPreset('/plan')">📋 Plan</button>
+        <button class="quick-btn" onclick="sendModeToggle()">✏️ Edits</button>
         <button class="quick-btn" onclick="sendPreset('/clear')">🧹 Clear</button>
         <button class="quick-btn" onclick="sendPreset('/compact')">📦 Compact</button>
         <button class="quick-btn" onclick="sendPreset('/status')">📊 Status</button>
@@ -2105,6 +2107,11 @@
     function sendEscape() {
       wsSend({ action: 'escape', sessionId: currentSessionId });
       showToast('Cancelled', 'success');
+    }
+
+    function sendModeToggle() {
+      wsSend({ action: 'mode_toggle', sessionId: currentSessionId });
+      showToast('Toggling mode...', 'success');
     }
 
     function handleKeyDown(event) {
