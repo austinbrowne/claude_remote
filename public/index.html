@@ -765,7 +765,7 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       margin-bottom: 8px;
-      max-height: 200px;
+      max-height: 50vh;
       overflow-y: auto;
       display: none;
       z-index: 50;
@@ -2157,12 +2157,14 @@
       { cmd: '/workflows:work', desc: 'Execute a plan' },
       { cmd: '/workflows:review', desc: 'Code review with agents' },
       { cmd: '/workflows:brainstorm', desc: 'Explore approaches' },
+      { cmd: '/workflows:compound', desc: 'Document a solved problem' },
       { cmd: '/commit', desc: 'Commit changes' },
       { cmd: '/commit-and-pr', desc: 'Commit and create PR' },
       { cmd: '/clear', desc: 'Clear conversation' },
       { cmd: '/compact', desc: 'Compact context' },
       { cmd: '/status', desc: 'Show status' },
       { cmd: '/help', desc: 'Show help' },
+      { cmd: '/plan', desc: 'Enter plan mode' },
       { cmd: '/explore', desc: 'Explore codebase' },
       { cmd: '/security-review', desc: 'Security checklist' },
       { cmd: '/generate-tests', desc: 'Generate tests' },
