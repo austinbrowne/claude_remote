@@ -1130,55 +1130,77 @@ async function handleClientMessage(ws, msg) {
       break;
 
     case 'inject':
-      // Get TTY from session for targeted injection (works on background tabs)
-      const injectSessionData = msg.sessionId ? activeSessions.get(msg.sessionId) : null;
-      const injectTty = injectSessionData?.session?.tty;
-
-      if (injectTty) {
-        injectCommandToTty(msg.command, injectTty).then(() => {
-          ws.send(JSON.stringify({ type: 'inject_result', success: true }));
-        }).catch(err => {
-          // Fallback to legacy if TTY injection fails
-          console.log(`[Inject] TTY injection failed, trying legacy: ${err.message}`);
-          injectCommandLegacy(msg.command).then(() => {
-            ws.send(JSON.stringify({ type: 'inject_result', success: true }));
-          }).catch(legacyErr => {
-            ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: legacyErr.message }));
-          });
-        });
-      } else {
-        // No TTY available, use legacy injection
-        injectCommandLegacy(msg.command).then(() => {
-          ws.send(JSON.stringify({ type: 'inject_result', success: true }));
-        }).catch(err => {
-          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
-        });
+      // Validate command input
+      if (typeof msg.command !== 'string' || msg.command.length === 0) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Command required' }));
+        break;
       }
+      if (msg.command.length > 10000) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Command too long (max 10000 chars)' }));
+        break;
+      }
+      // Use cached session first (fast), fall back to discovery (slow) if needed
+      (async () => {
+        try {
+          // Check cached activeSessions first
+          let injectTty = activeSessions.get(msg.sessionId)?.session?.tty;
+
+          // Fall back to discovery only if not in cache
+          if (!injectTty && msg.sessionId) {
+            const sessions = await discoverSessions();
+            const found = sessions.find(s => s.id === msg.sessionId);
+            injectTty = found?.tty;
+          }
+
+          if (injectTty) {
+            try {
+              await injectCommandToTty(msg.command, injectTty);
+              ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+            } catch (err) {
+              console.log(`[Inject] TTY injection failed, trying legacy: ${err.message}`);
+              await injectCommandLegacy(msg.command);
+              ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+            }
+          } else {
+            await injectCommandLegacy(msg.command);
+            ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+          }
+        } catch (err) {
+          console.error(`[Inject] Failed: ${err.message}`);
+          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
+        }
+      })();
       break;
 
     case 'escape':
-      // Get TTY from session for targeted escape (works on background tabs)
-      const escapeSessionData = msg.sessionId ? activeSessions.get(msg.sessionId) : null;
-      const escapeTty = escapeSessionData?.session?.tty;
+      // Use cached session first (fast), fall back to discovery (slow) if needed
+      (async () => {
+        try {
+          let escapeTty = activeSessions.get(msg.sessionId)?.session?.tty;
 
-      if (escapeTty) {
-        sendEscapeKeyToTty(escapeTty).then(() => {
-          ws.send(JSON.stringify({ type: 'escape_result', success: true }));
-        }).catch(err => {
-          // Fallback to legacy
-          sendEscapeKeyLegacy().then(() => {
+          if (!escapeTty && msg.sessionId) {
+            const sessions = await discoverSessions();
+            const found = sessions.find(s => s.id === msg.sessionId);
+            escapeTty = found?.tty;
+          }
+
+          if (escapeTty) {
+            try {
+              await sendEscapeKeyToTty(escapeTty);
+              ws.send(JSON.stringify({ type: 'escape_result', success: true }));
+            } catch (err) {
+              await sendEscapeKeyLegacy();
+              ws.send(JSON.stringify({ type: 'escape_result', success: true }));
+            }
+          } else {
+            await sendEscapeKeyLegacy();
             ws.send(JSON.stringify({ type: 'escape_result', success: true }));
-          }).catch(legacyErr => {
-            ws.send(JSON.stringify({ type: 'escape_result', success: false, error: legacyErr.message }));
-          });
-        });
-      } else {
-        sendEscapeKeyLegacy().then(() => {
-          ws.send(JSON.stringify({ type: 'escape_result', success: true }));
-        }).catch(err => {
+          }
+        } catch (err) {
+          console.error(`[Escape] Failed: ${err.message}`);
           ws.send(JSON.stringify({ type: 'escape_result', success: false, error: err.message }));
-        });
-      }
+        }
+      })();
       break;
       
     case 'update_settings':
@@ -1289,8 +1311,13 @@ function injectCommandToTty(command, tty) {
   }
 
   return new Promise((resolve, reject) => {
-    // Escape the command for AppleScript string
-    const escaped = command.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // Escape the command for AppleScript string (prevent injection)
+    const escaped = command
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\r/g, '\\r')
+      .replace(/\n/g, '\\n')
+      .replace(/\t/g, '\\t');
     const targetTty = `/dev/${tty}`;
 
     // Use iTerm's native write text command - works on any session without activation
@@ -1431,7 +1458,7 @@ app.get('/health', (req, res) => {
 // Detailed health requires authentication
 app.get('/health/detailed', async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (token !== AUTH_TOKEN) {
+  if (!secureCompare(token, AUTH_TOKEN)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   const sessions = await discoverSessions();

@@ -3034,39 +3034,6 @@
       // Subagent activity shown in indicator only - don't spam output
     }
 
-    function appendSubagentMessage(agentId, data) {
-      const outputArea = document.getElementById('outputArea');
-      const div = document.createElement('div');
-      div.className = `message ${data.type} subagent-message`;
-      div.dataset.subagent = agentId;
-
-      const prefix = document.createElement('span');
-      prefix.className = 'subagent-prefix';
-      prefix.textContent = `[${agentId.substring(0, 7)}] `;
-
-      if (data.type === 'assistant') {
-        div.appendChild(prefix);
-        div.appendChild(document.createTextNode(data.content));
-      } else if (data.type === 'tool') {
-        div.appendChild(prefix);
-        const toolSpan = document.createElement('span');
-        toolSpan.className = 'tool-name';
-        toolSpan.textContent = data.tool;
-        div.appendChild(toolSpan);
-      } else if (data.type === 'tool_result') {
-        div.appendChild(prefix);
-        div.appendChild(document.createTextNode(data.result?.substring(0, 100) || '(completed)'));
-      }
-
-      outputArea.appendChild(div);
-      outputArea.scrollTop = outputArea.scrollHeight;
-
-      // Trim messages if too many
-      while (outputArea.children.length > MAX_MESSAGES) {
-        outputArea.removeChild(outputArea.firstChild);
-      }
-    }
-
     // Voice integration for prompts
     function speakThenListen(text) {
       if (!settings.ttsEnabled || !synth) return;
