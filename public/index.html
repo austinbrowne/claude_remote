@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Claude">
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230d1117' width='100' height='100' rx='20'/><text y='.9em' font-size='80' x='50%' text-anchor='middle'>⚡</text></svg>">
+  <link rel="manifest" href="/manifest.json">
   <title>Claude Remote</title>
   <!-- Prism.js for syntax highlighting (lazy-loaded) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
@@ -1867,9 +1868,11 @@
         const option = document.createElement('option');
         option.value = session.id;
         option.dataset.status = session.status;
+        option.dataset.branch = session.branch || '';
         const icon = session.status === 'waiting' ? '🟠 ' :
                      session.status === 'processing' ? '🔵 ' : '';
-        option.textContent = icon + session.name;
+        const branchSuffix = session.branch ? ` (${session.branch})` : '';
+        option.textContent = icon + session.name + branchSuffix;
         selector.appendChild(option);
       });
 

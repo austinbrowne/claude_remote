@@ -1,0 +1,17 @@
+{
+  "name": "Claude Remote",
+  "short_name": "Claude",
+  "description": "Mobile companion for Claude Code sessions",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#6366f1",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
