@@ -1235,7 +1235,7 @@
       }
     }
 
-    let authToken = safeGetItem(sessionStorage, 'claude_remote_token', '');
+    let authToken = safeGetItem(localStorage, 'claude_remote_token', '');
     let settings = {
       ttsEnabled: safeGetItem(localStorage, 'tts_enabled') === 'true',
       speakTools: safeGetItem(localStorage, 'speak_tools') === 'true',
@@ -1525,7 +1525,7 @@
         clearInterval(pingInterval);
         pingInterval = null;
       }
-      safeRemoveItem(sessionStorage, 'claude_remote_token');
+      safeRemoveItem(localStorage, 'claude_remote_token');
       authToken = '';
       // Reset session state
       sessionState = SESSION_STATE.IDLE;
@@ -1612,7 +1612,7 @@
         case 'auth_result':
           if (msg.success) {
             // Save token only after successful auth
-            safeSetItem(sessionStorage, 'claude_remote_token', authToken);
+            safeSetItem(localStorage, 'claude_remote_token', authToken);
             document.getElementById('authScreen').classList.add('hidden');
             document.getElementById('mainApp').classList.add('active');
             const statusDot = document.getElementById('statusDot');
