@@ -570,16 +570,9 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
 
   console.log(`[Subagent] Now watching: ${agentId} -> ${logFile} (${isNew ? 'new' : 'existing'})`);
 
-  // Initialize read position - ALWAYS start from end
-  // Subagent history isn't useful - we only want live permissions waiting for input
-  let lastPosition = 0;
-  try {
-    const stats = await fsp.stat(logFile);
-    lastPosition = stats.size; // Start from end, only process new content
-  } catch (e) {
-    // File might not exist yet
-  }
-  sessionData.subagentPositions.set(agentId, lastPosition);
+  // Start from beginning to catch any content already written (fixes race condition
+  // where permission requests are written before watcher is set up)
+  sessionData.subagentPositions.set(agentId, 0);
 
   // Try to correlate with pending subagent description (within 10 seconds)
   let description = null;
@@ -692,9 +685,11 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
     }
   });
 
-  // No initial read - we start from end of file, only want live content
-
   sessionData.subagentWatchers.set(agentId, watcher);
+
+  // Do initial read to catch any content already in the file (fixes race condition)
+  // Trigger by emitting a synthetic change event
+  setTimeout(() => watcher.emit('change', logFile), 100);
 
   // Set initial idle timeout
   resetSubagentIdleTimeout(sessionId, agentId);
