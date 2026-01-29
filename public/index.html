@@ -202,12 +202,44 @@
       display: block;
     }
     .subagent-item {
-      padding: 8px 10px;
-      font-size: 13px;
-      color: var(--text-secondary);
+      padding: 10px 12px;
       border-bottom: 0.5px solid var(--separator);
     }
     .subagent-item:last-child { border-bottom: none; }
+
+    .subagent-item-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .subagent-status {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .subagent-status.running { background: var(--success); }
+    .subagent-status.waiting { background: var(--warning); }
+    .subagent-status.complete { background: var(--text-muted); }
+
+    .subagent-name {
+      font-weight: 500;
+      font-size: 14px;
+      flex: 1;
+    }
+
+    .subagent-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .subagent-tool {
+      color: var(--tool-msg);
+    }
 
     /* Subagent message styling */
     .message.subagent-message {
@@ -267,57 +299,49 @@
       font-size: 12px;
     }
 
-    /* Task Panel - iOS Style */
-    .task-panel {
+    /* Inline Task List - iOS Style */
+    .task-list-inline {
       background: var(--bg-secondary);
       backdrop-filter: saturate(180%) blur(var(--blur-amount));
       -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
       border-bottom: 0.5px solid var(--separator);
-    }
-    .task-panel.hidden { display: none; }
-    .task-header {
-      padding: 10px 16px;
+      padding: 8px 16px;
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 15px;
-    }
-    .task-list {
-      padding: 0 16px 12px;
-      max-height: 150px;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
       overflow-y: auto;
     }
-    .task-list.collapsed { display: none; }
-    .task-item {
-      padding: 6px 0;
+    .task-list-inline.hidden { display: none; }
+
+    .task-inline {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-size: 14px;
+      gap: 8px;
+      font-size: 13px;
     }
-    .task-item.completed { color: var(--text-secondary); text-decoration: line-through; }
-    .task-item.in_progress { color: var(--accent); }
-    .task-checkbox {
-      width: 20px;
-      height: 20px;
-      border: 2px solid var(--separator);
-      border-radius: 6px;
+
+    .task-inline .task-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 10px;
-      flex-shrink: 0;
     }
-    .task-checkbox.checked {
-      background: var(--success);
-      border-color: var(--success);
-      color: white;
+    .task-inline.pending .task-icon::before { content: '○'; color: var(--text-muted); }
+    .task-inline.in_progress .task-icon::before { content: '◐'; color: var(--accent); }
+    .task-inline.completed .task-icon::before { content: '●'; color: var(--success); }
+
+    .task-inline .task-subject {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .task-checkbox.in-progress {
-      border-color: var(--accent);
-      color: var(--accent);
+    .task-inline.completed .task-subject {
+      color: var(--text-muted);
+      text-decoration: line-through;
     }
 
     /* Auth Screen - iOS Style */
@@ -465,6 +489,61 @@
       transform: rotate(90deg);
     }
 
+    /* Diff Preview - Terminal Style */
+    .diff-preview {
+      margin-top: 8px;
+      font-family: 'SF Mono', ui-monospace, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      background: var(--bg-grouped);
+      border-radius: 6px;
+      overflow: hidden;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .diff-line {
+      padding: 1px 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .diff-line.context {
+      color: var(--text-muted);
+    }
+
+    .diff-line.remove {
+      background: rgba(255, 69, 58, 0.15);
+      color: #ff6961;
+    }
+
+    .diff-line.add {
+      background: rgba(48, 209, 88, 0.15);
+      color: #4cd964;
+    }
+
+    .diff-line-number {
+      display: inline-block;
+      width: 32px;
+      color: var(--text-muted);
+      text-align: right;
+      margin-right: 8px;
+      user-select: none;
+    }
+
+    .diff-truncated {
+      padding: 8px;
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .tool-path {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-left: 4px;
+    }
+
     .message pre {
       white-space: pre-wrap;
       word-break: break-word;
@@ -513,47 +592,128 @@
       flex-shrink: 0;
     }
 
-    .quick-actions {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 8px;
-      overflow-x: auto;
-      padding-bottom: 2px;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
+    /* Action Sheet Overlay */
+    .action-sheet-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+      z-index: 200;
     }
-    .quick-actions::-webkit-scrollbar { display: none; }
+    .action-sheet-overlay.show { opacity: 1; pointer-events: auto; }
 
-    .quick-btn {
-      padding: 7px 14px;
-      background: var(--bg-input);
+    /* Action Sheet */
+    .action-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 8px;
+      right: 8px;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 201;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    .action-sheet.show { transform: translateY(0); }
+
+    .action-sheet-group {
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .action-sheet-btn {
+      width: 100%;
+      padding: 16px;
+      background: transparent;
       border: none;
-      border-radius: 18px;
+      border-bottom: 0.5px solid var(--separator);
       color: var(--accent);
-      font-size: 14px;
-      font-weight: 500;
-      white-space: nowrap;
+      font-size: 20px;
+      font-weight: 400;
       cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
+      text-align: center;
     }
-    .quick-btn:active {
-      background: var(--bg-tertiary);
-      transform: scale(0.96);
+    .action-sheet-btn:last-child { border-bottom: none; }
+    .action-sheet-btn:active { background: var(--bg-tertiary); }
+    .action-sheet-btn.danger { color: var(--error); }
+    .action-sheet-btn.primary { font-weight: 600; }
+
+    .action-sheet-cancel {
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-radius: 14px;
     }
-    .quick-btn.primary {
+    .action-sheet-cancel .action-sheet-btn {
+      font-weight: 600;
+    }
+
+    /* Inline action buttons */
+    .action-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.1s, opacity 0.15s, width 0.15s;
+      flex-shrink: 0;
+    }
+    .action-btn:active {
+      transform: scale(0.92);
+    }
+    .action-btn.hidden {
+      display: none;
+    }
+    .action-btn.yes {
       background: var(--success);
       color: white;
     }
-    .quick-btn.primary:active {
+    .action-btn.yes:active {
       background: #28b94c;
     }
-    .quick-btn.danger {
+    .action-btn.cancel {
+      background: var(--bg-input);
       color: var(--error);
+    }
+    .action-btn.cancel:active {
+      background: var(--bg-tertiary);
+    }
+    .action-btn.more {
+      background: var(--bg-input);
+      color: var(--text-secondary);
+    }
+    .action-btn.more:active {
+      background: var(--bg-tertiary);
+    }
+
+    /* Larger send button when alone */
+    .send-btn.large {
+      width: 42px;
+      height: 42px;
+    }
+    .send-btn.large svg {
+      width: 20px;
+      height: 20px;
     }
 
     .input-row {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       align-items: center;
     }
 
@@ -1251,14 +1411,9 @@
       </div>
     </div>
 
-    <!-- Task Progress Panel -->
-    <div id="taskPanel" class="task-panel hidden">
-      <div class="task-header" onclick="toggleTaskPanel()">
-        <span>Tasks</span>
-        <span id="taskProgress">0/0</span>
-        <span class="expand-icon">&#9660;</span>
-      </div>
-      <div id="taskList" class="task-list"></div>
+    <!-- Inline Task Progress List -->
+    <div id="taskList" class="task-list-inline hidden">
+      <!-- Populated by renderTasksInline() -->
     </div>
 
     <div class="output-area" id="outputArea">
@@ -1289,25 +1444,41 @@
       <div class="prompt-stale" id="promptStale">⚠️ Claude may have moved on</div>
     </div>
 
-    <div class="input-area">
-      <div class="quick-actions">
-        <button class="quick-btn" onclick="sendPreset('/plan')">Plan</button>
-        <button class="quick-btn" onclick="sendModeToggle()">Edits</button>
-        <button class="quick-btn" onclick="sendPreset('/clear')">Clear</button>
-        <button class="quick-btn" onclick="sendPreset('/compact')">Compact</button>
-        <button class="quick-btn" onclick="sendPreset('/status')">Status</button>
-        <button class="quick-btn primary" onclick="sendPreset('y')">Yes</button>
-        <button class="quick-btn danger" onclick="sendEscape()">Cancel</button>
+    <!-- Action Sheet -->
+    <div class="action-sheet-overlay" id="actionSheetOverlay" onclick="hideActionSheet()"></div>
+    <div class="action-sheet" id="actionSheet">
+      <div class="action-sheet-group">
+        <button class="action-sheet-btn" onclick="sendPreset('/plan'); hideActionSheet();">Enter Plan Mode</button>
+        <button class="action-sheet-btn" onclick="sendModeToggle(); hideActionSheet();">Toggle Allow Edits</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/rewind'); hideActionSheet();">Rewind (Checkpoints)</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/status'); hideActionSheet();">Show Status</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/compact'); hideActionSheet();">Compact Context</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/clear'); hideActionSheet();">Clear History</button>
       </div>
+      <div class="action-sheet-cancel">
+        <button class="action-sheet-btn" onclick="hideActionSheet()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="input-area">
       <div class="input-row">
+        <button class="action-btn more" onclick="showActionSheet()" title="More actions">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+        </button>
         <div class="input-wrapper">
           <div class="autocomplete" id="autocomplete"></div>
-          <textarea class="command-input" id="commandInput" placeholder="Type a command..." rows="1" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
+          <textarea class="command-input" id="commandInput" placeholder="Message" rows="1" autocomplete="off" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
           <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
           </button>
         </div>
-        <button class="send-btn" id="sendBtn" onclick="sendCommand()">
+        <button class="action-btn yes hidden" id="yesBtn" onclick="sendPreset('y')" title="Yes">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <button class="action-btn cancel hidden" id="cancelBtn" onclick="sendEscape()" title="Cancel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <button class="send-btn large" id="sendBtn" onclick="sendCommand()">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.01 6.03l7.51 3.22-7.52-1 .01-2.22m7.5 8.72L4 17.97v-2.22l7.51-1m-9.5-9.75l-.01 6 15 2-15 2 .01 6 21-8-21-8z"/></svg>
         </button>
       </div>
@@ -1741,6 +1912,8 @@
     // Reconnection Logic (iOS Safari frozen socket fix)
     // ============================================
     let lastVisibleTime = Date.now();
+    // Track the last sent command to detect stale replays from iOS form restoration
+    let lastSentCommand = { text: '', timestamp: 0 };
 
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && authToken) {
@@ -1752,6 +1925,14 @@
         if (backgroundDuration > 5000) {
           console.log(`[Visibility] Backgrounded for ${backgroundDuration}ms, forcing reconnect`);
           forceReconnect();
+
+          // Clear input if it matches the last sent command (iOS form restoration issue)
+          const input = document.getElementById('commandInput');
+          if (input && input.value.trim() === lastSentCommand.text) {
+            console.log('[Visibility] Clearing stale input that matches last sent command');
+            input.value = '';
+            autoResize(input);
+          }
         } else {
           checkConnectionHealth();
         }
@@ -1908,6 +2089,13 @@
             const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
             const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
+            // Display as a tool message so user sees what tool is being called
+            appendMessage({
+              type: 'tool',
+              tool: tool,
+              input: input
+            });
+
             // Store pending card and wait before showing (allows auto-approval to cancel)
             pending.permissionCard = { tool, cmd, isDestructive };
             pending.permissionTimeout = setTimeout(() => {
@@ -2005,6 +2193,12 @@
             type: msg.agentType,
             timestamp: Date.now()
           };
+          // Display as a tool message so user sees what's being launched
+          appendMessage({
+            type: 'tool',
+            tool: 'Task',
+            input: { description: msg.description, subagent_type: msg.agentType }
+          });
           break;
 
         case 'subagent_start':
@@ -2223,14 +2417,30 @@
             ? data.input
             : JSON.stringify(data.input, null, 2);
         const lang = detectLanguage(data.input);
-        msg.innerHTML = `
-          <div class="tool-summary" data-lang="${escapeHtml(lang)}">
-            <span class="tool-chevron">▶</span>
-            <span class="tool-name">${escapeHtml(data.tool)}</span>
-            <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
-          </div>
-          <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
-        `;
+
+        // Special handling for Edit tool - show inline diff preview
+        if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
+          const filePath = data.input.file_path || 'file';
+          const diffHtml = renderDiff(data.input.old_string, data.input.new_string);
+          msg.innerHTML = `
+            <div class="tool-summary" data-lang="${escapeHtml(lang)}">
+              <span class="tool-chevron">▶</span>
+              <span class="tool-name">${escapeHtml(data.tool)}</span>
+              <span class="tool-path">${escapeHtml(filePath)}</span>
+            </div>
+            ${diffHtml}
+            <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
+          `;
+        } else {
+          msg.innerHTML = `
+            <div class="tool-summary" data-lang="${escapeHtml(lang)}">
+              <span class="tool-chevron">▶</span>
+              <span class="tool-name">${escapeHtml(data.tool)}</span>
+              <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
+            </div>
+            <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
+          `;
+        }
       } else if (data.type === 'tool_result') {
         const result = typeof data.result === 'string' ? data.result : JSON.stringify(data.result, null, 2);
         // Split once, reuse for preview and line count
@@ -2308,6 +2518,113 @@
     }
 
     // ============================================
+    // Diff Functions (LCS Algorithm)
+    // ============================================
+
+    /**
+     * Compute diff between two strings using LCS (Longest Common Subsequence)
+     * Returns array of {type: 'context'|'add'|'remove', line: string, oldNum?: number, newNum?: number}
+     */
+    function computeDiff(oldStr, newStr) {
+      const oldLines = (oldStr || '').split('\n');
+      const newLines = (newStr || '').split('\n');
+
+      // Build LCS table
+      const m = oldLines.length;
+      const n = newLines.length;
+      const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (oldLines[i - 1] === newLines[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+
+      // Backtrack to build diff
+      const diff = [];
+      let i = m, j = n;
+
+      while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+          diff.unshift({ type: 'context', line: oldLines[i - 1], oldNum: i, newNum: j });
+          i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+          diff.unshift({ type: 'add', line: newLines[j - 1], newNum: j });
+          j--;
+        } else {
+          diff.unshift({ type: 'remove', line: oldLines[i - 1], oldNum: i });
+          i--;
+        }
+      }
+
+      return diff;
+    }
+
+    /**
+     * Render diff as HTML with line numbers
+     * Shows max lines with context around changes
+     */
+    function renderDiff(oldStr, newStr, maxLines = 20) {
+      if (!oldStr && !newStr) return '';
+
+      const diff = computeDiff(oldStr, newStr);
+
+      // Find changed regions and include context
+      const contextLines = 2;
+      const changedIndices = new Set();
+
+      diff.forEach((d, i) => {
+        if (d.type !== 'context') {
+          for (let j = Math.max(0, i - contextLines); j <= Math.min(diff.length - 1, i + contextLines); j++) {
+            changedIndices.add(j);
+          }
+        }
+      });
+
+      // Build output with limited lines
+      let html = '<div class="diff-preview">';
+      let shown = 0;
+      let skipped = 0;
+
+      diff.forEach((d, i) => {
+        if (!changedIndices.has(i)) {
+          skipped++;
+          return;
+        }
+
+        if (shown >= maxLines) {
+          return;
+        }
+
+        if (skipped > 0 && shown > 0) {
+          html += `<div class="diff-truncated">... ${skipped} unchanged lines ...</div>`;
+          skipped = 0;
+        }
+
+        const prefix = d.type === 'add' ? '+' : d.type === 'remove' ? '-' : ' ';
+        const lineNum = d.type === 'remove' ? d.oldNum : d.newNum;
+
+        html += `<div class="diff-line ${d.type}">`;
+        html += `<span class="diff-line-number">${lineNum || ''}</span>`;
+        html += `${prefix} ${escapeHtml(d.line)}`;
+        html += '</div>';
+
+        shown++;
+      });
+
+      if (shown >= maxLines && diff.length > shown) {
+        html += `<div class="diff-truncated">... ${diff.length - shown} more lines ...</div>`;
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    // ============================================
     // Command Sending
     // ============================================
     function sendCommand() {
@@ -2317,12 +2634,25 @@
 
       if (!command || sendBtn.disabled) return;
 
+      // Prevent sending the exact same command within 10 seconds (stale replay protection)
+      const now = Date.now();
+      if (command === lastSentCommand.text && (now - lastSentCommand.timestamp) < 10000) {
+        console.log('[SendCommand] Blocked duplicate send of:', command);
+        showToast('Already sent', 'error');
+        input.value = '';
+        autoResize(input);
+        return;
+      }
+
       sendBtn.disabled = true;
 
       if (!wsSend({ action: 'inject', command: command, sessionId: currentSessionId })) {
         sendBtn.disabled = false;
         return;
       }
+
+      // Track this as the last sent command
+      lastSentCommand = { text: command, timestamp: now };
 
       trackSentMessage(command);
       appendMessage({ type: 'user', content: command });
@@ -2350,6 +2680,17 @@
     function sendModeToggle() {
       wsSend({ action: 'mode_toggle', sessionId: currentSessionId });
       showToast('Toggling mode...', 'success');
+    }
+
+    // Action Sheet
+    function showActionSheet() {
+      document.getElementById('actionSheetOverlay').classList.add('show');
+      document.getElementById('actionSheet').classList.add('show');
+    }
+
+    function hideActionSheet() {
+      document.getElementById('actionSheetOverlay').classList.remove('show');
+      document.getElementById('actionSheet').classList.remove('show');
     }
 
     function handleKeyDown(event) {
@@ -2840,6 +3181,9 @@
 
       // Setup keyboard navigation for options
       setupOptionKeyboardNav();
+
+      // Update action buttons to show Yes
+      updateActionButtons();
     }
 
     function setupOptionKeyboardNav() {
@@ -3037,6 +3381,7 @@
       const card = document.getElementById('promptCard');
       card.classList.remove('show', 'loading', 'stale');
       currentPrompt = null;
+      updateActionButtons();
     }
 
     function dismissPrompt() {
@@ -3057,6 +3402,28 @@
     // ============================================
     let sessionTokens = { input: 0, output: 0 };
     let statusTimeout = null;
+    let isClaudeActive = false;
+
+    // Update Yes/Cancel button visibility based on Claude's state
+    function updateActionButtons() {
+      const yesBtn = document.getElementById('yesBtn');
+      const cancelBtn = document.getElementById('cancelBtn');
+      const sendBtn = document.getElementById('sendBtn');
+      const statusBar = document.getElementById('statusBar');
+      const promptCard = document.getElementById('promptCard');
+
+      const isActive = !statusBar.classList.contains('hidden') || promptCard.classList.contains('show');
+      const isWaiting = promptCard.classList.contains('show');
+
+      // Show Cancel when Claude is active (processing or waiting)
+      cancelBtn.classList.toggle('hidden', !isActive);
+
+      // Show Yes only when Claude is waiting for input
+      yesBtn.classList.toggle('hidden', !isWaiting);
+
+      // Make send button larger when Yes/Cancel are hidden
+      sendBtn.classList.toggle('large', !isActive);
+    }
 
     function handleStatusUpdate(data) {
       const statusBar = document.getElementById('statusBar');
@@ -3064,11 +3431,13 @@
 
       statusBar.classList.remove('hidden');
       statusVerb.textContent = data.text || 'Working...';
+      updateActionButtons();
 
       // Auto-hide after 5 seconds of no updates
       clearTimeout(statusTimeout);
       statusTimeout = setTimeout(() => {
         statusBar.classList.add('hidden');
+        updateActionButtons();
       }, 5000);
     }
 
@@ -3102,10 +3471,9 @@
     }
 
     // ============================================
-    // Task Progress Panel
+    // Task Progress (Inline)
     // ============================================
     const tasks = new Map(); // id -> { subject, status, description, activeForm }
-    let taskPanelExpanded = true;
     let pendingSubagentInfo = null;
 
     function handleTaskCreate(data) {
@@ -3115,7 +3483,7 @@
         description: data.description,
         activeForm: data.activeForm
       });
-      renderTasks();
+      renderTasksInline();
     }
 
     function handleTaskUpdate(data) {
@@ -3123,7 +3491,7 @@
       if (task) {
         if (data.status) task.status = data.status;
         if (data.subject) task.subject = data.subject;
-        renderTasks();
+        renderTasksInline();
       }
     }
 
@@ -3139,51 +3507,35 @@
           });
         }
       }
-      renderTasks();
+      renderTasksInline();
     }
 
-    function toggleTaskPanel() {
-      taskPanelExpanded = !taskPanelExpanded;
-      const list = document.getElementById('taskList');
-      const icon = document.querySelector('.task-panel .expand-icon');
-      if (list) list.classList.toggle('collapsed', !taskPanelExpanded);
-      if (icon) icon.innerHTML = taskPanelExpanded ? '&#9660;' : '&#9654;';
-    }
-
-    function renderTasks() {
-      const panel = document.getElementById('taskPanel');
-      const list = document.getElementById('taskList');
-      const progress = document.getElementById('taskProgress');
-
-      if (!panel || !list || !progress) return;
+    function renderTasksInline() {
+      const container = document.getElementById('taskList');
+      if (!container) return;
 
       if (tasks.size === 0) {
-        panel.classList.add('hidden');
+        container.classList.add('hidden');
         return;
       }
 
-      panel.classList.remove('hidden');
+      container.classList.remove('hidden');
+      container.innerHTML = '';
 
-      const completed = [...tasks.values()].filter(t => t.status === 'completed').length;
-      progress.textContent = `${completed}/${tasks.size}`;
-
-      list.innerHTML = [...tasks.entries()].map(([id, task]) => {
-        const checkboxClass = task.status === 'completed' ? 'checked' :
-                              task.status === 'in_progress' ? 'in-progress' : '';
-        const checkmark = task.status === 'completed' ? '&#10003;' :
-                          task.status === 'in_progress' ? '&#8226;' : '';
-        return `
-          <div class="task-item ${task.status}">
-            <div class="task-checkbox ${checkboxClass}">${checkmark}</div>
-            <span>${escapeHtml(task.subject || '')}</span>
-          </div>
+      tasks.forEach((task, id) => {
+        const div = document.createElement('div');
+        div.className = `task-inline ${task.status}`;
+        div.innerHTML = `
+          <span class="task-icon"></span>
+          <span class="task-subject">${escapeHtml(task.subject || '')}</span>
         `;
-      }).join('');
+        container.appendChild(div);
+      });
     }
 
     function clearTasks() {
       tasks.clear();
-      renderTasks();
+      renderTasksInline();
     }
 
     // ============================================
@@ -3191,35 +3543,39 @@
     // ============================================
     function updateSubagentIndicator() {
       const indicator = document.getElementById('subagentIndicator');
-      const count = activeSubagents.size;
+      const countEl = indicator.querySelector('.subagent-count');
+      const listEl = indicator.querySelector('.subagent-list');
 
+      const count = activeSubagents.size;
       if (count === 0) {
         indicator.classList.add('hidden');
-      } else {
-        indicator.classList.remove('hidden');
-        indicator.querySelector('.subagent-count').textContent = count;
-
-        // Build list of active subagents with enhanced details
-        const list = indicator.querySelector('.subagent-list');
-        list.innerHTML = '';
-        activeSubagents.forEach((data, agentId) => {
-          const item = document.createElement('div');
-          item.className = 'subagent-item';
-
-          const statusIcon = data.status === 'waiting' ? '⏳' : '🔄';
-          const name = data.description || agentId.substring(0, 8);
-          const toolInfo = data.currentTool ? `Using: ${data.currentTool}` : 'Working...';
-          const tokens = (data.inputTokens || data.outputTokens) ?
-            `${formatTokens(data.inputTokens || 0)} in / ${formatTokens(data.outputTokens || 0)} out` : '';
-
-          item.innerHTML = `
-            <div style="font-weight:500">${statusIcon} ${escapeHtml(name)}</div>
-            <div style="font-size:0.7rem;color:var(--accent)">${toolInfo}</div>
-            ${tokens ? `<div style="font-size:0.65rem;color:var(--text-secondary);font-family:monospace">${tokens}</div>` : ''}
-          `;
-          list.appendChild(item);
-        });
+        return;
       }
+
+      indicator.classList.remove('hidden');
+      countEl.textContent = count;
+
+      listEl.innerHTML = '';
+      activeSubagents.forEach((agent, id) => {
+        const statusClass = agent.status === 'waiting' ? 'waiting' :
+                            agent.status === 'complete' ? 'complete' : 'running';
+        const toolText = agent.currentTool || 'idle';
+        const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
+
+        const item = document.createElement('div');
+        item.className = 'subagent-item';
+        item.innerHTML = `
+          <div class="subagent-item-header">
+            <span class="subagent-status ${statusClass}"></span>
+            <span class="subagent-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
+          </div>
+          <div class="subagent-meta">
+            <span class="subagent-tool">${escapeHtml(toolText)}</span>
+            <span>${tokens}</span>
+          </div>
+        `;
+        listEl.appendChild(item);
+      });
     }
 
     function handleSubagentOutput(agentId, data) {
