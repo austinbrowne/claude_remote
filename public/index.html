@@ -13,28 +13,50 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
   <style>
     :root {
-      --bg-primary: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #21262d;
-      --bg-input: #0d1117;
-      --accent: #58a6ff;
-      --accent-dim: #388bfd;
-      --text-primary: #e6edf3;
-      --text-secondary: #8b949e;
-      --text-muted: #6e7681;
-      --border: #30363d;
-      --success: #3fb950;
-      --warning: #d29922;
-      --error: #f85149;
-      --user-msg: #1f6feb;
-      --assistant-msg: #238636;
-      --tool-msg: #8957e5;
+      /* iOS Dark Mode Colors */
+      --bg-primary: #000000;
+      --bg-secondary: rgba(28, 28, 30, 0.8);
+      --bg-tertiary: rgba(44, 44, 46, 0.8);
+      --bg-elevated: rgba(44, 44, 46, 0.95);
+      --bg-grouped: #1c1c1e;
+      --bg-input: rgba(44, 44, 46, 0.6);
+
+      /* iOS System Colors */
+      --accent: #0a84ff;
+      --accent-dim: #0070e0;
+      --text-primary: #ffffff;
+      --text-secondary: rgba(235, 235, 245, 0.6);
+      --text-muted: rgba(235, 235, 245, 0.3);
+      --border: rgba(84, 84, 88, 0.65);
+      --separator: rgba(84, 84, 88, 0.35);
+
+      /* iOS Semantic Colors */
+      --success: #30d158;
+      --warning: #ffd60a;
+      --error: #ff453a;
+      --orange: #ff9f0a;
+      --purple: #bf5af2;
+      --pink: #ff375f;
+      --teal: #64d2ff;
+
+      /* Legacy compatibility */
+      --user-msg: var(--accent);
+      --assistant-msg: var(--success);
+      --tool-msg: var(--purple);
+
+      /* Blur */
+      --blur-amount: 20px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
       background: var(--bg-primary);
       color: var(--text-primary);
       height: 100vh;
@@ -42,94 +64,114 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      font-size: 17px;
+      line-height: 1.47;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Header */
+    /* Header - iOS Navigation Bar Style */
     .header {
       background: var(--bg-secondary);
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      padding: 8px 16px;
+      border-bottom: 0.5px solid var(--separator);
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
-      padding-top: max(12px, env(safe-area-inset-top));
+      padding-top: max(8px, env(safe-area-inset-top));
       gap: 12px;
+      min-height: 44px;
     }
 
     .header-left {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       flex: 1;
       min-width: 0;
     }
 
     .status-dot {
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: var(--error);
       flex-shrink: 0;
+      box-shadow: 0 0 8px var(--error);
     }
-    .status-dot.connected { background: var(--success); }
+    .status-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
     .status-dot.reconnecting {
       background: var(--warning);
-      animation: pulse 1s infinite;
+      box-shadow: 0 0 8px var(--warning);
+      animation: glow-pulse 1.5s ease-in-out infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    @keyframes glow-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--warning); }
+      50% { opacity: 0.6; box-shadow: 0 0 16px var(--warning); }
     }
-    /* Respect user's reduced-motion preference (accessibility) */
     @media (prefers-reduced-motion: reduce) {
-      .status-dot.reconnecting {
-        animation: none;
-      }
+      .status-dot.reconnecting { animation: none; }
     }
 
     .session-selector {
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
       color: var(--text-primary);
-      font-size: 0.9rem;
+      font-size: 15px;
+      font-weight: 500;
       flex: 1;
       min-width: 0;
-      max-width: 200px;
+      max-width: none;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23ebebf599' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
     }
 
     .header-actions {
       display: flex;
-      gap: 8px;
+      gap: 4px;
     }
 
     .icon-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      color: var(--text-secondary);
-      font-size: 1.1rem;
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      background: transparent;
+      border: none;
+      color: var(--accent);
+      font-size: 1.3rem;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.2s;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .icon-btn:active {
+      background: var(--bg-tertiary);
+      transform: scale(0.92);
     }
     .icon-btn:active { transform: scale(0.95); }
     .icon-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
-    /* Subagent Indicator */
+    /* Subagent Indicator - iOS Style */
     .subagent-indicator {
       position: relative;
-      padding: 4px 10px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--tool-msg);
-      border-radius: 16px;
-      font-size: 0.8rem;
+      padding: 5px 12px;
+      background: rgba(191, 90, 242, 0.15);
+      border: none;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 500;
       color: var(--tool-msg);
       cursor: pointer;
     }
@@ -145,23 +187,25 @@
       top: 100%;
       right: 0;
       margin-top: 8px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border: 0.5px solid var(--separator);
+      border-radius: 12px;
       padding: 8px;
-      min-width: 200px;
+      min-width: 220px;
       z-index: 100;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
     }
     .subagent-indicator:hover .subagent-list,
     .subagent-indicator:focus .subagent-list {
       display: block;
     }
     .subagent-item {
-      padding: 6px 8px;
-      font-size: 0.75rem;
+      padding: 8px 10px;
+      font-size: 13px;
       color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 0.5px solid var(--separator);
     }
     .subagent-item:last-child { border-bottom: none; }
 
@@ -188,41 +232,47 @@
       border-left: 3px solid var(--tool-msg);
     }
 
-    /* Status Bar */
+    /* Status Bar - iOS Style */
     .status-bar {
       background: var(--bg-secondary);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
       padding: 8px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.85rem;
+      border-bottom: 0.5px solid var(--separator);
+      font-size: 13px;
     }
     .status-bar.hidden { display: none; }
     .status-text {
       display: flex;
       align-items: center;
       gap: 8px;
+      color: var(--text-secondary);
     }
     .status-spinner {
       display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid var(--text-secondary);
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--separator);
       border-top-color: var(--accent);
       border-radius: 50%;
-      animation: spin 1s linear infinite;
+      animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .token-usage {
-      color: var(--text-secondary);
-      font-family: monospace;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 12px;
     }
 
-    /* Task Panel */
+    /* Task Panel - iOS Style */
     .task-panel {
       background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-bottom: 0.5px solid var(--separator);
     }
     .task-panel.hidden { display: none; }
     .task-header {
@@ -232,28 +282,28 @@
       align-items: center;
       cursor: pointer;
       font-weight: 600;
-      font-size: 0.9rem;
+      font-size: 15px;
     }
     .task-list {
-      padding: 0 16px 10px;
+      padding: 0 16px 12px;
       max-height: 150px;
       overflow-y: auto;
     }
     .task-list.collapsed { display: none; }
     .task-item {
-      padding: 5px 0;
+      padding: 6px 0;
       display: flex;
       align-items: center;
-      gap: 8px;
-      font-size: 0.85rem;
+      gap: 10px;
+      font-size: 14px;
     }
     .task-item.completed { color: var(--text-secondary); text-decoration: line-through; }
     .task-item.in_progress { color: var(--accent); }
     .task-checkbox {
-      width: 16px;
-      height: 16px;
-      border: 2px solid var(--border);
-      border-radius: 3px;
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--separator);
+      border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -270,30 +320,33 @@
       color: var(--accent);
     }
 
-    /* Auth Screen */
+    /* Auth Screen - iOS Style */
     .auth-screen {
       flex: 1;
       display: flex;
       flex-direction: column;
       justify-content: center;
       padding: 20px;
+      background: var(--bg-primary);
     }
     .auth-screen.hidden { display: none; }
 
     .auth-box {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      max-width: 400px;
+      background: var(--bg-grouped);
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
+      padding: 28px 24px;
+      max-width: 360px;
       margin: 0 auto;
       width: 100%;
     }
 
     .auth-box h2 {
-      margin-bottom: 20px;
-      font-size: 1.3rem;
+      margin-bottom: 24px;
+      font-size: 22px;
+      font-weight: 700;
       text-align: center;
+      letter-spacing: -0.02em;
     }
 
     /* Main App */
@@ -309,15 +362,16 @@
     .output-area {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 12px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
       scroll-behavior: smooth;
       font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.45;
       background: var(--bg-primary);
+      -webkit-overflow-scrolling: touch;
     }
 
     .message {
@@ -333,26 +387,27 @@
     .message.user::before {
       content: '❯ ';
       color: var(--success);
-      font-weight: bold;
+      font-weight: 600;
     }
 
     .message.assistant {
       color: var(--text-primary);
       padding-left: 0;
       border-left: 2px solid var(--success);
-      padding-left: 8px;
-      margin: 4px 0;
+      padding-left: 10px;
+      margin: 6px 0;
+      border-radius: 0 4px 4px 0;
     }
 
     .message.assistant.speaking {
       border-left-color: var(--accent);
-      background: rgba(88, 166, 255, 0.05);
+      background: rgba(10, 132, 255, 0.06);
     }
 
     .message.tool {
       color: var(--tool-msg);
       font-size: 12px;
-      opacity: 0.9;
+      opacity: 0.85;
     }
 
     .message.tool .tool-name {
@@ -370,7 +425,7 @@
       font-size: 11px;
     }
 
-    /* Collapsible tool messages */
+    /* Collapsible tool messages - iOS Style */
     .message.tool, .message.tool_result {
       cursor: pointer;
     }
@@ -379,13 +434,15 @@
     .message.tool_result .tool-details {
       display: none;
       margin-top: 8px;
-      padding: 8px;
-      background: var(--bg-primary);
+      padding: 10px;
+      background: var(--bg-grouped);
       border-left: 2px solid var(--tool-msg);
+      border-radius: 0 8px 8px 0;
       font-size: 11px;
       max-height: 200px;
       overflow-y: auto;
       white-space: pre-wrap;
+      -webkit-overflow-scrolling: touch;
     }
 
     .message.tool.expanded .tool-details,
@@ -400,7 +457,8 @@
     }
 
     .tool-chevron {
-      transition: transform 0.2s;
+      transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+      font-size: 10px;
     }
 
     .expanded .tool-chevron {
@@ -414,24 +472,24 @@
       font-family: inherit;
     }
 
-    /* Streaming indicator */
+    /* Streaming indicator - iOS Style */
     .streaming {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 12px 16px;
+      padding: 12px 14px;
       color: var(--text-secondary);
-      font-size: 0.9rem;
+      font-size: 14px;
     }
 
     .streaming-dots {
       display: flex;
-      gap: 4px;
+      gap: 5px;
     }
 
     .streaming-dots span {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--accent);
       animation: bounce 1.4s infinite ease-in-out;
@@ -440,72 +498,86 @@
     .streaming-dots span:nth-child(2) { animation-delay: -0.16s; }
 
     @keyframes bounce {
-      0%, 80%, 100% { transform: scale(0); }
-      40% { transform: scale(1); }
+      0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
     }
 
-    /* Input Area */
+    /* Input Area - iOS Style */
     .input-area {
       background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-      padding: 12px;
-      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-top: 0.5px solid var(--separator);
+      padding: 10px 12px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
       flex-shrink: 0;
     }
 
     .quick-actions {
       display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
+      gap: 6px;
+      margin-bottom: 8px;
       overflow-x: auto;
-      padding-bottom: 4px;
+      padding-bottom: 2px;
       -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
     }
+    .quick-actions::-webkit-scrollbar { display: none; }
 
     .quick-btn {
-      padding: 8px 14px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      color: var(--text-secondary);
-      font-size: 0.85rem;
+      padding: 7px 14px;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 18px;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 500;
       white-space: nowrap;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: background 0.15s, transform 0.1s;
     }
     .quick-btn:active {
-      background: var(--border);
-      transform: scale(0.95);
+      background: var(--bg-tertiary);
+      transform: scale(0.96);
+    }
+    .quick-btn.primary {
+      background: var(--success);
+      color: white;
+    }
+    .quick-btn.primary:active {
+      background: #28b94c;
     }
     .quick-btn.danger {
-      border-color: var(--error);
       color: var(--error);
     }
 
     .input-row {
       display: flex;
-      gap: 10px;
-      align-items: flex-end;
+      gap: 8px;
+      align-items: center;
     }
 
     .input-wrapper {
       flex: 1;
       position: relative;
+      display: flex;
+      align-items: center;
     }
 
     .command-input {
       width: 100%;
       background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 12px 18px;
-      padding-right: 48px;
+      border: 0.5px solid var(--separator);
+      border-radius: 20px;
+      padding: 10px 44px 10px 16px;
       color: var(--text-primary);
-      font-size: 16px;
+      font-size: 17px;
       outline: none;
       resize: none;
-      max-height: 120px;
-      line-height: 1.4;
+      max-height: 100px;
+      min-height: 40px;
+      line-height: 1.35;
+      font-family: inherit;
     }
     .command-input:focus { border-color: var(--accent); }
     .command-input::placeholder { color: var(--text-muted); }
@@ -513,18 +585,23 @@
     .voice-btn {
       position: absolute;
       right: 8px;
-      bottom: 8px;
-      width: 32px;
-      height: 32px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       background: transparent;
       border: none;
       color: var(--text-secondary);
-      font-size: 1.1rem;
+      font-size: 18px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .voice-btn:active {
+      transform: translateY(-50%) scale(0.92);
     }
     .voice-btn.recording {
       background: var(--error);
@@ -533,48 +610,52 @@
     }
 
     @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
+      0%, 100% { transform: translateY(-50%) scale(1); }
+      50% { transform: translateY(-50%) scale(1.08); }
     }
 
     .send-btn {
-      width: 48px;
-      height: 48px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
       background: var(--accent);
       border: none;
       color: white;
-      font-size: 1.3rem;
+      font-size: 17px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.15s;
+      transition: background 0.15s, transform 0.1s;
       flex-shrink: 0;
+      align-self: center;
     }
     .send-btn:active {
       background: var(--accent-dim);
-      transform: scale(0.95);
+      transform: scale(0.92);
     }
     .send-btn:disabled {
       background: var(--bg-tertiary);
       color: var(--text-muted);
     }
 
-    /* Settings Panel */
+    /* Settings Panel - iOS Sheet Style */
     .settings-panel {
       position: fixed;
       top: 0;
-      right: -300px;
-      width: 280px;
+      right: -320px;
+      width: 300px;
       height: 100%;
-      background: var(--bg-secondary);
-      border-left: 1px solid var(--border);
-      padding: 20px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-left: 0.5px solid var(--separator);
+      padding: 0;
       padding-top: max(20px, env(safe-area-inset-top));
-      transition: right 0.3s ease;
+      transition: right 0.3s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 100;
       overflow-y: auto;
+      border-radius: 12px 0 0 12px;
     }
     .settings-panel.open { right: 0; }
 
@@ -584,10 +665,12 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.3s;
+      transition: opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 99;
     }
     .settings-overlay.open { opacity: 1; pointer-events: auto; }
@@ -596,37 +679,74 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 16px 20px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+
+    .settings-header h3 {
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .settings-close {
+      color: var(--accent);
+      font-size: 17px;
+      font-weight: 400;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    .setting-group {
+      padding: 0 20px;
       margin-bottom: 24px;
     }
 
-    .settings-header h3 { font-size: 1.1rem; }
-
-    .setting-group {
-      margin-bottom: 20px;
+    .setting-group-header {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      padding: 16px 0 8px;
     }
 
     .setting-group label {
       display: block;
-      font-size: 0.85rem;
+      font-size: 13px;
       color: var(--text-secondary);
       margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
 
     .setting-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      background: var(--bg-grouped);
+      margin: 0 -16px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .setting-row:first-of-type {
+      border-radius: 10px 10px 0 0;
+    }
+    .setting-row:last-of-type {
+      border-radius: 0 0 10px 10px;
+      border-bottom: none;
+    }
+    .setting-row:only-of-type {
+      border-radius: 10px;
     }
 
-    .setting-row span { font-size: 0.95rem; }
+    .setting-row span { font-size: 17px; }
 
-    /* Toggle switch */
+    /* Toggle switch - iOS Style */
     .toggle {
       position: relative;
-      width: 50px;
-      height: 28px;
+      width: 51px;
+      height: 31px;
     }
 
     .toggle input {
@@ -642,99 +762,111 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: var(--bg-tertiary);
-      transition: 0.3s;
-      border-radius: 28px;
-      border: 1px solid var(--border);
+      background-color: rgba(120, 120, 128, 0.32);
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 31px;
+      border: none;
     }
 
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 22px;
-      width: 22px;
+      height: 27px;
+      width: 27px;
       left: 2px;
       bottom: 2px;
-      background-color: var(--text-secondary);
-      transition: 0.3s;
+      background-color: white;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
     }
 
     .toggle input:checked + .toggle-slider {
-      background-color: var(--accent);
-      border-color: var(--accent);
+      background-color: var(--success);
     }
 
     .toggle input:checked + .toggle-slider:before {
-      transform: translateX(22px);
-      background-color: white;
+      transform: translateX(20px);
     }
 
     select {
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
+      background: var(--bg-input);
+      border: 0.5px solid var(--separator);
+      border-radius: 10px;
+      padding: 10px 14px;
       color: var(--text-primary);
-      font-size: 0.9rem;
+      font-size: 17px;
       width: 100%;
+      font-family: inherit;
     }
 
-    /* Form elements */
+    /* Form elements - iOS Style */
     input[type="password"],
     input[type="text"] {
       width: 100%;
-      padding: 14px 16px;
-      font-size: 16px;
+      padding: 12px 16px;
+      font-size: 17px;
       background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      border: 0.5px solid var(--separator);
+      border-radius: 10px;
       color: var(--text-primary);
       outline: none;
       margin-bottom: 16px;
+      font-family: inherit;
     }
     input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--text-muted); }
 
     .btn {
       width: 100%;
       padding: 14px;
-      font-size: 1rem;
+      font-size: 17px;
       font-weight: 600;
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: transform 0.1s, opacity 0.15s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+      opacity: 0.8;
     }
 
     .btn-primary {
       background: var(--accent);
       color: white;
     }
-    .btn-primary:active { background: var(--accent-dim); }
 
-    /* Toast */
+    /* Toast - iOS HUD Style */
     .toast {
       position: fixed;
       bottom: 120px;
       left: 50%;
-      transform: translateX(-50%);
-      background: var(--bg-secondary);
+      transform: translateX(-50%) translateY(20px);
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
       color: var(--text-primary);
-      padding: 12px 24px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
+      padding: 12px 20px;
+      border-radius: 22px;
+      border: 0.5px solid var(--separator);
       opacity: 0;
-      transition: opacity 0.3s;
+      transition: opacity 0.25s, transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 1000;
-      font-size: 0.9rem;
-      max-width: 90%;
+      font-size: 15px;
+      font-weight: 500;
+      max-width: 85%;
       text-align: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     }
-    .toast.show { opacity: 1; }
-    .toast.success { border-color: var(--success); }
-    .toast.error { border-color: var(--error); }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast.success { color: var(--success); }
+    .toast.error { color: var(--error); }
 
-    /* Empty state */
+    /* Empty state - iOS Style */
     .empty-state {
       flex: 1;
       display: flex;
@@ -742,43 +874,53 @@
       align-items: center;
       justify-content: center;
       color: var(--text-muted);
-      padding: 40px 20px;
+      padding: 40px 24px;
       text-align: center;
     }
 
     .empty-state .icon {
-      font-size: 4rem;
-      margin-bottom: 16px;
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.6;
     }
 
     .empty-state p {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+    .empty-state p:first-of-type {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-secondary);
     }
 
-    /* Command autocomplete */
+    /* Command autocomplete - iOS Style */
     .autocomplete {
       position: absolute;
       bottom: 100%;
       left: 0;
       right: 0;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
       margin-bottom: 8px;
       max-height: 50vh;
       overflow-y: auto;
       display: none;
       z-index: 50;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
     }
     .autocomplete.show { display: block; }
 
     .autocomplete-item {
       padding: 12px 16px;
       cursor: pointer;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 0.5px solid var(--separator);
       display: flex;
-      align-items: center;
-      gap: 10px;
+      flex-direction: column;
+      gap: 2px;
     }
     .autocomplete-item:last-child { border-bottom: none; }
     .autocomplete-item:active { background: var(--bg-tertiary); }
@@ -786,34 +928,58 @@
 
     .autocomplete-item .cmd {
       color: var(--accent);
-      font-family: 'SF Mono', monospace;
-      font-size: 0.9rem;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 15px;
+      font-weight: 500;
     }
     .autocomplete-item .desc {
-      color: var(--text-muted);
-      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-size: 13px;
     }
 
-    /* Prompt Card */
+    /* Prompt Card - iOS Bottom Sheet Style */
     .prompt-card {
       position: fixed;
-      bottom: 180px;
-      left: 12px;
-      right: 12px;
-      background: var(--bg-secondary);
-      border: 2px solid var(--accent);
-      border-radius: 16px;
-      padding: 16px;
+      bottom: 160px;
+      left: 8px;
+      right: 8px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
+      padding: 8px 16px 16px;
       display: none;
       z-index: 50;
-      animation: slideUp 0.3s ease;
+      animation: sheetSlideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
       max-height: min(70vh, 500px);
       overflow: hidden;
       flex-direction: column;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
     }
     .prompt-card.show { display: flex; }
-    .prompt-card.permission { border-color: var(--warning); }
-    .prompt-card.destructive { border-color: var(--error); }
+    .prompt-card.permission .prompt-type-indicator { background: var(--warning); }
+    .prompt-card.destructive .prompt-type-indicator { background: var(--error); }
+
+    .prompt-handle {
+      width: 36px;
+      height: 5px;
+      background: var(--text-muted);
+      border-radius: 2.5px;
+      margin: 4px auto 12px;
+      flex-shrink: 0;
+    }
+
+    .prompt-type-indicator {
+      width: 4px;
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+    }
 
     @media (prefers-reduced-motion: reduce) {
       .prompt-card { animation: none; }
@@ -823,9 +989,9 @@
       .prompt-card { max-height: 85vh; }
     }
 
-    @keyframes slideUp {
-      from { transform: translateY(20px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
+    @keyframes sheetSlideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
     }
 
     .prompt-header {
@@ -838,16 +1004,22 @@
 
     .prompt-title {
       flex: 1;
+      font-size: 17px;
       font-weight: 600;
     }
 
     .prompt-dismiss {
-      background: transparent;
+      background: var(--bg-input);
       border: none;
-      color: var(--text-muted);
-      font-size: 1.2rem;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
-      padding: 4px 8px;
+      padding: 6px 12px;
+      border-radius: 14px;
+    }
+    .prompt-dismiss:active {
+      background: var(--bg-tertiary);
     }
 
     .prompt-content {
@@ -855,6 +1027,8 @@
       overflow-y: auto;
       margin-bottom: 12px;
       flex-shrink: 1;
+      font-size: 15px;
+      line-height: 1.4;
     }
 
     .prompt-content p {
@@ -875,7 +1049,7 @@
 
     .prompt-actions {
       display: flex;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
       flex-shrink: 0;
     }
@@ -883,20 +1057,21 @@
     .prompt-btn {
       flex: 1;
       min-width: 100px;
-      min-height: 56px;
-      padding: 16px 24px;
+      min-height: 50px;
+      padding: 14px 20px;
       border-radius: 12px;
-      font-size: 0.95rem;
+      font-size: 17px;
       font-weight: 600;
       cursor: pointer;
       border: none;
-      transition: transform 0.1s, opacity 0.1s;
+      transition: transform 0.1s, opacity 0.15s;
     }
     .prompt-btn:active {
-      transform: scale(0.97);
+      transform: scale(0.96);
+      opacity: 0.8;
     }
     .prompt-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
@@ -909,9 +1084,9 @@
     }
 
     .prompt-btn.secondary {
-      background: var(--bg-tertiary);
+      background: var(--bg-input);
       color: var(--text-primary);
-      border: 1px solid var(--border);
+      border: none;
     }
 
     .prompt-btn.allow-always {
@@ -924,26 +1099,31 @@
       max-height: 300px;
       overflow-y: auto;
       margin-bottom: 12px;
+      -webkit-overflow-scrolling: touch;
     }
 
     .prompt-option {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      gap: 14px;
+      padding: 14px 16px;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 12px;
       margin-bottom: 8px;
       cursor: pointer;
-      min-height: 48px;
+      min-height: 50px;
+      transition: background 0.15s;
+    }
+    .prompt-option:active {
+      background: var(--bg-tertiary);
     }
     .prompt-option:focus {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.3);
     }
     .prompt-option.selected {
-      border-color: var(--accent);
-      background: rgba(88, 166, 255, 0.15);
+      background: rgba(10, 132, 255, 0.12);
     }
 
     .prompt-option input[type="radio"] {
@@ -951,16 +1131,17 @@
     }
     .prompt-option::before {
       content: '';
-      width: 24px;
-      height: 24px;
-      border: 2px solid var(--border);
+      width: 22px;
+      height: 22px;
+      border: 2px solid var(--separator);
       border-radius: 50%;
       flex-shrink: 0;
+      transition: all 0.15s;
     }
     .prompt-option.selected::before {
       background: var(--accent);
       border-color: var(--accent);
-      box-shadow: inset 0 0 0 4px var(--bg-secondary);
+      box-shadow: inset 0 0 0 4px var(--bg-elevated);
     }
 
     .prompt-select {
@@ -1026,7 +1207,7 @@
   <!-- Auth Screen -->
   <div class="auth-screen" id="authScreen">
     <div class="auth-box">
-      <h2>⚡ Claude Remote</h2>
+      <h2>Claude Remote</h2>
       <input type="password" id="token" placeholder="Enter auth token">
       <button class="btn btn-primary" onclick="connect()">Connect</button>
     </div>
@@ -1047,9 +1228,15 @@
         <div class="subagent-list"></div>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">🔄</button>
-        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">🔇</button>
-        <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">⚙️</button>
+        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        </button>
+        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </button>
       </div>
     </header>
 
@@ -1076,9 +1263,11 @@
 
     <div class="output-area" id="outputArea">
       <div class="empty-state" id="emptyState">
-        <div class="icon">📡</div>
-        <p>Select a session to monitor</p>
-        <p style="font-size: 0.85rem;">Claude's responses will appear here in real-time</p>
+        <div class="icon">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 8h2"/><path d="M7 11h4"/></svg>
+        </div>
+        <p>Select a session</p>
+        <p>Claude's responses will appear here in real-time</p>
       </div>
     </div>
 
@@ -1088,10 +1277,11 @@
          aria-labelledby="promptTitle"
          aria-describedby="promptContent"
          aria-modal="true">
+      <div class="prompt-handle"></div>
       <div class="prompt-header">
         <span class="prompt-icon" id="promptIcon">🔔</span>
         <span class="prompt-title" id="promptTitle">Claude needs input</span>
-        <button class="prompt-dismiss" onclick="dismissPrompt()" aria-label="Respond later">✕</button>
+        <button class="prompt-dismiss" onclick="dismissPrompt()" aria-label="Respond later">Later</button>
       </div>
       <div class="prompt-content" id="promptContent"></div>
       <div class="prompt-actions" id="promptActions"></div>
@@ -1101,21 +1291,25 @@
 
     <div class="input-area">
       <div class="quick-actions">
-        <button class="quick-btn" onclick="sendPreset('/plan')">📋 Plan</button>
-        <button class="quick-btn" onclick="sendModeToggle()">✏️ Edits</button>
-        <button class="quick-btn" onclick="sendPreset('/clear')">🧹 Clear</button>
-        <button class="quick-btn" onclick="sendPreset('/compact')">📦 Compact</button>
-        <button class="quick-btn" onclick="sendPreset('/status')">📊 Status</button>
-        <button class="quick-btn" onclick="sendPreset('y')">✓ Yes</button>
-        <button class="quick-btn danger" onclick="sendEscape()">⎋ Cancel</button>
+        <button class="quick-btn" onclick="sendPreset('/plan')">Plan</button>
+        <button class="quick-btn" onclick="sendModeToggle()">Edits</button>
+        <button class="quick-btn" onclick="sendPreset('/clear')">Clear</button>
+        <button class="quick-btn" onclick="sendPreset('/compact')">Compact</button>
+        <button class="quick-btn" onclick="sendPreset('/status')">Status</button>
+        <button class="quick-btn primary" onclick="sendPreset('y')">Yes</button>
+        <button class="quick-btn danger" onclick="sendEscape()">Cancel</button>
       </div>
       <div class="input-row">
         <div class="input-wrapper">
           <div class="autocomplete" id="autocomplete"></div>
           <textarea class="command-input" id="commandInput" placeholder="Type a command..." rows="1" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
-          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">🎤</button>
+          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          </button>
         </div>
-        <button class="send-btn" id="sendBtn" onclick="sendCommand()">➤</button>
+        <button class="send-btn" id="sendBtn" onclick="sendCommand()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.01 6.03l7.51 3.22-7.52-1 .01-2.22m7.5 8.72L4 17.97v-2.22l7.51-1m-9.5-9.75l-.01 6 15 2-15 2 .01 6 21-8-21-8z"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -1125,7 +1319,7 @@
   <div class="settings-panel" id="settingsPanel">
     <div class="settings-header">
       <h3>Settings</h3>
-      <button class="icon-btn" onclick="closeSettings()">✕</button>
+      <button class="settings-close" onclick="closeSettings()">Done</button>
     </div>
 
     <div class="setting-group">
@@ -2338,7 +2532,9 @@
 
     function updateTTSButton() {
       const btn = document.getElementById('ttsToggle');
-      btn.textContent = settings.ttsEnabled ? '🔊' : '🔇';
+      btn.innerHTML = settings.ttsEnabled
+        ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>'
+        : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
       btn.classList.toggle('active', settings.ttsEnabled);
     }
 
