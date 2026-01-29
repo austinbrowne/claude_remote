@@ -324,8 +324,8 @@ async function discoverSessions() {
     });
   }
 
-  // Sort by tab name
-  sessions.sort((a, b) => a.name.localeCompare(b.name));
+  // Sort by tab name, then by sessionId for stable ordering when names match
+  sessions.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 
   return sessions;
 }
@@ -927,9 +927,9 @@ async function getSessionStatus(logFile) {
     const stats = await fsp.stat(logFile);
     if (stats.size === 0) return 'idle';
 
-    // Read last 5KB to find last entry (avoid reading entire file)
+    // Read last 10KB to check for pending prompts
     const fh = await fsp.open(logFile, 'r');
-    const size = Math.min(stats.size, 5000);
+    const size = Math.min(stats.size, 10000);
     const buffer = Buffer.alloc(size);
     await fh.read(buffer, 0, size, stats.size - size);
     await fh.close();
@@ -941,7 +941,40 @@ async function getSessionStatus(logFile) {
     const lastLine = lines[lines.length - 1];
     const entry = JSON.parse(lastLine);
 
-    if (entry.type === 'assistant') return 'waiting';
+    // Only show 'waiting' if there's an actual prompt needing user input
+    if (entry.type === 'assistant' && entry.message?.content) {
+      const content = entry.message.content;
+      if (Array.isArray(content)) {
+        // Check for AskUserQuestion tool use
+        const hasAskUser = content.some(block =>
+          block.type === 'tool_use' && block.name === 'AskUserQuestion'
+        );
+        if (hasAskUser) return 'waiting';
+
+        // Check for unanswered tool use (permission request)
+        // Look for tool_use in last entry without tool_result after it
+        const hasToolUse = content.some(block => block.type === 'tool_use');
+        if (hasToolUse) {
+          // Check if there's a tool_result for it in subsequent entries
+          const lastToolUseId = content.find(b => b.type === 'tool_use')?.id;
+          // Look through recent lines for a tool_result with matching id
+          let hasResult = false;
+          for (let i = lines.length - 1; i >= Math.max(0, lines.length - 5); i--) {
+            try {
+              const checkEntry = JSON.parse(lines[i]);
+              if (checkEntry.type === 'user' && Array.isArray(checkEntry.message?.content)) {
+                hasResult = checkEntry.message.content.some(b =>
+                  b.type === 'tool_result' && b.tool_use_id === lastToolUseId
+                );
+                if (hasResult) break;
+              }
+            } catch (e) {}
+          }
+          if (!hasResult) return 'waiting';
+        }
+      }
+    }
+
     if (entry.type === 'progress') return 'processing';
     return 'active';
   } catch (e) {
