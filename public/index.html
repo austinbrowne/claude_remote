@@ -1908,7 +1908,7 @@
 
       const icon = status === 'waiting' ? '🟠 ' :
                    status === 'processing' ? '🔵 ' : '';
-      const name = option.textContent.replace(/^[🟠🔵]\s*/, '');  // Strip old icon
+      const name = option.textContent.replace(/^(?:🟠|🔵)\s*/g, '');  // Strip old icon(s)
       option.textContent = icon + name;
       option.dataset.status = status;
     }
@@ -1920,6 +1920,9 @@
       // Set switching state to prevent race conditions with in-flight messages
       sessionState = SESSION_STATE.SWITCHING;
       pendingSessionId = sessionId;
+      // Update currentSessionId IMMEDIATELY so commands go to the right session
+      // even before server confirms the watch
+      currentSessionId = sessionId;
 
       document.getElementById('outputArea').innerHTML = '';
 
@@ -2347,13 +2350,26 @@
         showToast('Voice input not supported', 'error');
         return;
       }
-      
+
       if (isRecording) {
-        recognition.stop();
+        try {
+          recognition.stop();
+        } catch (e) {
+          console.error('Error stopping recognition:', e);
+        }
+        isRecording = false;
+        document.getElementById('voiceBtn').classList.remove('recording');
       } else {
-        recognition.start();
-        isRecording = true;
-        document.getElementById('voiceBtn').classList.add('recording');
+        try {
+          recognition.start();
+          isRecording = true;
+          document.getElementById('voiceBtn').classList.add('recording');
+        } catch (e) {
+          console.error('Error starting recognition:', e);
+          isRecording = false;
+          document.getElementById('voiceBtn').classList.remove('recording');
+          showToast('Microphone access denied', 'error');
+        }
       }
     }
 
