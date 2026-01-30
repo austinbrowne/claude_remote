@@ -74,20 +74,25 @@ function detectPromptType(content) {
 function showStructuredPrompt(questions, subagentId = null) {
   // Defensive checks
   if (!Array.isArray(questions) || questions.length === 0) return;
-  const q = questions[0];
-  if (!q.question || !Array.isArray(q.options)) return;
 
-  const prompt = {
-    type: 'multiChoice',
-    text: q.question,
-    multiSelect: q.multiSelect === true,  // Pass through multi-select flag
-    subagentId: subagentId,               // Track which subagent needs response
-    options: q.options.map((opt, i) => ({
-      num: (i + 1).toString(),
-      text: opt.description ? `${opt.label}: ${opt.description}` : opt.label
-    }))
-  };
-  showPromptCard(prompt);
+  // Build a prompt for each question and show/queue them all
+  const prompts = questions
+    .filter(q => q.question && Array.isArray(q.options))
+    .map(q => ({
+      type: 'multiChoice',
+      text: q.question,
+      multiSelect: q.multiSelect === true,
+      subagentId: subagentId,
+      options: q.options.map((opt, i) => ({
+        num: (i + 1).toString(),
+        text: opt.description ? `${opt.label}: ${opt.description}` : opt.label
+      }))
+    }));
+
+  // Show first prompt immediately, queue the rest
+  for (const prompt of prompts) {
+    showPromptCard(prompt);
+  }
 }
 
 function showPromptCard(prompt) {
