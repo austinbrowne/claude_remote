@@ -853,6 +853,9 @@ function parseLogEntry(entry) {
             timestamp
           });
 
+          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
+          const isMcpTool = block.name && block.name.startsWith('mcp__');
+
           // Special handling for AskUserQuestion - emit as structured prompt
           if (block.name === 'AskUserQuestion' && block.input?.questions) {
             results.push({
@@ -862,10 +865,7 @@ function parseLogEntry(entry) {
             });
           }
           // Permission-requiring tools - emit as permission_request
-          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
-          const isMcpTool = block.name && block.name.startsWith('mcp__');
-
-          if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
+          else if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
             console.log(`[Permission] Detected ${block.name} tool call`);
             results.push({
               type: 'permission_request',
