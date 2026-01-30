@@ -397,6 +397,15 @@ async function watchSession(sessionId) {
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
+
+            // Skip Task (subagent) tool results - their output is already
+            // streamed via the subagent_output channel. Task results have
+            // agentId in toolUseResult (simple, robust check).
+            if (entry.type === 'user' && entry.toolUseResult?.agentId) {
+              console.log(`[Watcher] Skipped Task tool result for agent ${entry.toolUseResult.agentId}`);
+              continue;
+            }
+
             const parsed = parseLogEntry(entry);
             if (parsed) {
               // Handle single result or array of results
@@ -445,7 +454,8 @@ async function watchSession(sessionId) {
   const logsDir = path.dirname(session.logFile);
   const logsDirWatcher = chokidar.watch(logsDir, {
     persistent: true,
-    ignoreInitial: true
+    ignoreInitial: true,
+    depth: 0  // Only watch top-level files, not subdirectories (subagent files live in subagents/)
   });
   
   logsDirWatcher.on('add', (newFile) => {
@@ -475,7 +485,8 @@ async function watchSession(sessionId) {
     lastStatus: initialStatus,
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
-    subagentTimeouts: new Map()   // Track inactivity timeouts per subagent
+    subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
+    subagentInfo: new Map()       // Track subagent metadata for sync to new clients
   });
 
   // Watch for subagents in {sessionDir}/subagents/
@@ -515,9 +526,27 @@ const SUBAGENT_IDLE_TIMEOUT = 30000; // 30 seconds of inactivity = stopped
 
 function watchSubagentsDirectory(sessionId, subagentsDir) {
   // Check if directory exists first
-  fsp.access(subagentsDir).then(() => {
-    // Don't scan existing files - they're old/completed subagents
-    // Only watch for NEW subagent files created while we're connected
+  fsp.access(subagentsDir).then(async () => {
+    // Scan for recently active subagent files (modified within last 60 seconds)
+    // These are likely still running and should be watched
+    try {
+      const files = await fsp.readdir(subagentsDir);
+      const now = Date.now();
+      for (const file of files) {
+        if (file.endsWith('.jsonl')) {
+          const filePath = path.join(subagentsDir, file);
+          const stats = await fsp.stat(filePath);
+          const ageMs = now - stats.mtimeMs;
+          if (ageMs < 60000) { // Modified within last 60 seconds
+            const agentId = file.replace('agent-', '').replace('.jsonl', '');
+            console.log(`[Subagent] Found recently active: ${agentId} (${Math.round(ageMs/1000)}s old)`);
+            watchSubagent(sessionId, agentId, filePath, false); // existing file
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Subagent] Error scanning existing files:', e);
+    }
 
     // Watch for new subagent files
     const subagentsDirWatcher = chokidar.watch(subagentsDir, {
@@ -590,14 +619,24 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
     }
   }
 
-  // Broadcast subagent start with correlated description
+  // Store and broadcast subagent start with correlated description
+  const subagentData = {
+    description: description || agentId.substring(0, 8),
+    agentType: agentType || 'general',
+    startTime: Date.now(),
+    inputTokens: 0,
+    outputTokens: 0,
+    currentTool: null
+  };
+  sessionData.subagentInfo.set(agentId, subagentData);
+
   broadcastToClients({
     type: 'subagent_start',
     sessionId,
     agentId,
-    description: description || agentId.substring(0, 8),
-    agentType: agentType || 'general',
-    timestamp: Date.now()
+    description: subagentData.description,
+    agentType: subagentData.agentType,
+    timestamp: subagentData.startTime
   });
 
   // Set up file watcher
@@ -608,7 +647,12 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }
   });
 
-  watcher.on('change', async (filePath) => {
+  // Handler for processing file content
+  // Lock prevents concurrent reads (immediate read + chokidar change can race)
+  let processing = false;
+  const processFileContent = async (filePath) => {
+    if (processing) return;
+    processing = true;
     try {
       const stats = await fsp.stat(filePath);
       let position = sessionData.subagentPositions.get(agentId) || 0;
@@ -627,7 +671,10 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
 
         const newContent = buffer.toString('utf8');
         const lastNewlineIndex = newContent.lastIndexOf('\n');
-        if (lastNewlineIndex === -1) return;
+        if (lastNewlineIndex === -1) {
+          processing = false;
+          return;
+        }
 
         const completeContent = newContent.substring(0, lastNewlineIndex);
         const lines = completeContent.split('\n').filter(l => l.trim());
@@ -651,6 +698,11 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
 
                 // Emit specific events for tool usage and token tracking
                 if (item.type === 'tool' || item.type === 'permission_request') {
+                  // Update stored subagent info
+                  const info = sessionData.subagentInfo.get(agentId);
+                  if (info) {
+                    info.currentTool = item.tool;
+                  }
                   broadcastToClients({
                     type: 'subagent_tool',
                     sessionId,
@@ -660,6 +712,12 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
                   });
                 }
                 if (item.type === 'token_usage') {
+                  // Update stored subagent info
+                  const info = sessionData.subagentInfo.get(agentId);
+                  if (info) {
+                    info.inputTokens = (info.inputTokens || 0) + (item.input || 0);
+                    info.outputTokens = (info.outputTokens || 0) + (item.output || 0);
+                  }
                   broadcastToClients({
                     type: 'subagent_tokens',
                     sessionId,
@@ -682,14 +740,20 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
       }
     } catch (e) {
       console.error(`[Subagent ${agentId}] Error:`, e.message);
+    } finally {
+      processing = false;
     }
-  });
+  };
+
+  // Bind handler to change events
+  watcher.on('change', processFileContent);
 
   sessionData.subagentWatchers.set(agentId, watcher);
 
-  // Do initial read to catch any content already in the file (fixes race condition)
-  // Trigger by emitting a synthetic change event
-  setTimeout(() => watcher.emit('change', logFile), 100);
+  // IMMEDIATELY read existing content (fixes race condition where subagent
+  // writes everything before watcher is ready)
+  console.log(`[Subagent ${agentId}] Triggering immediate read of ${logFile}`);
+  processFileContent(logFile);
 
   // Set initial idle timeout
   resetSubagentIdleTimeout(sessionId, agentId);
@@ -722,6 +786,7 @@ function stopSubagent(sessionId, agentId) {
     watcher.close();
     sessionData.subagentWatchers.delete(agentId);
     sessionData.subagentPositions.delete(agentId);
+    sessionData.subagentInfo.delete(agentId);
 
     const timeout = sessionData.subagentTimeouts.get(agentId);
     if (timeout) {
@@ -788,6 +853,9 @@ function parseLogEntry(entry) {
             timestamp
           });
 
+          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
+          const isMcpTool = block.name && block.name.startsWith('mcp__');
+
           // Special handling for AskUserQuestion - emit as structured prompt
           if (block.name === 'AskUserQuestion' && block.input?.questions) {
             results.push({
@@ -797,10 +865,7 @@ function parseLogEntry(entry) {
             });
           }
           // Permission-requiring tools - emit as permission_request
-          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
-          const isMcpTool = block.name && block.name.startsWith('mcp__');
-
-          if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
+          else if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
             console.log(`[Permission] Detected ${block.name} tool call`);
             results.push({
               type: 'permission_request',
@@ -877,6 +942,11 @@ function parseLogEntry(entry) {
 
   // User messages - could be human input or tool results
   if (entry.type === 'user') {
+    // Skip Task (subagent) tool results entirely - their output is streamed
+    // via the subagent_output channel. Task results have agentId in toolUseResult.
+    if (entry.toolUseResult?.agentId) {
+      return null;
+    }
     // Tool result - always emit when toolUseResult exists (even if no output)
     // This signals the tool completed, which is needed to dismiss permission cards
     if (entry.toolUseResult) {
@@ -983,6 +1053,10 @@ async function getSessionStatus(logFile) {
 }
 
 function broadcastToClients(message) {
+  // Log subagent-related messages for debugging
+  if (message.type?.startsWith('subagent')) {
+    console.log(`[BROADCAST] ${message.type} agentId=${message.agentId} dataType=${message.data?.type}`);
+  }
   const data = JSON.stringify(message);
   clients.forEach((clientData, ws) => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -1131,6 +1205,8 @@ async function handleClientMessage(ws, msg) {
           session: session
         }));
         await sendRecentHistory(ws, msg.sessionId);
+        // Send active subagents state and output
+        await sendActiveSubagents(ws, msg.sessionId);
       } else {
         sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
@@ -1307,6 +1383,13 @@ async function sendRecentHistory(ws, sessionId) {
     for (const line of recentLines) {
       try {
         const entry = JSON.parse(line);
+
+        // parseLogEntry already skips Task results (via agentId check),
+        // but skip here too for efficiency
+        if (entry.type === 'user' && entry.toolUseResult?.agentId) {
+          continue;
+        }
+
         const parsed = parseLogEntry(entry);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
@@ -1317,11 +1400,88 @@ async function sendRecentHistory(ws, sessionId) {
       }
     }
 
+    console.log(`[HISTORY] Sending ${history.length} items for session ${sessionId.substring(0, 8)}`);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: history }));
   } catch (e) {
     console.error('Error reading history:', e);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: [], error: 'Failed to read history' }));
   }
+}
+
+async function sendActiveSubagents(ws, sessionId) {
+  const sessionData = activeSessions.get(sessionId);
+  if (!sessionData || !sessionData.subagentInfo || sessionData.subagentInfo.size === 0) return;
+
+  const logsDir = path.dirname(sessionData.session.logFile);
+  const subagentsDir = path.join(logsDir, sessionId, 'subagents');
+
+  // Send subagent_start and recent output for each active subagent
+  for (const [agentId, info] of sessionData.subagentInfo) {
+    // Send start event
+    ws.send(JSON.stringify({
+      type: 'subagent_start',
+      sessionId,
+      agentId,
+      description: info.description,
+      agentType: info.agentType,
+      timestamp: info.startTime
+    }));
+
+    // Read and send recent subagent output
+    try {
+      const logFile = path.join(subagentsDir, `agent-${agentId}.jsonl`);
+      const content = await fsp.readFile(logFile, 'utf8');
+      const lines = content.split('\n').filter(l => l.trim());
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          const parsed = parseLogEntry(entry);
+          if (parsed) {
+            const items = Array.isArray(parsed) ? parsed : [parsed];
+            for (const item of items) {
+              // Send as subagent_output so client displays it
+              ws.send(JSON.stringify({
+                type: 'subagent_output',
+                sessionId,
+                agentId,
+                data: item
+              }));
+            }
+          }
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    } catch (e) {
+      // Log file may not exist or be readable
+      console.log(`[Subagent ${agentId}] Could not read log file for replay: ${e.message}`);
+    }
+
+    // Send accumulated tokens
+    if (info.inputTokens > 0 || info.outputTokens > 0) {
+      ws.send(JSON.stringify({
+        type: 'subagent_tokens',
+        sessionId,
+        agentId,
+        input: info.inputTokens,
+        output: info.outputTokens
+      }));
+    }
+
+    // Send current tool if any
+    if (info.currentTool) {
+      ws.send(JSON.stringify({
+        type: 'subagent_tool',
+        sessionId,
+        agentId,
+        tool: info.currentTool,
+        input: {}
+      }));
+    }
+  }
+
+  console.log(`[Session ${sessionId.substring(0, 8)}] Sent ${sessionData.subagentInfo.size} active subagents with output to client`);
 }
 
 // ============================================

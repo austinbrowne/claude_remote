@@ -13,28 +13,50 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
   <style>
     :root {
-      --bg-primary: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-tertiary: #21262d;
-      --bg-input: #0d1117;
-      --accent: #58a6ff;
-      --accent-dim: #388bfd;
-      --text-primary: #e6edf3;
-      --text-secondary: #8b949e;
-      --text-muted: #6e7681;
-      --border: #30363d;
-      --success: #3fb950;
-      --warning: #d29922;
-      --error: #f85149;
-      --user-msg: #1f6feb;
-      --assistant-msg: #238636;
-      --tool-msg: #8957e5;
+      /* iOS Dark Mode Colors */
+      --bg-primary: #000000;
+      --bg-secondary: rgba(28, 28, 30, 0.8);
+      --bg-tertiary: rgba(44, 44, 46, 0.8);
+      --bg-elevated: rgba(44, 44, 46, 0.95);
+      --bg-grouped: #1c1c1e;
+      --bg-input: rgba(44, 44, 46, 0.6);
+
+      /* iOS System Colors */
+      --accent: #0a84ff;
+      --accent-dim: #0070e0;
+      --text-primary: #ffffff;
+      --text-secondary: rgba(235, 235, 245, 0.6);
+      --text-muted: rgba(235, 235, 245, 0.3);
+      --border: rgba(84, 84, 88, 0.65);
+      --separator: rgba(84, 84, 88, 0.35);
+
+      /* iOS Semantic Colors */
+      --success: #30d158;
+      --warning: #ffd60a;
+      --error: #ff453a;
+      --orange: #ff9f0a;
+      --purple: #bf5af2;
+      --pink: #ff375f;
+      --teal: #64d2ff;
+
+      /* Legacy compatibility */
+      --user-msg: var(--accent);
+      --assistant-msg: var(--success);
+      --tool-msg: var(--purple);
+
+      /* Blur */
+      --blur-amount: 20px;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
       background: var(--bg-primary);
       color: var(--text-primary);
       height: 100vh;
@@ -42,94 +64,114 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      font-size: 17px;
+      line-height: 1.47;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* Header */
+    /* Header - iOS Navigation Bar Style */
     .header {
       background: var(--bg-secondary);
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      padding: 8px 16px;
+      border-bottom: 0.5px solid var(--separator);
       display: flex;
       align-items: center;
       justify-content: space-between;
       flex-shrink: 0;
-      padding-top: max(12px, env(safe-area-inset-top));
+      padding-top: max(8px, env(safe-area-inset-top));
       gap: 12px;
+      min-height: 44px;
     }
 
     .header-left {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       flex: 1;
       min-width: 0;
     }
 
     .status-dot {
-      width: 10px;
-      height: 10px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: var(--error);
       flex-shrink: 0;
+      box-shadow: 0 0 8px var(--error);
     }
-    .status-dot.connected { background: var(--success); }
+    .status-dot.connected {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
     .status-dot.reconnecting {
       background: var(--warning);
-      animation: pulse 1s infinite;
+      box-shadow: 0 0 8px var(--warning);
+      animation: glow-pulse 1.5s ease-in-out infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+    @keyframes glow-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 8px var(--warning); }
+      50% { opacity: 0.6; box-shadow: 0 0 16px var(--warning); }
     }
-    /* Respect user's reduced-motion preference (accessibility) */
     @media (prefers-reduced-motion: reduce) {
-      .status-dot.reconnecting {
-        animation: none;
-      }
+      .status-dot.reconnecting { animation: none; }
     }
 
     .session-selector {
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 12px;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
       color: var(--text-primary);
-      font-size: 0.9rem;
+      font-size: 15px;
+      font-weight: 500;
       flex: 1;
       min-width: 0;
-      max-width: 200px;
+      max-width: none;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23ebebf599' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
     }
 
     .header-actions {
       display: flex;
-      gap: 8px;
+      gap: 4px;
     }
 
     .icon-btn {
-      width: 36px;
-      height: 36px;
-      border-radius: 8px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      color: var(--text-secondary);
-      font-size: 1.1rem;
+      width: 44px;
+      height: 44px;
+      border-radius: 22px;
+      background: transparent;
+      border: none;
+      color: var(--accent);
+      font-size: 1.3rem;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.2s;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .icon-btn:active {
+      background: var(--bg-tertiary);
+      transform: scale(0.92);
     }
     .icon-btn:active { transform: scale(0.95); }
     .icon-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
-    /* Subagent Indicator */
+    /* Subagent Indicator - iOS Style */
     .subagent-indicator {
       position: relative;
-      padding: 4px 10px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--tool-msg);
-      border-radius: 16px;
-      font-size: 0.8rem;
+      padding: 5px 12px;
+      background: rgba(191, 90, 242, 0.15);
+      border: none;
+      border-radius: 14px;
+      font-size: 13px;
+      font-weight: 500;
       color: var(--tool-msg);
       cursor: pointer;
     }
@@ -139,31 +181,6 @@
       align-items: center;
       gap: 4px;
     }
-    .subagent-list {
-      display: none;
-      position: absolute;
-      top: 100%;
-      right: 0;
-      margin-top: 8px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px;
-      min-width: 200px;
-      z-index: 100;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    }
-    .subagent-indicator:hover .subagent-list,
-    .subagent-indicator:focus .subagent-list {
-      display: block;
-    }
-    .subagent-item {
-      padding: 6px 8px;
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      border-bottom: 1px solid var(--border);
-    }
-    .subagent-item:last-child { border-bottom: none; }
 
     /* Subagent message styling */
     .message.subagent-message {
@@ -188,112 +205,113 @@
       border-left: 3px solid var(--tool-msg);
     }
 
-    /* Status Bar */
+    /* Status Bar - iOS Style */
     .status-bar {
       background: var(--bg-secondary);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
       padding: 8px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.85rem;
+      border-bottom: 0.5px solid var(--separator);
+      font-size: 13px;
     }
     .status-bar.hidden { display: none; }
     .status-text {
       display: flex;
       align-items: center;
       gap: 8px;
+      color: var(--text-secondary);
     }
     .status-spinner {
       display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid var(--text-secondary);
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--separator);
       border-top-color: var(--accent);
       border-radius: 50%;
-      animation: spin 1s linear infinite;
+      animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .token-usage {
-      color: var(--text-secondary);
-      font-family: monospace;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 12px;
     }
 
-    /* Task Panel */
-    .task-panel {
+    /* Inline Task List - iOS Style */
+    .task-list-inline {
       background: var(--bg-secondary);
-      border-bottom: 1px solid var(--border);
-    }
-    .task-panel.hidden { display: none; }
-    .task-header {
-      padding: 10px 16px;
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-bottom: 0.5px solid var(--separator);
+      padding: 8px 16px;
       display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-    .task-list {
-      padding: 0 16px 10px;
-      max-height: 150px;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
       overflow-y: auto;
     }
-    .task-list.collapsed { display: none; }
-    .task-item {
-      padding: 5px 0;
+    .task-list-inline.hidden { display: none; }
+
+    .task-inline {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.85rem;
+      font-size: 13px;
     }
-    .task-item.completed { color: var(--text-secondary); text-decoration: line-through; }
-    .task-item.in_progress { color: var(--accent); }
-    .task-checkbox {
+
+    .task-inline .task-icon {
       width: 16px;
       height: 16px;
-      border: 2px solid var(--border);
-      border-radius: 3px;
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 10px;
-      flex-shrink: 0;
     }
-    .task-checkbox.checked {
-      background: var(--success);
-      border-color: var(--success);
-      color: white;
+    .task-inline.pending .task-icon::before { content: '○'; color: var(--text-muted); }
+    .task-inline.in_progress .task-icon::before { content: '◐'; color: var(--accent); }
+    .task-inline.completed .task-icon::before { content: '●'; color: var(--success); }
+
+    .task-inline .task-subject {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
-    .task-checkbox.in-progress {
-      border-color: var(--accent);
-      color: var(--accent);
+    .task-inline.completed .task-subject {
+      color: var(--text-muted);
+      text-decoration: line-through;
     }
 
-    /* Auth Screen */
+    /* Auth Screen - iOS Style */
     .auth-screen {
       flex: 1;
       display: flex;
       flex-direction: column;
       justify-content: center;
       padding: 20px;
+      background: var(--bg-primary);
     }
     .auth-screen.hidden { display: none; }
 
     .auth-box {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      max-width: 400px;
+      background: var(--bg-grouped);
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
+      padding: 28px 24px;
+      max-width: 360px;
       margin: 0 auto;
       width: 100%;
     }
 
     .auth-box h2 {
-      margin-bottom: 20px;
-      font-size: 1.3rem;
+      margin-bottom: 24px;
+      font-size: 22px;
+      font-weight: 700;
       text-align: center;
+      letter-spacing: -0.02em;
     }
 
     /* Main App */
@@ -309,15 +327,16 @@
     .output-area {
       flex: 1;
       overflow-y: auto;
-      padding: 8px 12px;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
       scroll-behavior: smooth;
       font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
       font-size: 13px;
-      line-height: 1.4;
+      line-height: 1.45;
       background: var(--bg-primary);
+      -webkit-overflow-scrolling: touch;
     }
 
     .message {
@@ -333,26 +352,40 @@
     .message.user::before {
       content: '❯ ';
       color: var(--success);
-      font-weight: bold;
+      font-weight: 600;
     }
 
     .message.assistant {
       color: var(--text-primary);
       padding-left: 0;
       border-left: 2px solid var(--success);
-      padding-left: 8px;
-      margin: 4px 0;
+      padding-left: 10px;
+      margin: 6px 0;
+      border-radius: 0 4px 4px 0;
     }
 
     .message.assistant.speaking {
       border-left-color: var(--accent);
-      background: rgba(88, 166, 255, 0.05);
+      background: rgba(10, 132, 255, 0.06);
+    }
+
+    /* Subagent messages - orange indicators instead of green */
+    .message.subagent {
+      background: rgba(255, 159, 10, 0.15) !important;
+      border-left: 3px solid var(--orange) !important;
+      padding-left: 10px !important;
+    }
+    .message.subagent.user::before {
+      color: var(--orange) !important;
+    }
+    .message.subagent.tool .tool-name {
+      color: var(--orange) !important;
     }
 
     .message.tool {
       color: var(--tool-msg);
       font-size: 12px;
-      opacity: 0.9;
+      opacity: 0.85;
     }
 
     .message.tool .tool-name {
@@ -370,7 +403,7 @@
       font-size: 11px;
     }
 
-    /* Collapsible tool messages */
+    /* Collapsible tool messages - iOS Style */
     .message.tool, .message.tool_result {
       cursor: pointer;
     }
@@ -379,13 +412,15 @@
     .message.tool_result .tool-details {
       display: none;
       margin-top: 8px;
-      padding: 8px;
-      background: var(--bg-primary);
+      padding: 10px;
+      background: var(--bg-grouped);
       border-left: 2px solid var(--tool-msg);
+      border-radius: 0 8px 8px 0;
       font-size: 11px;
       max-height: 200px;
       overflow-y: auto;
       white-space: pre-wrap;
+      -webkit-overflow-scrolling: touch;
     }
 
     .message.tool.expanded .tool-details,
@@ -400,11 +435,67 @@
     }
 
     .tool-chevron {
-      transition: transform 0.2s;
+      transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+      font-size: 10px;
     }
 
     .expanded .tool-chevron {
       transform: rotate(90deg);
+    }
+
+    /* Diff Preview - Terminal Style */
+    .diff-preview {
+      margin-top: 8px;
+      font-family: 'SF Mono', ui-monospace, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      background: var(--bg-grouped);
+      border-radius: 6px;
+      overflow: hidden;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .diff-line {
+      padding: 1px 8px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .diff-line.context {
+      color: var(--text-muted);
+    }
+
+    .diff-line.remove {
+      background: rgba(255, 69, 58, 0.15);
+      color: #ff6961;
+    }
+
+    .diff-line.add {
+      background: rgba(48, 209, 88, 0.15);
+      color: #4cd964;
+    }
+
+    .diff-line-number {
+      display: inline-block;
+      width: 32px;
+      color: var(--text-muted);
+      text-align: right;
+      margin-right: 8px;
+      user-select: none;
+    }
+
+    .diff-truncated {
+      padding: 8px;
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .tool-path {
+      color: var(--text-muted);
+      font-size: 12px;
+      margin-left: 4px;
     }
 
     .message pre {
@@ -414,24 +505,24 @@
       font-family: inherit;
     }
 
-    /* Streaming indicator */
+    /* Streaming indicator - iOS Style */
     .streaming {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 12px 16px;
+      padding: 12px 14px;
       color: var(--text-secondary);
-      font-size: 0.9rem;
+      font-size: 14px;
     }
 
     .streaming-dots {
       display: flex;
-      gap: 4px;
+      gap: 5px;
     }
 
     .streaming-dots span {
-      width: 8px;
-      height: 8px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--accent);
       animation: bounce 1.4s infinite ease-in-out;
@@ -440,72 +531,223 @@
     .streaming-dots span:nth-child(2) { animation-delay: -0.16s; }
 
     @keyframes bounce {
-      0%, 80%, 100% { transform: scale(0); }
-      40% { transform: scale(1); }
+      0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
     }
 
-    /* Input Area */
+    /* Input Area - iOS Style */
     .input-area {
       background: var(--bg-secondary);
-      border-top: 1px solid var(--border);
-      padding: 12px;
-      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-top: 0.5px solid var(--separator);
+      padding: 10px 12px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
       flex-shrink: 0;
     }
 
-    .quick-actions {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
-      overflow-x: auto;
-      padding-bottom: 4px;
-      -webkit-overflow-scrolling: touch;
+    /* Action Sheet Overlay */
+    .action-sheet-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+      z-index: 200;
+    }
+    .action-sheet-overlay.show { opacity: 1; pointer-events: auto; }
+
+    /* Action Sheet */
+    .action-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 8px;
+      right: 8px;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+      z-index: 201;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+    .action-sheet.show { transform: translateY(0); }
+
+    .action-sheet-group {
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 8px;
     }
 
-    .quick-btn {
-      padding: 8px 14px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      color: var(--text-secondary);
-      font-size: 0.85rem;
-      white-space: nowrap;
+    .action-sheet-btn {
+      width: 100%;
+      padding: 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 0.5px solid var(--separator);
+      color: var(--accent);
+      font-size: 20px;
+      font-weight: 400;
       cursor: pointer;
-      transition: all 0.15s;
+      text-align: center;
     }
-    .quick-btn:active {
-      background: var(--border);
-      transform: scale(0.95);
+    .action-sheet-btn:last-child { border-bottom: none; }
+    .action-sheet-btn:active { background: var(--bg-tertiary); }
+    .action-sheet-btn.danger { color: var(--error); }
+    .action-sheet-btn.primary { font-weight: 600; }
+
+    .action-sheet-cancel {
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-radius: 14px;
     }
-    .quick-btn.danger {
-      border-color: var(--error);
+    .action-sheet-cancel .action-sheet-btn {
+      font-weight: 600;
+    }
+
+    /* Subagent Sheet */
+    .subagent-sheet-header {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .subagent-sheet-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .subagent-sheet-item {
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .subagent-sheet-item:last-child { border-bottom: none; }
+    .subagent-sheet-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .subagent-sheet-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .subagent-sheet-status.running { background: var(--success); }
+    .subagent-sheet-status.waiting { background: var(--warning); }
+    .subagent-sheet-status.complete { background: var(--text-muted); }
+    .subagent-sheet-name {
+      font-weight: 500;
+      font-size: 17px;
+      flex: 1;
+    }
+    .subagent-sheet-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+    .subagent-sheet-tool {
+      color: var(--tool-msg);
+    }
+
+    /* Inline action buttons */
+    .action-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.1s, opacity 0.15s, width 0.15s;
+      flex-shrink: 0;
+    }
+    .action-btn:active {
+      transform: scale(0.92);
+    }
+    .action-btn.hidden {
+      display: none;
+    }
+    .action-btn.yes {
+      background: var(--success);
+      color: white;
+    }
+    .action-btn.yes:active {
+      background: #28b94c;
+    }
+    .action-btn.cancel {
+      background: var(--bg-input);
       color: var(--error);
+    }
+    .action-btn.cancel:active {
+      background: var(--bg-tertiary);
+    }
+    .action-btn.stop {
+      background: var(--bg-input);
+      color: var(--error);
+    }
+    .action-btn.stop:active {
+      background: rgba(255, 69, 58, 0.2);
+    }
+    .action-btn.more {
+      background: var(--bg-input);
+      color: var(--text-secondary);
+    }
+    .action-btn.more:active {
+      background: var(--bg-tertiary);
+    }
+
+    /* Larger send button when alone */
+    .send-btn.large {
+      width: 42px;
+      height: 42px;
+    }
+    .send-btn.large svg {
+      width: 20px;
+      height: 20px;
     }
 
     .input-row {
       display: flex;
       gap: 10px;
-      align-items: flex-end;
+      align-items: center;
     }
 
     .input-wrapper {
       flex: 1;
       position: relative;
+      display: flex;
+      align-items: center;
     }
 
     .command-input {
       width: 100%;
       background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 12px 18px;
-      padding-right: 48px;
+      border: 0.5px solid var(--separator);
+      border-radius: 20px;
+      padding: 10px 44px 10px 16px;
       color: var(--text-primary);
-      font-size: 16px;
+      font-size: 17px;
       outline: none;
       resize: none;
-      max-height: 120px;
-      line-height: 1.4;
+      max-height: 100px;
+      min-height: 40px;
+      line-height: 1.35;
+      font-family: inherit;
     }
     .command-input:focus { border-color: var(--accent); }
     .command-input::placeholder { color: var(--text-muted); }
@@ -513,18 +755,23 @@
     .voice-btn {
       position: absolute;
       right: 8px;
-      bottom: 8px;
-      width: 32px;
-      height: 32px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
       border-radius: 50%;
       background: transparent;
       border: none;
       color: var(--text-secondary);
-      font-size: 1.1rem;
+      font-size: 18px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .voice-btn:active {
+      transform: translateY(-50%) scale(0.92);
     }
     .voice-btn.recording {
       background: var(--error);
@@ -533,48 +780,52 @@
     }
 
     @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.1); }
+      0%, 100% { transform: translateY(-50%) scale(1); }
+      50% { transform: translateY(-50%) scale(1.08); }
     }
 
     .send-btn {
-      width: 48px;
-      height: 48px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
       background: var(--accent);
       border: none;
       color: white;
-      font-size: 1.3rem;
+      font-size: 17px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: all 0.15s;
+      transition: background 0.15s, transform 0.1s;
       flex-shrink: 0;
+      align-self: center;
     }
     .send-btn:active {
       background: var(--accent-dim);
-      transform: scale(0.95);
+      transform: scale(0.92);
     }
     .send-btn:disabled {
       background: var(--bg-tertiary);
       color: var(--text-muted);
     }
 
-    /* Settings Panel */
+    /* Settings Panel - iOS Sheet Style */
     .settings-panel {
       position: fixed;
       top: 0;
-      right: -300px;
-      width: 280px;
+      right: -320px;
+      width: 300px;
       height: 100%;
-      background: var(--bg-secondary);
-      border-left: 1px solid var(--border);
-      padding: 20px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border-left: 0.5px solid var(--separator);
+      padding: 0;
       padding-top: max(20px, env(safe-area-inset-top));
-      transition: right 0.3s ease;
+      transition: right 0.3s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 100;
       overflow-y: auto;
+      border-radius: 12px 0 0 12px;
     }
     .settings-panel.open { right: 0; }
 
@@ -584,10 +835,12 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.3s;
+      transition: opacity 0.3s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 99;
     }
     .settings-overlay.open { opacity: 1; pointer-events: auto; }
@@ -596,37 +849,74 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding: 16px 20px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+
+    .settings-header h3 {
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .settings-close {
+      color: var(--accent);
+      font-size: 17px;
+      font-weight: 400;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    .setting-group {
+      padding: 0 20px;
       margin-bottom: 24px;
     }
 
-    .settings-header h3 { font-size: 1.1rem; }
-
-    .setting-group {
-      margin-bottom: 20px;
+    .setting-group-header {
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      padding: 16px 0 8px;
     }
 
     .setting-group label {
       display: block;
-      font-size: 0.85rem;
+      font-size: 13px;
       color: var(--text-secondary);
       margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
 
     .setting-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      background: var(--bg-grouped);
+      margin: 0 -16px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .setting-row:first-of-type {
+      border-radius: 10px 10px 0 0;
+    }
+    .setting-row:last-of-type {
+      border-radius: 0 0 10px 10px;
+      border-bottom: none;
+    }
+    .setting-row:only-of-type {
+      border-radius: 10px;
     }
 
-    .setting-row span { font-size: 0.95rem; }
+    .setting-row span { font-size: 17px; }
 
-    /* Toggle switch */
+    /* Toggle switch - iOS Style */
     .toggle {
       position: relative;
-      width: 50px;
-      height: 28px;
+      width: 51px;
+      height: 31px;
     }
 
     .toggle input {
@@ -642,99 +932,111 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background-color: var(--bg-tertiary);
-      transition: 0.3s;
-      border-radius: 28px;
-      border: 1px solid var(--border);
+      background-color: rgba(120, 120, 128, 0.32);
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 31px;
+      border: none;
     }
 
     .toggle-slider:before {
       position: absolute;
       content: "";
-      height: 22px;
-      width: 22px;
+      height: 27px;
+      width: 27px;
       left: 2px;
       bottom: 2px;
-      background-color: var(--text-secondary);
-      transition: 0.3s;
+      background-color: white;
+      transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
     }
 
     .toggle input:checked + .toggle-slider {
-      background-color: var(--accent);
-      border-color: var(--accent);
+      background-color: var(--success);
     }
 
     .toggle input:checked + .toggle-slider:before {
-      transform: translateX(22px);
-      background-color: white;
+      transform: translateX(20px);
     }
 
     select {
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
+      background: var(--bg-input);
+      border: 0.5px solid var(--separator);
+      border-radius: 10px;
+      padding: 10px 14px;
       color: var(--text-primary);
-      font-size: 0.9rem;
+      font-size: 17px;
       width: 100%;
+      font-family: inherit;
     }
 
-    /* Form elements */
+    /* Form elements - iOS Style */
     input[type="password"],
     input[type="text"] {
       width: 100%;
-      padding: 14px 16px;
-      font-size: 16px;
+      padding: 12px 16px;
+      font-size: 17px;
       background: var(--bg-input);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      border: 0.5px solid var(--separator);
+      border-radius: 10px;
       color: var(--text-primary);
       outline: none;
       margin-bottom: 16px;
+      font-family: inherit;
     }
     input:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--text-muted); }
 
     .btn {
       width: 100%;
       padding: 14px;
-      font-size: 1rem;
+      font-size: 17px;
       font-weight: 600;
       border: none;
       border-radius: 12px;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: transform 0.1s, opacity 0.15s;
+    }
+    .btn:active {
+      transform: scale(0.98);
+      opacity: 0.8;
     }
 
     .btn-primary {
       background: var(--accent);
       color: white;
     }
-    .btn-primary:active { background: var(--accent-dim); }
 
-    /* Toast */
+    /* Toast - iOS HUD Style */
     .toast {
       position: fixed;
       bottom: 120px;
       left: 50%;
-      transform: translateX(-50%);
-      background: var(--bg-secondary);
+      transform: translateX(-50%) translateY(20px);
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
       color: var(--text-primary);
-      padding: 12px 24px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
+      padding: 12px 20px;
+      border-radius: 22px;
+      border: 0.5px solid var(--separator);
       opacity: 0;
-      transition: opacity 0.3s;
+      transition: opacity 0.25s, transform 0.25s cubic-bezier(0.32, 0.72, 0, 1);
       z-index: 1000;
-      font-size: 0.9rem;
-      max-width: 90%;
+      font-size: 15px;
+      font-weight: 500;
+      max-width: 85%;
       text-align: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     }
-    .toast.show { opacity: 1; }
-    .toast.success { border-color: var(--success); }
-    .toast.error { border-color: var(--error); }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast.success { color: var(--success); }
+    .toast.error { color: var(--error); }
 
-    /* Empty state */
+    /* Empty state - iOS Style */
     .empty-state {
       flex: 1;
       display: flex;
@@ -742,43 +1044,53 @@
       align-items: center;
       justify-content: center;
       color: var(--text-muted);
-      padding: 40px 20px;
+      padding: 40px 24px;
       text-align: center;
     }
 
     .empty-state .icon {
-      font-size: 4rem;
-      margin-bottom: 16px;
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.6;
     }
 
     .empty-state p {
-      margin-bottom: 8px;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+    .empty-state p:first-of-type {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-secondary);
     }
 
-    /* Command autocomplete */
+    /* Command autocomplete - iOS Style */
     .autocomplete {
       position: absolute;
       bottom: 100%;
       left: 0;
       right: 0;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
       margin-bottom: 8px;
       max-height: 50vh;
       overflow-y: auto;
       display: none;
       z-index: 50;
+      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
     }
     .autocomplete.show { display: block; }
 
     .autocomplete-item {
       padding: 12px 16px;
       cursor: pointer;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 0.5px solid var(--separator);
       display: flex;
-      align-items: center;
-      gap: 10px;
+      flex-direction: column;
+      gap: 2px;
     }
     .autocomplete-item:last-child { border-bottom: none; }
     .autocomplete-item:active { background: var(--bg-tertiary); }
@@ -786,34 +1098,58 @@
 
     .autocomplete-item .cmd {
       color: var(--accent);
-      font-family: 'SF Mono', monospace;
-      font-size: 0.9rem;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 15px;
+      font-weight: 500;
     }
     .autocomplete-item .desc {
-      color: var(--text-muted);
-      font-size: 0.8rem;
+      color: var(--text-secondary);
+      font-size: 13px;
     }
 
-    /* Prompt Card */
+    /* Prompt Card - iOS Bottom Sheet Style */
     .prompt-card {
       position: fixed;
-      bottom: 180px;
-      left: 12px;
-      right: 12px;
-      background: var(--bg-secondary);
-      border: 2px solid var(--accent);
-      border-radius: 16px;
-      padding: 16px;
+      bottom: 160px;
+      left: 8px;
+      right: 8px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      border: 0.5px solid var(--separator);
+      border-radius: 14px;
+      padding: 8px 16px 16px;
       display: none;
       z-index: 50;
-      animation: slideUp 0.3s ease;
+      animation: sheetSlideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
       max-height: min(70vh, 500px);
       overflow: hidden;
       flex-direction: column;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
     }
     .prompt-card.show { display: flex; }
-    .prompt-card.permission { border-color: var(--warning); }
-    .prompt-card.destructive { border-color: var(--error); }
+    .prompt-card.permission .prompt-type-indicator { background: var(--warning); }
+    .prompt-card.destructive .prompt-type-indicator { background: var(--error); }
+
+    .prompt-handle {
+      width: 36px;
+      height: 5px;
+      background: var(--text-muted);
+      border-radius: 2.5px;
+      margin: 4px auto 12px;
+      flex-shrink: 0;
+    }
+
+    .prompt-type-indicator {
+      width: 4px;
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+    }
 
     @media (prefers-reduced-motion: reduce) {
       .prompt-card { animation: none; }
@@ -823,9 +1159,9 @@
       .prompt-card { max-height: 85vh; }
     }
 
-    @keyframes slideUp {
-      from { transform: translateY(20px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
+    @keyframes sheetSlideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
     }
 
     .prompt-header {
@@ -838,16 +1174,22 @@
 
     .prompt-title {
       flex: 1;
+      font-size: 17px;
       font-weight: 600;
     }
 
     .prompt-dismiss {
-      background: transparent;
+      background: var(--bg-input);
       border: none;
-      color: var(--text-muted);
-      font-size: 1.2rem;
+      color: var(--text-secondary);
+      font-size: 14px;
+      font-weight: 500;
       cursor: pointer;
-      padding: 4px 8px;
+      padding: 6px 12px;
+      border-radius: 14px;
+    }
+    .prompt-dismiss:active {
+      background: var(--bg-tertiary);
     }
 
     .prompt-content {
@@ -855,6 +1197,8 @@
       overflow-y: auto;
       margin-bottom: 12px;
       flex-shrink: 1;
+      font-size: 15px;
+      line-height: 1.4;
     }
 
     .prompt-content p {
@@ -875,7 +1219,7 @@
 
     .prompt-actions {
       display: flex;
-      gap: 12px;
+      gap: 10px;
       flex-wrap: wrap;
       flex-shrink: 0;
     }
@@ -883,20 +1227,21 @@
     .prompt-btn {
       flex: 1;
       min-width: 100px;
-      min-height: 56px;
-      padding: 16px 24px;
+      min-height: 50px;
+      padding: 14px 20px;
       border-radius: 12px;
-      font-size: 0.95rem;
+      font-size: 17px;
       font-weight: 600;
       cursor: pointer;
       border: none;
-      transition: transform 0.1s, opacity 0.1s;
+      transition: transform 0.1s, opacity 0.15s;
     }
     .prompt-btn:active {
-      transform: scale(0.97);
+      transform: scale(0.96);
+      opacity: 0.8;
     }
     .prompt-btn:disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
@@ -909,9 +1254,9 @@
     }
 
     .prompt-btn.secondary {
-      background: var(--bg-tertiary);
+      background: var(--bg-input);
       color: var(--text-primary);
-      border: 1px solid var(--border);
+      border: none;
     }
 
     .prompt-btn.allow-always {
@@ -924,26 +1269,31 @@
       max-height: 300px;
       overflow-y: auto;
       margin-bottom: 12px;
+      -webkit-overflow-scrolling: touch;
     }
 
     .prompt-option {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 14px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      gap: 14px;
+      padding: 14px 16px;
+      background: var(--bg-input);
+      border: none;
+      border-radius: 12px;
       margin-bottom: 8px;
       cursor: pointer;
-      min-height: 48px;
+      min-height: 50px;
+      transition: background 0.15s;
+    }
+    .prompt-option:active {
+      background: var(--bg-tertiary);
     }
     .prompt-option:focus {
-      outline: 2px solid var(--accent);
-      outline-offset: 2px;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.3);
     }
     .prompt-option.selected {
-      border-color: var(--accent);
-      background: rgba(88, 166, 255, 0.15);
+      background: rgba(10, 132, 255, 0.12);
     }
 
     .prompt-option input[type="radio"] {
@@ -951,16 +1301,17 @@
     }
     .prompt-option::before {
       content: '';
-      width: 24px;
-      height: 24px;
-      border: 2px solid var(--border);
+      width: 22px;
+      height: 22px;
+      border: 2px solid var(--separator);
       border-radius: 50%;
       flex-shrink: 0;
+      transition: all 0.15s;
     }
     .prompt-option.selected::before {
       background: var(--accent);
       border-color: var(--accent);
-      box-shadow: inset 0 0 0 4px var(--bg-secondary);
+      box-shadow: inset 0 0 0 4px var(--bg-elevated);
     }
 
     .prompt-select {
@@ -1020,13 +1371,239 @@
       border-radius: 8px;
       font-weight: 500;
     }
+
+    /* Session Drawer (mobile swipe) */
+    .session-drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 1099;
+    }
+    .session-drawer-overlay.show {
+      opacity: 1;
+      pointer-events: auto;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+
+    .session-drawer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: 280px;
+      background: var(--bg-elevated);
+      backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
+      transform: translateX(-100%);
+      z-index: 1100;
+      display: flex;
+      flex-direction: column;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-left: env(safe-area-inset-left);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .session-drawer-header {
+      padding: 12px 20px;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      border-bottom: 0.5px solid var(--separator);
+    }
+
+    .session-drawer-list {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .session-drawer-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-bottom: 0.5px solid var(--separator);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .session-drawer-row:active {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .session-drawer-row.active {
+      background: rgba(10, 132, 255, 0.15);
+    }
+
+    .session-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--text-muted);
+    }
+    .session-status-dot.waiting { background: var(--orange); }
+    .session-status-dot.processing { background: var(--accent); }
+
+    .session-drawer-row .session-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .session-drawer-row .session-branch {
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+      padding: 2px 8px;
+      border-radius: 6px;
+      flex-shrink: 0;
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Mobile: show session label, hide select. Desktop: opposite. */
+    .session-label {
+      display: none;
+    }
+    @media (pointer: coarse) {
+      .session-selector {
+        display: none;
+      }
+      .session-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        min-width: 0;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        padding: 6px 0;
+      }
+      .session-label-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        background: var(--text-muted);
+      }
+      .session-label-dot.waiting { background: var(--orange); }
+      .session-label-dot.processing { background: var(--accent); }
+      .session-label-name {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .session-label-name::after {
+        content: ' ›';
+        color: var(--text-muted);
+        font-weight: 400;
+      }
+    }
+
+    /* Session picker splash (no session selected) */
+    .session-picker-splash {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-primary);
+      z-index: 900;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      padding-top: env(safe-area-inset-top);
+    }
+    .session-picker-splash.hidden { display: none; }
+    .session-picker-splash h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+    .session-picker-splash p {
+      font-size: 15px;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+    .session-picker-splash .splash-list {
+      width: 100%;
+      max-width: 360px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--bg-grouped);
+    }
+    .session-picker-splash .splash-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--separator);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .session-picker-splash .splash-row:last-child { border-bottom: none; }
+    .session-picker-splash .splash-row:active {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .session-picker-splash .splash-row .session-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--text-muted);
+    }
+    .session-picker-splash .splash-row .session-status-dot.waiting { background: var(--orange); }
+    .session-picker-splash .splash-row .session-status-dot.processing { background: var(--accent); }
+    .session-picker-splash .splash-row .session-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .session-picker-splash .splash-row .session-branch {
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+      padding: 2px 8px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .splash-empty {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 15px;
+    }
   </style>
 </head>
 <body>
   <!-- Auth Screen -->
   <div class="auth-screen" id="authScreen">
     <div class="auth-box">
-      <h2>⚡ Claude Remote</h2>
+      <h2>Claude Remote</h2>
       <input type="password" id="token" placeholder="Enter auth token">
       <button class="btn btn-primary" onclick="connect()">Connect</button>
     </div>
@@ -1040,16 +1617,25 @@
         <select class="session-selector" id="sessionSelector" onchange="switchSession()">
           <option value="">Select session...</option>
         </select>
+        <div class="session-label" id="sessionLabel" onclick="openSessionDrawer()">
+          <span class="session-label-dot" id="sessionLabelDot"></span>
+          <span class="session-label-name" id="sessionLabelName">No session</span>
+        </div>
       </div>
       <!-- Subagent Indicator -->
-      <div class="subagent-indicator hidden" id="subagentIndicator">
+      <div class="subagent-indicator hidden" id="subagentIndicator" onclick="showSubagentSheet()">
         <span class="subagent-badge">🤖 <span class="subagent-count">0</span></span>
-        <div class="subagent-list"></div>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">🔄</button>
-        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">🔇</button>
-        <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">⚙️</button>
+        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+        </button>
+        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        </button>
       </div>
     </header>
 
@@ -1064,21 +1650,27 @@
       </div>
     </div>
 
-    <!-- Task Progress Panel -->
-    <div id="taskPanel" class="task-panel hidden">
-      <div class="task-header" onclick="toggleTaskPanel()">
-        <span>Tasks</span>
-        <span id="taskProgress">0/0</span>
-        <span class="expand-icon">&#9660;</span>
+    <!-- Inline Task Progress List -->
+    <div id="taskList" class="task-list-inline hidden">
+      <!-- Populated by renderTasksInline() -->
+    </div>
+
+    <!-- Session Picker Splash (shown when no session selected on mobile) -->
+    <div class="session-picker-splash" id="sessionPickerSplash">
+      <h2>Claude Remote</h2>
+      <p>Select a session to begin</p>
+      <div class="splash-list" id="splashSessionList">
+        <div class="splash-empty">Connecting...</div>
       </div>
-      <div id="taskList" class="task-list"></div>
     </div>
 
     <div class="output-area" id="outputArea">
       <div class="empty-state" id="emptyState">
-        <div class="icon">📡</div>
-        <p>Select a session to monitor</p>
-        <p style="font-size: 0.85rem;">Claude's responses will appear here in real-time</p>
+        <div class="icon">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 8h2"/><path d="M7 11h4"/></svg>
+        </div>
+        <p>Select a session</p>
+        <p>Claude's responses will appear here in real-time</p>
       </div>
     </div>
 
@@ -1088,10 +1680,11 @@
          aria-labelledby="promptTitle"
          aria-describedby="promptContent"
          aria-modal="true">
+      <div class="prompt-handle"></div>
       <div class="prompt-header">
         <span class="prompt-icon" id="promptIcon">🔔</span>
         <span class="prompt-title" id="promptTitle">Claude needs input</span>
-        <button class="prompt-dismiss" onclick="dismissPrompt()" aria-label="Respond later">✕</button>
+        <button class="prompt-dismiss" onclick="dismissPrompt()" aria-label="Respond later">Later</button>
       </div>
       <div class="prompt-content" id="promptContent"></div>
       <div class="prompt-actions" id="promptActions"></div>
@@ -1099,23 +1692,68 @@
       <div class="prompt-stale" id="promptStale">⚠️ Claude may have moved on</div>
     </div>
 
-    <div class="input-area">
-      <div class="quick-actions">
-        <button class="quick-btn" onclick="sendPreset('/plan')">📋 Plan</button>
-        <button class="quick-btn" onclick="sendModeToggle()">✏️ Edits</button>
-        <button class="quick-btn" onclick="sendPreset('/clear')">🧹 Clear</button>
-        <button class="quick-btn" onclick="sendPreset('/compact')">📦 Compact</button>
-        <button class="quick-btn" onclick="sendPreset('/status')">📊 Status</button>
-        <button class="quick-btn" onclick="sendPreset('y')">✓ Yes</button>
-        <button class="quick-btn danger" onclick="sendEscape()">⎋ Cancel</button>
+    <!-- Session Drawer (mobile swipe-to-open) -->
+    <div class="session-drawer-overlay" id="sessionDrawerOverlay"></div>
+    <div class="session-drawer" id="sessionDrawer">
+      <div class="session-drawer-header">Sessions</div>
+      <div class="session-drawer-list" id="sessionDrawerList">
+        <!-- Populated dynamically -->
       </div>
+    </div>
+
+    <!-- Action Sheet -->
+    <div class="action-sheet-overlay" id="actionSheetOverlay" onclick="hideActionSheet()"></div>
+    <div class="action-sheet" id="actionSheet">
+      <div class="action-sheet-group">
+        <button class="action-sheet-btn" onclick="sendPreset('/plan'); hideActionSheet();">Enter Plan Mode</button>
+        <button class="action-sheet-btn" onclick="sendModeToggle(); hideActionSheet();">Toggle Allow Edits</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/rewind'); hideActionSheet();">Rewind (Checkpoints)</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/status'); hideActionSheet();">Show Status</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/compact'); hideActionSheet();">Compact Context</button>
+        <button class="action-sheet-btn" onclick="clearDisplay(); hideActionSheet();">Clear Display</button>
+        <button class="action-sheet-btn" onclick="sendPreset('/clear'); hideActionSheet();">Clear Claude Context</button>
+        <button class="action-sheet-btn danger" onclick="sendEscape(); hideActionSheet();">Stop / Interrupt</button>
+      </div>
+      <div class="action-sheet-cancel">
+        <button class="action-sheet-btn" onclick="hideActionSheet()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Subagent Action Sheet -->
+    <div class="action-sheet-overlay" id="subagentSheetOverlay" onclick="hideSubagentSheet()"></div>
+    <div class="action-sheet" id="subagentSheet">
+      <div class="action-sheet-group">
+        <div class="subagent-sheet-header">Active Subagents</div>
+        <div class="subagent-sheet-list" id="subagentSheetList">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+      <div class="action-sheet-cancel">
+        <button class="action-sheet-btn" onclick="hideSubagentSheet()">Done</button>
+      </div>
+    </div>
+
+    <div class="input-area">
       <div class="input-row">
+        <button class="action-btn more" onclick="showActionSheet()" title="More actions">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+        </button>
         <div class="input-wrapper">
           <div class="autocomplete" id="autocomplete"></div>
-          <textarea class="command-input" id="commandInput" placeholder="Type a command..." rows="1" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
-          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">🎤</button>
+          <textarea class="command-input" id="commandInput" placeholder="Message" rows="1" autocomplete="off" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
+          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          </button>
         </div>
-        <button class="send-btn" id="sendBtn" onclick="sendCommand()">➤</button>
+        <button class="action-btn yes hidden" id="yesBtn" onclick="sendPreset('y')" title="Yes">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <button class="action-btn stop" id="stopBtn" onclick="sendEscape()" title="Stop/Interrupt">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        </button>
+        <button class="send-btn large" id="sendBtn" onclick="sendCommand()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.01 6.03l7.51 3.22-7.52-1 .01-2.22m7.5 8.72L4 17.97v-2.22l7.51-1m-9.5-9.75l-.01 6 15 2-15 2 .01 6 21-8-21-8z"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -1125,7 +1763,7 @@
   <div class="settings-panel" id="settingsPanel">
     <div class="settings-header">
       <h3>Settings</h3>
-      <button class="icon-btn" onclick="closeSettings()">✕</button>
+      <button class="settings-close" onclick="closeSettings()">Done</button>
     </div>
 
     <div class="setting-group">
@@ -1169,6 +1807,17 @@
         <span>Notify on response</span>
         <label class="toggle">
           <input type="checkbox" id="notifyEnabled" onchange="updateSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>Developer</label>
+      <div class="setting-row">
+        <span>Debug mode</span>
+        <label class="toggle">
+          <input type="checkbox" id="debugEnabled" onchange="updateSettings()">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -1361,6 +2010,9 @@
           selectAutocomplete(item.dataset.cmd);
         }
       });
+
+      // Setup mobile session drawer swipe gesture
+      setupSessionDrawerSwipe();
     });
 
     function loadSettings() {
@@ -1368,6 +2020,7 @@
       document.getElementById('speakTools').checked = settings.speakTools;
       document.getElementById('speechRate').value = settings.speechRate.toString();
       document.getElementById('notifyEnabled').checked = settings.notifyEnabled;
+      document.getElementById('debugEnabled').checked = debugMode;
       updateTTSButton();
     }
 
@@ -1494,8 +2147,12 @@
       };
 
       websocket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
+        try {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        } catch (e) {
+          console.error('Message handler error:', e);
+        }
       };
     }
 
@@ -1547,6 +2204,8 @@
     // Reconnection Logic (iOS Safari frozen socket fix)
     // ============================================
     let lastVisibleTime = Date.now();
+    // Track the last sent command to detect stale replays from iOS form restoration
+    let lastSentCommand = { text: '', timestamp: 0 };
 
     function handleVisibilityChange() {
       if (document.visibilityState === 'visible' && authToken) {
@@ -1558,6 +2217,14 @@
         if (backgroundDuration > 5000) {
           console.log(`[Visibility] Backgrounded for ${backgroundDuration}ms, forcing reconnect`);
           forceReconnect();
+
+          // Clear input if it matches the last sent command (iOS form restoration issue)
+          const input = document.getElementById('commandInput');
+          if (input && input.value.trim() === lastSentCommand.text) {
+            console.log('[Visibility] Clearing stale input that matches last sent command');
+            input.value = '';
+            autoResize(input);
+          }
         } else {
           checkConnectionHealth();
         }
@@ -1623,7 +2290,21 @@
     // ============================================
     // Message Handling
     // ============================================
+    // Debug mode (toggle in Settings > Developer)
+    let debugMsgCount = 0;
+    let debugMode = localStorage.getItem('debug_mode') === 'true';
+
     function handleMessage(msg) {
+      debugMsgCount++;
+      // Debug ALL message types to trace the flow
+      if (debugMode) {
+        const info = msg.type === 'subagent_output'
+          ? `🤖 ${msg.agentId?.substring(0,6)} → ${msg.data?.type}`
+          : msg.type === 'claude_output'
+          ? `📤 ${msg.data?.type}`
+          : msg.type;
+        showToast(`#${debugMsgCount}: ${info}`, 'success');
+      }
       switch (msg.type) {
         case 'auth_result':
           if (msg.success) {
@@ -1669,6 +2350,9 @@
             currentSessionId = msg.sessionId;
             sessionState = SESSION_STATE.ACTIVE;
           }
+          // Update mobile header and hide splash
+          updateSessionLabel();
+          document.getElementById('sessionPickerSplash')?.classList.add('hidden');
           // Process any queued prompt that arrived during state transition
           if (sessionState === SESSION_STATE.ACTIVE && pendingPromptMessage) {
             const queued = pendingPromptMessage;
@@ -1714,6 +2398,13 @@
             const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
             const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test(cmd.toLowerCase());
 
+            // Display as a tool message so user sees what tool is being called
+            appendMessage({
+              type: 'tool',
+              tool: tool,
+              input: input
+            });
+
             // Store pending card and wait before showing (allows auto-approval to cancel)
             pending.permissionCard = { tool, cmd, isDestructive };
             pending.permissionTimeout = setTimeout(() => {
@@ -1737,10 +2428,17 @@
               pending.permissionTimeout = null;
               pending.permissionCard = null;
             }
+            // Clear any queued permission prompts (they were auto-approved)
+            for (let i = promptQueue.length - 1; i >= 0; i--) {
+              if (promptQueue[i].type === 'permission') {
+                promptQueue.splice(i, 1);
+              }
+            }
             // Dismiss existing permission card immediately
             if (currentPrompt?.type === 'permission') {
               hidePromptCard();
             }
+            break; // Don't fall through to appendMessage - tool results handled above
           }
           // Dedupe user messages we just sent
           if (msg.data.type === 'user') {
@@ -1751,6 +2449,10 @@
           // Route status updates to the status handler
           if (msg.data.type === 'status_update') {
             handleStatusUpdate(msg.data);
+            break;
+          }
+          // Skip subagent_starting - it's handled via subagent_start message
+          if (msg.data.type === 'subagent_starting') {
             break;
           }
           // Route token usage to token handler
@@ -1811,6 +2513,12 @@
             type: msg.agentType,
             timestamp: Date.now()
           };
+          // Display as a tool message so user sees what's being launched
+          appendMessage({
+            type: 'tool',
+            tool: 'Task',
+            input: { description: msg.description, subagent_type: msg.agentType }
+          });
           break;
 
         case 'subagent_start':
@@ -1899,6 +2607,11 @@
         selector.value = sessions[0].id;
         switchSession();
       }
+
+      // Update mobile UI
+      updateSessionDrawer(sessions);
+      updateSessionLabel();
+      updateSplashScreen(sessions);
     }
 
     function updateSessionStatus(sessionId, status) {
@@ -1911,6 +2624,18 @@
       const name = option.textContent.replace(/^(?:🟠|🔵)\s*/g, '');  // Strip old icon(s)
       option.textContent = icon + name;
       option.dataset.status = status;
+
+      // Update drawer status dot
+      const drawerRow = document.querySelector(`#sessionDrawerList .session-drawer-row[data-session-id="${CSS.escape(sessionId)}"]`);
+      if (drawerRow) {
+        const dot = drawerRow.querySelector('.session-status-dot');
+        if (dot) dot.className = 'session-status-dot ' + (status || '');
+      }
+
+      // Update header label dot if this is the current session
+      if (sessionId === currentSessionId) {
+        updateSessionLabel();
+      }
     }
 
     function switchSession() {
@@ -1920,6 +2645,12 @@
       // Set switching state to prevent race conditions with in-flight messages
       sessionState = SESSION_STATE.SWITCHING;
       pendingSessionId = sessionId;
+
+      // Unwatch the old session so the server stops sending its output
+      if (currentSessionId && currentSessionId !== sessionId) {
+        wsSend({ action: 'unwatch_session', sessionId: currentSessionId });
+      }
+
       // Update currentSessionId IMMEDIATELY so commands go to the right session
       // even before server confirms the watch
       currentSessionId = sessionId;
@@ -1934,6 +2665,256 @@
       document.getElementById('statusBar')?.classList.add('hidden');
 
       wsSend({ action: 'watch_session', sessionId: sessionId });
+
+      // Update header label and hide splash
+      updateSessionLabel();
+      document.getElementById('sessionPickerSplash')?.classList.add('hidden');
+    }
+
+    function updateSessionLabel() {
+      const selector = document.getElementById('sessionSelector');
+      const option = selector.selectedOptions[0];
+      const labelName = document.getElementById('sessionLabelName');
+      const labelDot = document.getElementById('sessionLabelDot');
+      if (!labelName || !option || !option.value) {
+        if (labelName) labelName.textContent = 'No session';
+        if (labelDot) labelDot.className = 'session-label-dot';
+        return;
+      }
+      // Strip emoji prefix from option text for clean display
+      const name = option.textContent.replace(/^(?:🟠|🔵)\s*/g, '');
+      labelName.textContent = name;
+      labelDot.className = 'session-label-dot ' + (option.dataset.status || '');
+    }
+
+    function updateSplashScreen(sessions) {
+      const splash = document.getElementById('sessionPickerSplash');
+      const list = document.getElementById('splashSessionList');
+      if (!splash || !list) return;
+
+      // Hide splash if a session is already selected or being reconnected
+      if (currentSessionId || pending.reconnectSession) {
+        splash.classList.add('hidden');
+        return;
+      }
+
+      // Show splash on mobile only
+      if (!isMobile()) {
+        splash.classList.add('hidden');
+        return;
+      }
+
+      splash.classList.remove('hidden');
+      list.innerHTML = '';
+
+      if (sessions.length === 0) {
+        list.innerHTML = '<div class="splash-empty">No active sessions found</div>';
+        return;
+      }
+
+      sessions.forEach(session => {
+        const row = document.createElement('div');
+        row.className = 'splash-row';
+
+        const dot = document.createElement('span');
+        dot.className = 'session-status-dot ' + (session.status || '');
+        row.appendChild(dot);
+
+        const name = document.createElement('span');
+        name.className = 'session-name';
+        name.textContent = session.name;
+        row.appendChild(name);
+
+        if (session.branch) {
+          const branch = document.createElement('span');
+          branch.className = 'session-branch';
+          branch.textContent = session.branch;
+          row.appendChild(branch);
+        }
+
+        row.addEventListener('click', () => {
+          document.getElementById('sessionSelector').value = session.id;
+          switchSession();
+        });
+        list.appendChild(row);
+      });
+    }
+
+    function clearDisplay() {
+      if (!currentSessionId) return;
+
+      // Clear output and UI state
+      document.getElementById('outputArea').innerHTML = '';
+      hidePromptCard();
+      clearTasks();
+      activeSubagents.clear();
+      updateSubagentIndicator();
+      document.getElementById('statusBar')?.classList.add('hidden');
+
+      // Re-watch the current session to get fresh history from the server
+      wsSend({ action: 'unwatch_session', sessionId: currentSessionId });
+      wsSend({ action: 'watch_session', sessionId: currentSessionId });
+    }
+
+    // ============================================
+    // Session Drawer (mobile swipe-to-open)
+    // ============================================
+    function isMobile() {
+      return window.matchMedia('(pointer: coarse)').matches;
+    }
+
+    let drawerOpen = false;
+
+    function openSessionDrawer() {
+      const drawer = document.getElementById('sessionDrawer');
+      const overlay = document.getElementById('sessionDrawerOverlay');
+      drawer.style.transition = 'transform 0.3s ease';
+      drawer.style.transform = 'translateX(0)';
+      overlay.classList.add('show');
+      drawerOpen = true;
+      navigator.vibrate?.(10);
+    }
+
+    function closeSessionDrawer() {
+      const drawer = document.getElementById('sessionDrawer');
+      const overlay = document.getElementById('sessionDrawerOverlay');
+      drawer.style.transition = 'transform 0.3s ease';
+      drawer.style.transform = 'translateX(-100%)';
+      overlay.classList.remove('show');
+      drawerOpen = false;
+      // Clear inline opacity left by gesture tracking
+      overlay.style.opacity = '';
+    }
+
+    function updateSessionDrawer(sessions) {
+      const list = document.getElementById('sessionDrawerList');
+      if (!list) return;
+      list.innerHTML = '';
+      sessions.forEach(session => {
+        const row = document.createElement('div');
+        row.className = 'session-drawer-row' +
+          (session.id === currentSessionId ? ' active' : '');
+        row.dataset.sessionId = session.id;
+
+        const dot = document.createElement('span');
+        dot.className = 'session-status-dot ' + (session.status || '');
+        row.appendChild(dot);
+
+        const name = document.createElement('span');
+        name.className = 'session-name';
+        name.textContent = session.name;
+        row.appendChild(name);
+
+        if (session.branch) {
+          const branch = document.createElement('span');
+          branch.className = 'session-branch';
+          branch.textContent = session.branch;
+          row.appendChild(branch);
+        }
+
+        row.addEventListener('click', () => {
+          document.getElementById('sessionSelector').value = session.id;
+          switchSession();
+          closeSessionDrawer();
+        });
+        list.appendChild(row);
+      });
+    }
+
+    function setupSessionDrawerSwipe() {
+      if (!isMobile()) return;
+
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchStartTime = 0;
+      let isSwiping = false;
+
+      const drawer = document.getElementById('sessionDrawer');
+      const overlay = document.getElementById('sessionDrawerOverlay');
+
+      let swipeDirection = null; // 'open' or 'close'
+
+      document.body.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        // Open gesture: swipe from left edge when closed
+        if (!drawerOpen && touch.clientX < 30) {
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          touchStartTime = Date.now();
+          isSwiping = true;
+          swipeDirection = 'open';
+          drawer.style.transition = 'none';
+          overlay.style.transition = 'none';
+        }
+        // Close gesture: swipe anywhere when open (drawer or overlay)
+        else if (drawerOpen) {
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          touchStartTime = Date.now();
+          isSwiping = true;
+          swipeDirection = 'close';
+          drawer.style.transition = 'none';
+          overlay.style.transition = 'none';
+        }
+      }, { passive: true });
+
+      document.body.addEventListener('touchmove', (e) => {
+        if (!isSwiping) return;
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchStartX;
+        const dy = Math.abs(touch.clientY - touchStartY);
+
+        // Cancel if vertical movement dominates (only for open gesture)
+        if (swipeDirection === 'open' && dy > Math.abs(dx) && dx < 10) {
+          isSwiping = false;
+          closeSessionDrawer();
+          return;
+        }
+
+        if (swipeDirection === 'open') {
+          const progress = Math.max(0, Math.min(dx / 280, 1));
+          drawer.style.transform = `translateX(${-280 + (progress * 280)}px)`;
+          overlay.style.opacity = String(progress * 0.4);
+        } else {
+          // Close: dx is negative (swiping left)
+          const progress = Math.max(0, Math.min(1 + dx / 280, 1));
+          drawer.style.transform = `translateX(${-280 + (progress * 280)}px)`;
+          overlay.style.opacity = String(progress * 0.4);
+        }
+      }, { passive: true });
+
+      document.body.addEventListener('touchend', (e) => {
+        if (!isSwiping) return;
+        isSwiping = false;
+
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const elapsed = Date.now() - touchStartTime;
+        const velocity = dx / Math.max(elapsed, 1);
+
+        drawer.style.transition = 'transform 0.3s ease';
+        overlay.style.transition = 'opacity 0.3s ease';
+
+        if (swipeDirection === 'open') {
+          if (dx > 80 || velocity > 0.5) {
+            openSessionDrawer();
+          } else {
+            closeSessionDrawer();
+          }
+        } else {
+          // Close: negative dx = swiping left
+          if (dx < -60 || velocity < -0.3) {
+            closeSessionDrawer();
+          } else {
+            openSessionDrawer();
+          }
+        }
+        swipeDirection = null;
+      }, { passive: true });
+
+      // Close on overlay tap
+      overlay.addEventListener('click', () => {
+        closeSessionDrawer();
+      });
     }
 
     function refreshSessions() {
@@ -1941,11 +2922,23 @@
       // Hard reset current session (like switching away and back)
       if (currentSessionId) {
         const savedSession = currentSessionId;
+        // Reset state
         currentSessionId = null;
         sessionState = SESSION_STATE.IDLE;
-        selectSession(savedSession);
+        // Clear session-specific state
+        resetSessionTokens();
+        clearTasks();
+        activeSubagents.clear();
+        updateSubagentIndicator();
+        document.getElementById('outputArea').innerHTML = '';
+        document.getElementById('statusBar')?.classList.add('hidden');
+        // Re-watch the session (will get fresh history and subagent state)
+        currentSessionId = savedSession;
+        sessionState = SESSION_STATE.SWITCHING;
+        pendingSessionId = savedSession;
+        wsSend({ action: 'watch_session', sessionId: savedSession });
       }
-      showToast('Refreshed', 'success');
+      showToast('Refreshing...', 'success');
     }
 
     // ============================================
@@ -1954,22 +2947,19 @@
     function renderHistory(history) {
       const outputArea = document.getElementById('outputArea');
       outputArea.innerHTML = '';
+      promptQueue.length = 0; // Clear any queued prompts
       hidePromptCard(); // Clear any existing prompt
 
       history.forEach(entry => appendMessage(entry, false, true)); // skipPromptDetection=true
       outputArea.scrollTop = outputArea.scrollHeight;
 
-      // Check if last history item needs a prompt (permission or question)
-      // But ONLY if there's no user message after it (meaning it's unanswered)
+      // Check if history contains an unanswered prompt (permission or question)
       if (history.length > 0) {
-        const last = history[history.length - 1];
-
         // Find index of last prompt-like message
         let lastPromptIndex = -1;
         for (let i = history.length - 1; i >= 0; i--) {
           const entry = history[i];
-          if (entry.type === 'ask_user_question' || entry.type === 'permission_request' ||
-              (entry.type === 'assistant' && detectPromptType(entry.content || ''))) {
+          if (entry.type === 'ask_user_question' || entry.type === 'permission_request') {
             lastPromptIndex = i;
             break;
           }
@@ -1987,15 +2977,16 @@
         }
 
         // Only show prompt if unanswered
-        if (!hasUserResponseAfterPrompt) {
-          if (last.type === 'ask_user_question' && last.questions) {
-            showStructuredPrompt(last.questions);
-          } else if (last.type === 'permission_request') {
+        if (!hasUserResponseAfterPrompt && lastPromptIndex >= 0) {
+          const promptEntry = history[lastPromptIndex];
+          if (promptEntry.type === 'ask_user_question' && promptEntry.questions) {
+            showStructuredPrompt(promptEntry.questions);
+          } else if (promptEntry.type === 'permission_request') {
             // Only show if session is waiting (not already executing)
             const sessionOption = document.querySelector(`#sessionSelector option[value="${currentSessionId}"]`);
             if (sessionOption?.dataset.status === 'waiting') {
-              const input = last.input || {};
-              const tool = last.tool;
+              const input = promptEntry.input || {};
+              const tool = promptEntry.tool;
               const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((input.command || '').toLowerCase());
               pending.lastPermissionCardTime = Date.now();
               showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive });
@@ -2005,7 +2996,7 @@
       }
     }
 
-    function appendMessage(data, scroll = true, skipPromptDetection = false) {
+    function appendMessage(data, scroll = true, skipPromptDetection = false, subagentId = null) {
       const outputArea = document.getElementById('outputArea');
       document.getElementById('emptyState')?.remove();
 
@@ -2018,7 +3009,12 @@
       }
 
       const msg = document.createElement('div');
-      msg.className = `message ${data.type}`;
+      const isSubagent = !!subagentId;
+      msg.className = `message ${data.type}${isSubagent ? ' subagent' : ''}`;
+      // Debug: show when subagent class is applied
+      if (debugMode && isSubagent) {
+        showToast(`CLASS: ${msg.className}`, 'success');
+      }
 
       if (data.type === 'tool') {
         const toolInput = formatToolInput(data.input);
@@ -2029,14 +3025,33 @@
             ? data.input
             : JSON.stringify(data.input, null, 2);
         const lang = detectLanguage(data.input);
-        msg.innerHTML = `
-          <div class="tool-summary" data-lang="${escapeHtml(lang)}">
-            <span class="tool-chevron">▶</span>
-            <span class="tool-name">${escapeHtml(data.tool)}</span>
-            <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
-          </div>
-          <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
-        `;
+
+        // Visual prefix for subagent tool messages
+        const subagentPrefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+
+        // Special handling for Edit tool - show inline diff preview
+        if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
+          const filePath = data.input.file_path || 'file';
+          const diffHtml = renderDiff(data.input.old_string, data.input.new_string);
+          msg.innerHTML = `
+            <div class="tool-summary" data-lang="${escapeHtml(lang)}">
+              <span class="tool-chevron">▶</span>
+              ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
+              <span class="tool-path">${escapeHtml(filePath)}</span>
+            </div>
+            ${diffHtml}
+            <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
+          `;
+        } else {
+          msg.innerHTML = `
+            <div class="tool-summary" data-lang="${escapeHtml(lang)}">
+              <span class="tool-chevron">▶</span>
+              ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
+              <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
+            </div>
+            <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
+          `;
+        }
       } else if (data.type === 'tool_result') {
         const result = typeof data.result === 'string' ? data.result : JSON.stringify(data.result, null, 2);
         // Split once, reuse for preview and line count
@@ -2058,22 +3073,15 @@
         const content = typeof data.content === 'string'
           ? data.content
           : JSON.stringify(data.content);
-        msg.innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+        // Add visual prefix for subagent messages
+        const prefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+        msg.innerHTML = `<pre>${prefix}${escapeHtml(content)}</pre>`;
       }
 
       outputArea.appendChild(msg);
 
       if (scroll) {
         outputArea.scrollTop = outputArea.scrollHeight;
-      }
-
-      // Check if this is a new prompt from assistant
-      if (data.type === 'assistant' && !skipPromptDetection) {
-        const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-        const prompt = detectPromptType(content);
-        if (prompt) {
-          showPromptCard(prompt);
-        }
       }
 
       return msg;
@@ -2114,6 +3122,113 @@
     }
 
     // ============================================
+    // Diff Functions (LCS Algorithm)
+    // ============================================
+
+    /**
+     * Compute diff between two strings using LCS (Longest Common Subsequence)
+     * Returns array of {type: 'context'|'add'|'remove', line: string, oldNum?: number, newNum?: number}
+     */
+    function computeDiff(oldStr, newStr) {
+      const oldLines = (oldStr || '').split('\n');
+      const newLines = (newStr || '').split('\n');
+
+      // Build LCS table
+      const m = oldLines.length;
+      const n = newLines.length;
+      const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (oldLines[i - 1] === newLines[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+
+      // Backtrack to build diff
+      const diff = [];
+      let i = m, j = n;
+
+      while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+          diff.unshift({ type: 'context', line: oldLines[i - 1], oldNum: i, newNum: j });
+          i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+          diff.unshift({ type: 'add', line: newLines[j - 1], newNum: j });
+          j--;
+        } else {
+          diff.unshift({ type: 'remove', line: oldLines[i - 1], oldNum: i });
+          i--;
+        }
+      }
+
+      return diff;
+    }
+
+    /**
+     * Render diff as HTML with line numbers
+     * Shows max lines with context around changes
+     */
+    function renderDiff(oldStr, newStr, maxLines = 20) {
+      if (!oldStr && !newStr) return '';
+
+      const diff = computeDiff(oldStr, newStr);
+
+      // Find changed regions and include context
+      const contextLines = 2;
+      const changedIndices = new Set();
+
+      diff.forEach((d, i) => {
+        if (d.type !== 'context') {
+          for (let j = Math.max(0, i - contextLines); j <= Math.min(diff.length - 1, i + contextLines); j++) {
+            changedIndices.add(j);
+          }
+        }
+      });
+
+      // Build output with limited lines
+      let html = '<div class="diff-preview">';
+      let shown = 0;
+      let skipped = 0;
+
+      diff.forEach((d, i) => {
+        if (!changedIndices.has(i)) {
+          skipped++;
+          return;
+        }
+
+        if (shown >= maxLines) {
+          return;
+        }
+
+        if (skipped > 0 && shown > 0) {
+          html += `<div class="diff-truncated">... ${skipped} unchanged lines ...</div>`;
+          skipped = 0;
+        }
+
+        const prefix = d.type === 'add' ? '+' : d.type === 'remove' ? '-' : ' ';
+        const lineNum = d.type === 'remove' ? d.oldNum : d.newNum;
+
+        html += `<div class="diff-line ${d.type}">`;
+        html += `<span class="diff-line-number">${lineNum || ''}</span>`;
+        html += `${prefix} ${escapeHtml(d.line)}`;
+        html += '</div>';
+
+        shown++;
+      });
+
+      if (shown >= maxLines && diff.length > shown) {
+        html += `<div class="diff-truncated">... ${diff.length - shown} more lines ...</div>`;
+      }
+
+      html += '</div>';
+      return html;
+    }
+
+    // ============================================
     // Command Sending
     // ============================================
     function sendCommand() {
@@ -2123,12 +3238,25 @@
 
       if (!command || sendBtn.disabled) return;
 
+      // Prevent sending the exact same command within 10 seconds (stale replay protection)
+      const now = Date.now();
+      if (command === lastSentCommand.text && (now - lastSentCommand.timestamp) < 10000) {
+        console.log('[SendCommand] Blocked duplicate send of:', command);
+        showToast('Already sent', 'error');
+        input.value = '';
+        autoResize(input);
+        return;
+      }
+
       sendBtn.disabled = true;
 
       if (!wsSend({ action: 'inject', command: command, sessionId: currentSessionId })) {
         sendBtn.disabled = false;
         return;
       }
+
+      // Track this as the last sent command
+      lastSentCommand = { text: command, timestamp: now };
 
       trackSentMessage(command);
       appendMessage({ type: 'user', content: command });
@@ -2156,6 +3284,56 @@
     function sendModeToggle() {
       wsSend({ action: 'mode_toggle', sessionId: currentSessionId });
       showToast('Toggling mode...', 'success');
+    }
+
+    // Action Sheet
+    function showActionSheet() {
+      document.getElementById('actionSheetOverlay').classList.add('show');
+      document.getElementById('actionSheet').classList.add('show');
+    }
+
+    function hideActionSheet() {
+      document.getElementById('actionSheetOverlay').classList.remove('show');
+      document.getElementById('actionSheet').classList.remove('show');
+    }
+
+    function showSubagentSheet() {
+      // Populate the list
+      const list = document.getElementById('subagentSheetList');
+      list.innerHTML = '';
+
+      if (activeSubagents.size === 0) {
+        list.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No active subagents</div>';
+      } else {
+        activeSubagents.forEach((agent, id) => {
+          const statusClass = agent.status === 'waiting' ? 'waiting' :
+                              agent.status === 'complete' ? 'complete' : 'running';
+          const toolText = agent.currentTool || 'idle';
+          const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
+
+          const item = document.createElement('div');
+          item.className = 'subagent-sheet-item';
+          item.innerHTML = `
+            <div class="subagent-sheet-item-header">
+              <span class="subagent-sheet-status ${statusClass}"></span>
+              <span class="subagent-sheet-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
+            </div>
+            <div class="subagent-sheet-meta">
+              <span class="subagent-sheet-tool">${escapeHtml(toolText)}</span>
+              <span>${tokens}</span>
+            </div>
+          `;
+          list.appendChild(item);
+        });
+      }
+
+      document.getElementById('subagentSheetOverlay').classList.add('show');
+      document.getElementById('subagentSheet').classList.add('show');
+    }
+
+    function hideSubagentSheet() {
+      document.getElementById('subagentSheetOverlay').classList.remove('show');
+      document.getElementById('subagentSheet').classList.remove('show');
     }
 
     function handleKeyDown(event) {
@@ -2338,7 +3516,9 @@
 
     function updateTTSButton() {
       const btn = document.getElementById('ttsToggle');
-      btn.textContent = settings.ttsEnabled ? '🔊' : '🔇';
+      btn.innerHTML = settings.ttsEnabled
+        ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>'
+        : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
       btn.classList.toggle('active', settings.ttsEnabled);
     }
 
@@ -2409,19 +3589,23 @@
       settings.voiceURI = document.getElementById('voiceSelect').value;
       settings.speechRate = parseFloat(document.getElementById('speechRate').value);
       settings.notifyEnabled = document.getElementById('notifyEnabled').checked;
-      
+      debugMode = document.getElementById('debugEnabled').checked;
+
       safeSetItem(localStorage, 'tts_enabled', settings.ttsEnabled);
       safeSetItem(localStorage, 'speak_tools', settings.speakTools);
       safeSetItem(localStorage, 'voice_uri', settings.voiceURI);
       safeSetItem(localStorage, 'speech_rate', settings.speechRate);
       safeSetItem(localStorage, 'notify_enabled', settings.notifyEnabled);
-      
+      safeSetItem(localStorage, 'debug_mode', debugMode);
+
       updateTTSButton();
-      
+
       // Request notification permission if enabling
       if (settings.notifyEnabled && 'Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
       }
+
+      if (debugMode) showToast('Debug mode ON', 'success');
     }
 
     // ============================================
@@ -2455,6 +3639,7 @@
 
     let currentPrompt = null;
     let promptMessageIndex = 0;
+    const promptQueue = [];
 
     function isDestructivePrompt(text) {
       const lower = text.toLowerCase();
@@ -2533,6 +3718,12 @@
     }
 
     function showPromptCard(prompt) {
+      // Queue if a prompt is already showing
+      if (currentPrompt) {
+        promptQueue.push(prompt);
+        return;
+      }
+
       const card = document.getElementById('promptCard');
       const content = document.getElementById('promptContent');
       const actions = document.getElementById('promptActions');
@@ -2644,6 +3835,9 @@
 
       // Setup keyboard navigation for options
       setupOptionKeyboardNav();
+
+      // Update action buttons to show Yes
+      updateActionButtons();
     }
 
     function setupOptionKeyboardNav() {
@@ -2841,6 +4035,14 @@
       const card = document.getElementById('promptCard');
       card.classList.remove('show', 'loading', 'stale');
       currentPrompt = null;
+      updateActionButtons();
+
+      // Show next queued prompt if any
+      if (promptQueue.length > 0) {
+        const next = promptQueue.shift();
+        // Small delay so the card animates out before showing the next one
+        setTimeout(() => showPromptCard(next), 350);
+      }
     }
 
     function dismissPrompt() {
@@ -2861,6 +4063,18 @@
     // ============================================
     let sessionTokens = { input: 0, output: 0 };
     let statusTimeout = null;
+    let isClaudeActive = false;
+
+    // Update Yes button visibility based on Claude's state
+    function updateActionButtons() {
+      const yesBtn = document.getElementById('yesBtn');
+      const promptCard = document.getElementById('promptCard');
+
+      const isWaiting = promptCard.classList.contains('show');
+
+      // Show Yes only when Claude is waiting for input
+      yesBtn.classList.toggle('hidden', !isWaiting);
+    }
 
     function handleStatusUpdate(data) {
       const statusBar = document.getElementById('statusBar');
@@ -2868,11 +4082,13 @@
 
       statusBar.classList.remove('hidden');
       statusVerb.textContent = data.text || 'Working...';
+      updateActionButtons();
 
       // Auto-hide after 5 seconds of no updates
       clearTimeout(statusTimeout);
       statusTimeout = setTimeout(() => {
         statusBar.classList.add('hidden');
+        updateActionButtons();
       }, 5000);
     }
 
@@ -2906,10 +4122,9 @@
     }
 
     // ============================================
-    // Task Progress Panel
+    // Task Progress (Inline)
     // ============================================
     const tasks = new Map(); // id -> { subject, status, description, activeForm }
-    let taskPanelExpanded = true;
     let pendingSubagentInfo = null;
 
     function handleTaskCreate(data) {
@@ -2919,7 +4134,7 @@
         description: data.description,
         activeForm: data.activeForm
       });
-      renderTasks();
+      renderTasksInline();
     }
 
     function handleTaskUpdate(data) {
@@ -2927,7 +4142,7 @@
       if (task) {
         if (data.status) task.status = data.status;
         if (data.subject) task.subject = data.subject;
-        renderTasks();
+        renderTasksInline();
       }
     }
 
@@ -2943,51 +4158,35 @@
           });
         }
       }
-      renderTasks();
+      renderTasksInline();
     }
 
-    function toggleTaskPanel() {
-      taskPanelExpanded = !taskPanelExpanded;
-      const list = document.getElementById('taskList');
-      const icon = document.querySelector('.task-panel .expand-icon');
-      if (list) list.classList.toggle('collapsed', !taskPanelExpanded);
-      if (icon) icon.innerHTML = taskPanelExpanded ? '&#9660;' : '&#9654;';
-    }
-
-    function renderTasks() {
-      const panel = document.getElementById('taskPanel');
-      const list = document.getElementById('taskList');
-      const progress = document.getElementById('taskProgress');
-
-      if (!panel || !list || !progress) return;
+    function renderTasksInline() {
+      const container = document.getElementById('taskList');
+      if (!container) return;
 
       if (tasks.size === 0) {
-        panel.classList.add('hidden');
+        container.classList.add('hidden');
         return;
       }
 
-      panel.classList.remove('hidden');
+      container.classList.remove('hidden');
+      container.innerHTML = '';
 
-      const completed = [...tasks.values()].filter(t => t.status === 'completed').length;
-      progress.textContent = `${completed}/${tasks.size}`;
-
-      list.innerHTML = [...tasks.entries()].map(([id, task]) => {
-        const checkboxClass = task.status === 'completed' ? 'checked' :
-                              task.status === 'in_progress' ? 'in-progress' : '';
-        const checkmark = task.status === 'completed' ? '&#10003;' :
-                          task.status === 'in_progress' ? '&#8226;' : '';
-        return `
-          <div class="task-item ${task.status}">
-            <div class="task-checkbox ${checkboxClass}">${checkmark}</div>
-            <span>${escapeHtml(task.subject || '')}</span>
-          </div>
+      tasks.forEach((task, id) => {
+        const div = document.createElement('div');
+        div.className = `task-inline ${task.status}`;
+        div.innerHTML = `
+          <span class="task-icon"></span>
+          <span class="task-subject">${escapeHtml(task.subject || '')}</span>
         `;
-      }).join('');
+        container.appendChild(div);
+      });
     }
 
     function clearTasks() {
       tasks.clear();
-      renderTasks();
+      renderTasksInline();
     }
 
     // ============================================
@@ -2995,35 +4194,16 @@
     // ============================================
     function updateSubagentIndicator() {
       const indicator = document.getElementById('subagentIndicator');
-      const count = activeSubagents.size;
+      const countEl = indicator.querySelector('.subagent-count');
 
+      const count = activeSubagents.size;
       if (count === 0) {
         indicator.classList.add('hidden');
-      } else {
-        indicator.classList.remove('hidden');
-        indicator.querySelector('.subagent-count').textContent = count;
-
-        // Build list of active subagents with enhanced details
-        const list = indicator.querySelector('.subagent-list');
-        list.innerHTML = '';
-        activeSubagents.forEach((data, agentId) => {
-          const item = document.createElement('div');
-          item.className = 'subagent-item';
-
-          const statusIcon = data.status === 'waiting' ? '⏳' : '🔄';
-          const name = data.description || agentId.substring(0, 8);
-          const toolInfo = data.currentTool ? `Using: ${data.currentTool}` : 'Working...';
-          const tokens = (data.inputTokens || data.outputTokens) ?
-            `${formatTokens(data.inputTokens || 0)} in / ${formatTokens(data.outputTokens || 0)} out` : '';
-
-          item.innerHTML = `
-            <div style="font-weight:500">${statusIcon} ${escapeHtml(name)}</div>
-            <div style="font-size:0.7rem;color:var(--accent)">${toolInfo}</div>
-            ${tokens ? `<div style="font-size:0.65rem;color:var(--text-secondary);font-family:monospace">${tokens}</div>` : ''}
-          `;
-          list.appendChild(item);
-        });
+        return;
       }
+
+      indicator.classList.remove('hidden');
+      countEl.textContent = count;
     }
 
     function handleSubagentOutput(agentId, data) {
@@ -3066,6 +4246,9 @@
 
       // Handle subagent permission requests with delay (allows auto-approve to cancel)
       if (data.type === 'permission_request') {
+        // Show tool usage in terminal (as tool card with orange styling)
+        appendMessage({ type: 'tool', tool: data.tool, input: data.input || {}, timestamp: data.timestamp }, true, false, agentId);
+
         const input = data.input || {};
         const tool = data.tool;
         const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
@@ -3097,7 +4280,11 @@
         return;
       }
 
-      // Subagent activity shown in indicator only - don't spam output
+      // Only show subagent tool usage in terminal (with orange styling)
+      // Skip assistant text/thoughts - mirrors Claude Code terminal behavior
+      if (data.type === 'tool') {
+        appendMessage(data, true, false, agentId);
+      }
     }
 
     // Voice integration for prompts
