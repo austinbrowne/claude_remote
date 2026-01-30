@@ -181,65 +181,6 @@
       align-items: center;
       gap: 4px;
     }
-    .subagent-list {
-      display: none;
-      position: absolute;
-      top: 100%;
-      right: 0;
-      margin-top: 8px;
-      background: var(--bg-elevated);
-      backdrop-filter: saturate(180%) blur(var(--blur-amount));
-      -webkit-backdrop-filter: saturate(180%) blur(var(--blur-amount));
-      border: 0.5px solid var(--separator);
-      border-radius: 12px;
-      padding: 8px;
-      min-width: 220px;
-      z-index: 100;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-    }
-    .subagent-indicator:hover .subagent-list,
-    .subagent-indicator:focus .subagent-list {
-      display: block;
-    }
-    .subagent-item {
-      padding: 10px 12px;
-      border-bottom: 0.5px solid var(--separator);
-    }
-    .subagent-item:last-child { border-bottom: none; }
-
-    .subagent-item-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-    }
-
-    .subagent-status {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .subagent-status.running { background: var(--success); }
-    .subagent-status.waiting { background: var(--warning); }
-    .subagent-status.complete { background: var(--text-muted); }
-
-    .subagent-name {
-      font-weight: 500;
-      font-size: 14px;
-      flex: 1;
-    }
-
-    .subagent-meta {
-      display: flex;
-      gap: 12px;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    .subagent-tool {
-      color: var(--tool-msg);
-    }
 
     /* Subagent message styling */
     .message.subagent-message {
@@ -426,6 +367,19 @@
     .message.assistant.speaking {
       border-left-color: var(--accent);
       background: rgba(10, 132, 255, 0.06);
+    }
+
+    /* Subagent messages - orange indicators instead of green */
+    .message.subagent {
+      background: rgba(255, 159, 10, 0.15) !important;
+      border-left: 3px solid var(--orange) !important;
+      padding-left: 10px !important;
+    }
+    .message.subagent.user::before {
+      color: var(--orange) !important;
+    }
+    .message.subagent.tool .tool-name {
+      color: var(--orange) !important;
     }
 
     .message.tool {
@@ -658,6 +612,55 @@
       font-weight: 600;
     }
 
+    /* Subagent Sheet */
+    .subagent-sheet-header {
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .subagent-sheet-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .subagent-sheet-item {
+      padding: 14px 16px;
+      border-bottom: 0.5px solid var(--separator);
+    }
+    .subagent-sheet-item:last-child { border-bottom: none; }
+    .subagent-sheet-item-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .subagent-sheet-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .subagent-sheet-status.running { background: var(--success); }
+    .subagent-sheet-status.waiting { background: var(--warning); }
+    .subagent-sheet-status.complete { background: var(--text-muted); }
+    .subagent-sheet-name {
+      font-weight: 500;
+      font-size: 17px;
+      flex: 1;
+    }
+    .subagent-sheet-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+    .subagent-sheet-tool {
+      color: var(--tool-msg);
+    }
+
     /* Inline action buttons */
     .action-btn {
       width: 36px;
@@ -692,6 +695,13 @@
     }
     .action-btn.cancel:active {
       background: var(--bg-tertiary);
+    }
+    .action-btn.stop {
+      background: var(--bg-input);
+      color: var(--error);
+    }
+    .action-btn.stop:active {
+      background: rgba(255, 69, 58, 0.2);
     }
     .action-btn.more {
       background: var(--bg-input);
@@ -1383,9 +1393,8 @@
         </select>
       </div>
       <!-- Subagent Indicator -->
-      <div class="subagent-indicator hidden" id="subagentIndicator">
+      <div class="subagent-indicator hidden" id="subagentIndicator" onclick="showSubagentSheet()">
         <span class="subagent-badge">🤖 <span class="subagent-count">0</span></span>
-        <div class="subagent-list"></div>
       </div>
       <div class="header-actions">
         <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">
@@ -1454,9 +1463,24 @@
         <button class="action-sheet-btn" onclick="sendPreset('/status'); hideActionSheet();">Show Status</button>
         <button class="action-sheet-btn" onclick="sendPreset('/compact'); hideActionSheet();">Compact Context</button>
         <button class="action-sheet-btn" onclick="sendPreset('/clear'); hideActionSheet();">Clear History</button>
+        <button class="action-sheet-btn danger" onclick="sendEscape(); hideActionSheet();">Stop / Interrupt</button>
       </div>
       <div class="action-sheet-cancel">
         <button class="action-sheet-btn" onclick="hideActionSheet()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Subagent Action Sheet -->
+    <div class="action-sheet-overlay" id="subagentSheetOverlay" onclick="hideSubagentSheet()"></div>
+    <div class="action-sheet" id="subagentSheet">
+      <div class="action-sheet-group">
+        <div class="subagent-sheet-header">Active Subagents</div>
+        <div class="subagent-sheet-list" id="subagentSheetList">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+      <div class="action-sheet-cancel">
+        <button class="action-sheet-btn" onclick="hideSubagentSheet()">Done</button>
       </div>
     </div>
 
@@ -1475,8 +1499,8 @@
         <button class="action-btn yes hidden" id="yesBtn" onclick="sendPreset('y')" title="Yes">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
-        <button class="action-btn cancel hidden" id="cancelBtn" onclick="sendEscape()" title="Cancel">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <button class="action-btn stop" id="stopBtn" onclick="sendEscape()" title="Stop/Interrupt">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
         </button>
         <button class="send-btn large" id="sendBtn" onclick="sendCommand()">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.01 6.03l7.51 3.22-7.52-1 .01-2.22m7.5 8.72L4 17.97v-2.22l7.51-1m-9.5-9.75l-.01 6 15 2-15 2 .01 6 21-8-21-8z"/></svg>
@@ -1534,6 +1558,17 @@
         <span>Notify on response</span>
         <label class="toggle">
           <input type="checkbox" id="notifyEnabled" onchange="updateSettings()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <label>Developer</label>
+      <div class="setting-row">
+        <span>Debug mode</span>
+        <label class="toggle">
+          <input type="checkbox" id="debugEnabled" onchange="updateSettings()">
           <span class="toggle-slider"></span>
         </label>
       </div>
@@ -1733,6 +1768,7 @@
       document.getElementById('speakTools').checked = settings.speakTools;
       document.getElementById('speechRate').value = settings.speechRate.toString();
       document.getElementById('notifyEnabled').checked = settings.notifyEnabled;
+      document.getElementById('debugEnabled').checked = debugMode;
       updateTTSButton();
     }
 
@@ -1859,8 +1895,12 @@
       };
 
       websocket.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        handleMessage(msg);
+        try {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        } catch (e) {
+          console.error('Message handler error:', e);
+        }
       };
     }
 
@@ -1998,7 +2038,21 @@
     // ============================================
     // Message Handling
     // ============================================
+    // Debug mode (toggle in Settings > Developer)
+    let debugMsgCount = 0;
+    let debugMode = localStorage.getItem('debug_mode') === 'true';
+
     function handleMessage(msg) {
+      debugMsgCount++;
+      // Debug ALL message types to trace the flow
+      if (debugMode) {
+        const info = msg.type === 'subagent_output'
+          ? `🤖 ${msg.agentId?.substring(0,6)} → ${msg.data?.type}`
+          : msg.type === 'claude_output'
+          ? `📤 ${msg.data?.type}`
+          : msg.type;
+        showToast(`#${debugMsgCount}: ${info}`, 'success');
+      }
       switch (msg.type) {
         case 'auth_result':
           if (msg.success) {
@@ -2123,6 +2177,7 @@
             if (currentPrompt?.type === 'permission') {
               hidePromptCard();
             }
+            break; // Don't fall through to appendMessage - tool results handled above
           }
           // Dedupe user messages we just sent
           if (msg.data.type === 'user') {
@@ -2133,6 +2188,10 @@
           // Route status updates to the status handler
           if (msg.data.type === 'status_update') {
             handleStatusUpdate(msg.data);
+            break;
+          }
+          // Skip subagent_starting - it's handled via subagent_start message
+          if (msg.data.type === 'subagent_starting') {
             break;
           }
           // Route token usage to token handler
@@ -2329,11 +2388,23 @@
       // Hard reset current session (like switching away and back)
       if (currentSessionId) {
         const savedSession = currentSessionId;
+        // Reset state
         currentSessionId = null;
         sessionState = SESSION_STATE.IDLE;
-        selectSession(savedSession);
+        // Clear session-specific state
+        resetSessionTokens();
+        clearTasks();
+        activeSubagents.clear();
+        updateSubagentIndicator();
+        document.getElementById('outputArea').innerHTML = '';
+        document.getElementById('statusBar')?.classList.add('hidden');
+        // Re-watch the session (will get fresh history and subagent state)
+        currentSessionId = savedSession;
+        sessionState = SESSION_STATE.SWITCHING;
+        pendingSessionId = savedSession;
+        wsSend({ action: 'watch_session', sessionId: savedSession });
       }
-      showToast('Refreshed', 'success');
+      showToast('Refreshing...', 'success');
     }
 
     // ============================================
@@ -2393,7 +2464,7 @@
       }
     }
 
-    function appendMessage(data, scroll = true, skipPromptDetection = false) {
+    function appendMessage(data, scroll = true, skipPromptDetection = false, subagentId = null) {
       const outputArea = document.getElementById('outputArea');
       document.getElementById('emptyState')?.remove();
 
@@ -2406,7 +2477,12 @@
       }
 
       const msg = document.createElement('div');
-      msg.className = `message ${data.type}`;
+      const isSubagent = !!subagentId;
+      msg.className = `message ${data.type}${isSubagent ? ' subagent' : ''}`;
+      // Debug: show when subagent class is applied
+      if (debugMode && isSubagent) {
+        showToast(`CLASS: ${msg.className}`, 'success');
+      }
 
       if (data.type === 'tool') {
         const toolInput = formatToolInput(data.input);
@@ -2418,6 +2494,9 @@
             : JSON.stringify(data.input, null, 2);
         const lang = detectLanguage(data.input);
 
+        // Visual prefix for subagent tool messages
+        const subagentPrefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+
         // Special handling for Edit tool - show inline diff preview
         if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
           const filePath = data.input.file_path || 'file';
@@ -2425,7 +2504,7 @@
           msg.innerHTML = `
             <div class="tool-summary" data-lang="${escapeHtml(lang)}">
               <span class="tool-chevron">▶</span>
-              <span class="tool-name">${escapeHtml(data.tool)}</span>
+              ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
               <span class="tool-path">${escapeHtml(filePath)}</span>
             </div>
             ${diffHtml}
@@ -2435,7 +2514,7 @@
           msg.innerHTML = `
             <div class="tool-summary" data-lang="${escapeHtml(lang)}">
               <span class="tool-chevron">▶</span>
-              <span class="tool-name">${escapeHtml(data.tool)}</span>
+              ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
               <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
             </div>
             <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
@@ -2462,7 +2541,9 @@
         const content = typeof data.content === 'string'
           ? data.content
           : JSON.stringify(data.content);
-        msg.innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+        // Add visual prefix for subagent messages
+        const prefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+        msg.innerHTML = `<pre>${prefix}${escapeHtml(content)}</pre>`;
       }
 
       outputArea.appendChild(msg);
@@ -2691,6 +2772,45 @@
     function hideActionSheet() {
       document.getElementById('actionSheetOverlay').classList.remove('show');
       document.getElementById('actionSheet').classList.remove('show');
+    }
+
+    function showSubagentSheet() {
+      // Populate the list
+      const list = document.getElementById('subagentSheetList');
+      list.innerHTML = '';
+
+      if (activeSubagents.size === 0) {
+        list.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No active subagents</div>';
+      } else {
+        activeSubagents.forEach((agent, id) => {
+          const statusClass = agent.status === 'waiting' ? 'waiting' :
+                              agent.status === 'complete' ? 'complete' : 'running';
+          const toolText = agent.currentTool || 'idle';
+          const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
+
+          const item = document.createElement('div');
+          item.className = 'subagent-sheet-item';
+          item.innerHTML = `
+            <div class="subagent-sheet-item-header">
+              <span class="subagent-sheet-status ${statusClass}"></span>
+              <span class="subagent-sheet-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
+            </div>
+            <div class="subagent-sheet-meta">
+              <span class="subagent-sheet-tool">${escapeHtml(toolText)}</span>
+              <span>${tokens}</span>
+            </div>
+          `;
+          list.appendChild(item);
+        });
+      }
+
+      document.getElementById('subagentSheetOverlay').classList.add('show');
+      document.getElementById('subagentSheet').classList.add('show');
+    }
+
+    function hideSubagentSheet() {
+      document.getElementById('subagentSheetOverlay').classList.remove('show');
+      document.getElementById('subagentSheet').classList.remove('show');
     }
 
     function handleKeyDown(event) {
@@ -2946,19 +3066,23 @@
       settings.voiceURI = document.getElementById('voiceSelect').value;
       settings.speechRate = parseFloat(document.getElementById('speechRate').value);
       settings.notifyEnabled = document.getElementById('notifyEnabled').checked;
-      
+      debugMode = document.getElementById('debugEnabled').checked;
+
       safeSetItem(localStorage, 'tts_enabled', settings.ttsEnabled);
       safeSetItem(localStorage, 'speak_tools', settings.speakTools);
       safeSetItem(localStorage, 'voice_uri', settings.voiceURI);
       safeSetItem(localStorage, 'speech_rate', settings.speechRate);
       safeSetItem(localStorage, 'notify_enabled', settings.notifyEnabled);
-      
+      safeSetItem(localStorage, 'debug_mode', debugMode);
+
       updateTTSButton();
-      
+
       // Request notification permission if enabling
       if (settings.notifyEnabled && 'Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
       }
+
+      if (debugMode) showToast('Debug mode ON', 'success');
     }
 
     // ============================================
@@ -3404,25 +3528,15 @@
     let statusTimeout = null;
     let isClaudeActive = false;
 
-    // Update Yes/Cancel button visibility based on Claude's state
+    // Update Yes button visibility based on Claude's state
     function updateActionButtons() {
       const yesBtn = document.getElementById('yesBtn');
-      const cancelBtn = document.getElementById('cancelBtn');
-      const sendBtn = document.getElementById('sendBtn');
-      const statusBar = document.getElementById('statusBar');
       const promptCard = document.getElementById('promptCard');
 
-      const isActive = !statusBar.classList.contains('hidden') || promptCard.classList.contains('show');
       const isWaiting = promptCard.classList.contains('show');
-
-      // Show Cancel when Claude is active (processing or waiting)
-      cancelBtn.classList.toggle('hidden', !isActive);
 
       // Show Yes only when Claude is waiting for input
       yesBtn.classList.toggle('hidden', !isWaiting);
-
-      // Make send button larger when Yes/Cancel are hidden
-      sendBtn.classList.toggle('large', !isActive);
     }
 
     function handleStatusUpdate(data) {
@@ -3544,7 +3658,6 @@
     function updateSubagentIndicator() {
       const indicator = document.getElementById('subagentIndicator');
       const countEl = indicator.querySelector('.subagent-count');
-      const listEl = indicator.querySelector('.subagent-list');
 
       const count = activeSubagents.size;
       if (count === 0) {
@@ -3554,28 +3667,6 @@
 
       indicator.classList.remove('hidden');
       countEl.textContent = count;
-
-      listEl.innerHTML = '';
-      activeSubagents.forEach((agent, id) => {
-        const statusClass = agent.status === 'waiting' ? 'waiting' :
-                            agent.status === 'complete' ? 'complete' : 'running';
-        const toolText = agent.currentTool || 'idle';
-        const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
-
-        const item = document.createElement('div');
-        item.className = 'subagent-item';
-        item.innerHTML = `
-          <div class="subagent-item-header">
-            <span class="subagent-status ${statusClass}"></span>
-            <span class="subagent-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
-          </div>
-          <div class="subagent-meta">
-            <span class="subagent-tool">${escapeHtml(toolText)}</span>
-            <span>${tokens}</span>
-          </div>
-        `;
-        listEl.appendChild(item);
-      });
     }
 
     function handleSubagentOutput(agentId, data) {
@@ -3618,6 +3709,9 @@
 
       // Handle subagent permission requests with delay (allows auto-approve to cancel)
       if (data.type === 'permission_request') {
+        // Show tool usage in terminal (as tool card with orange styling)
+        appendMessage({ type: 'tool', tool: data.tool, input: data.input || {}, timestamp: data.timestamp }, true, false, agentId);
+
         const input = data.input || {};
         const tool = data.tool;
         const cmd = tool === 'Bash' ? (input.command || '') : `${tool}: ${input.file_path || 'unknown'}`;
@@ -3649,7 +3743,11 @@
         return;
       }
 
-      // Subagent activity shown in indicator only - don't spam output
+      // Only show subagent tool usage in terminal (with orange styling)
+      // Skip assistant text/thoughts - mirrors Claude Code terminal behavior
+      if (data.type === 'tool') {
+        appendMessage(data, true, false, agentId);
+      }
     }
 
     // Voice integration for prompts
