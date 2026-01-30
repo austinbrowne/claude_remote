@@ -301,6 +301,11 @@ function toggleVoiceInput() {
     return;
   }
 
+  // If trigger mode is active, disable it and switch to manual
+  if (triggerState !== TRIGGER_STATE.IDLE) {
+    disableTriggerMode();
+  }
+
   if (isRecording) {
     try {
       recognition.stop();
@@ -320,6 +325,158 @@ function toggleVoiceInput() {
       document.getElementById('voiceBtn').classList.remove('recording');
       showToast('Microphone access denied', 'error');
     }
+  }
+}
+
+// ============================================
+// Trigger Word Mode
+// ============================================
+function toggleTriggerMode() {
+  if (triggerState !== TRIGGER_STATE.IDLE) {
+    disableTriggerMode();
+  } else {
+    enableTriggerMode();
+  }
+}
+
+function enableTriggerMode() {
+  if (!recognition) {
+    showToast('Voice not supported', 'error');
+    return;
+  }
+
+  // Stop any current manual recording
+  if (isRecording) {
+    try { recognition.stop(); } catch (e) {}
+    isRecording = false;
+  }
+
+  triggerState = TRIGGER_STATE.LISTENING;
+  settings.triggerEnabled = true;
+  safeSetItem(localStorage, 'trigger_enabled', 'true');
+  document.getElementById('triggerEnabled').checked = true;
+
+  // Configure for trigger listening
+  recognition.continuous = !isIOS;
+  recognition.interimResults = true;
+
+  try {
+    recognition.start();
+  } catch (e) {
+    console.error('Error starting trigger listening:', e);
+    triggerState = TRIGGER_STATE.IDLE;
+    showToast('Mic access denied', 'error');
+    return;
+  }
+
+  updateTriggerUI();
+  showToast('Listening for "Titus"...', 'success');
+}
+
+function disableTriggerMode() {
+  triggerState = TRIGGER_STATE.IDLE;
+  triggerCommandBuffer = '';
+  if (triggerSilenceTimer) {
+    clearTimeout(triggerSilenceTimer);
+    triggerSilenceTimer = null;
+  }
+
+  settings.triggerEnabled = false;
+  safeSetItem(localStorage, 'trigger_enabled', 'false');
+  document.getElementById('triggerEnabled').checked = false;
+
+  try { recognition.stop(); } catch (e) {}
+  isRecording = false;
+
+  // Restore default recognition settings
+  recognition.continuous = false;
+
+  updateTriggerUI();
+  showToast('Trigger mode off', 'success');
+}
+
+function startTriggerCapture(textAfterTrigger) {
+  triggerState = TRIGGER_STATE.CAPTURING;
+  triggerCommandBuffer = textAfterTrigger || '';
+  navigator.vibrate?.(50);
+  updateTriggerUI();
+
+  // Show any initial text in the input
+  if (triggerCommandBuffer) {
+    const input = document.getElementById('commandInput');
+    input.value = triggerCommandBuffer;
+    autoResize(input);
+  }
+
+  // Start silence timer
+  resetTriggerSilenceTimer();
+}
+
+function resetTriggerSilenceTimer() {
+  if (triggerSilenceTimer) clearTimeout(triggerSilenceTimer);
+  triggerSilenceTimer = setTimeout(() => finalizeTriggerCommand(), TRIGGER_SILENCE_MS);
+}
+
+function finalizeTriggerCommand() {
+  if (triggerSilenceTimer) {
+    clearTimeout(triggerSilenceTimer);
+    triggerSilenceTimer = null;
+  }
+
+  const command = triggerCommandBuffer.trim();
+  triggerCommandBuffer = '';
+  triggerState = TRIGGER_STATE.IDLE;
+
+  // Stop recognition completely - go fully idle
+  try { recognition.stop(); } catch (e) {}
+  isRecording = false;
+
+  if (command) {
+    // Try to send the command
+    const input = document.getElementById('commandInput');
+    input.value = command;
+    autoResize(input);
+
+    const success = wsSend({ action: 'inject', command, sessionId: currentSessionId });
+    if (success) {
+      trackSentMessage(command);
+      appendMessage({ type: 'user', content: command });
+      input.value = '';
+      autoResize(input);
+      navigator.vibrate?.(30);
+      showToast('Sent!', 'success');
+    } else {
+      // Failed send: leave command in input field (Kieran's feedback)
+      showToast('Send failed - command in input', 'error');
+    }
+  }
+
+  // Re-enable trigger listening after a brief pause
+  if (settings.triggerEnabled) {
+    setTimeout(() => {
+      if (settings.triggerEnabled && triggerState === TRIGGER_STATE.IDLE) {
+        triggerState = TRIGGER_STATE.LISTENING;
+        recognition.continuous = !isIOS;
+        try { recognition.start(); } catch (e) {}
+        updateTriggerUI();
+      }
+    }, TRIGGER_RESTART_DELAY_MS);
+  } else {
+    updateTriggerUI();
+  }
+}
+
+function updateTriggerUI() {
+  const voiceBtn = document.getElementById('voiceBtn');
+  voiceBtn.classList.remove('recording', 'trigger-listening', 'trigger-capturing');
+
+  switch (triggerState) {
+    case TRIGGER_STATE.LISTENING:
+      voiceBtn.classList.add('trigger-listening');
+      break;
+    case TRIGGER_STATE.CAPTURING:
+      voiceBtn.classList.add('trigger-capturing');
+      break;
   }
 }
 
@@ -361,6 +518,9 @@ function updateSettings() {
   settings.notifyEnabled = document.getElementById('notifyEnabled').checked;
   debugMode = document.getElementById('debugEnabled').checked;
 
+  const triggerToggle = document.getElementById('triggerEnabled');
+  const triggerWanted = triggerToggle.checked;
+
   safeSetItem(localStorage, 'tts_enabled', settings.ttsEnabled);
   safeSetItem(localStorage, 'speak_tools', settings.speakTools);
   safeSetItem(localStorage, 'voice_uri', settings.voiceURI);
@@ -369,6 +529,13 @@ function updateSettings() {
   safeSetItem(localStorage, 'debug_mode', debugMode);
 
   updateTTSButton();
+
+  // Handle trigger mode toggle from settings
+  if (triggerWanted && triggerState === TRIGGER_STATE.IDLE) {
+    enableTriggerMode();
+  } else if (!triggerWanted && triggerState !== TRIGGER_STATE.IDLE) {
+    disableTriggerMode();
+  }
 
   // Request notification permission if enabling
   if (settings.notifyEnabled && 'Notification' in window && Notification.permission === 'default') {
@@ -612,8 +779,12 @@ function handleSubagentOutput(agentId, data) {
 function speakThenListen(text) {
   if (!settings.ttsEnabled || !synth) return;
 
-  // Stop any current listening
-  if (recognition && isRecording) {
+  // Pause trigger listening during TTS to avoid picking up speaker audio
+  const wasTriggerListening = triggerState === TRIGGER_STATE.LISTENING;
+  if (wasTriggerListening) {
+    try { recognition.stop(); } catch (e) {}
+    isRecording = false;
+  } else if (recognition && isRecording) {
     recognition.stop();
     isRecording = false;
   }
@@ -633,6 +804,9 @@ function speakThenListen(text) {
     setTimeout(() => {
       if (currentPrompt && recognition) {
         startListeningForPromptResponse();
+      } else if (wasTriggerListening && settings.triggerEnabled && triggerState === TRIGGER_STATE.LISTENING) {
+        // Resume trigger listening after TTS completes
+        try { recognition.start(); } catch (e) {}
       }
     }, VOICE_LISTEN_DELAY_MS);
   };

@@ -410,6 +410,9 @@ function renderHistory(history) {
 }
 
 function appendMessage(data, scroll = true, skipPromptDetection = false, subagentId = null) {
+  // Skip empty assistant messages (no content)
+  if (data.type === 'assistant' && (!data.content || !data.content.trim())) return;
+
   const outputArea = document.getElementById('outputArea');
   document.getElementById('emptyState')?.remove();
 

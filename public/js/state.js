@@ -29,6 +29,19 @@ let synth = window.speechSynthesis;
 let currentUtterance = null;
 let speakingMessageElement = null; // Track currently highlighted message for TTS
 
+// ============================================
+// Trigger Word State
+// ============================================
+const TRIGGER_STATE = { IDLE: 0, LISTENING: 1, CAPTURING: 2 };
+let triggerState = TRIGGER_STATE.IDLE;
+let triggerCommandBuffer = '';
+let triggerSilenceTimer = null;
+const TRIGGER_SILENCE_MS = 3000;    // 3s silence = auto-send
+const TRIGGER_RESTART_DELAY_MS = 300;
+const TRIGGER_WORD = 'titus';
+const TRIGGER_VARIANTS = ['titus', 'tightest', 'tidus', 'tidas', 'titus,', 'titis', 'titus.', 'tight us', 'title', 'titus!'];
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
 // Safe storage access (handles private browsing mode)
 function safeGetItem(storage, key, fallback = null) {
   try {
@@ -59,7 +72,8 @@ let settings = {
   speakTools: safeGetItem(localStorage, 'speak_tools') === 'true',
   voiceURI: safeGetItem(localStorage, 'voice_uri', 'default'),
   speechRate: parseFloat(safeGetItem(localStorage, 'speech_rate')) || 1,
-  notifyEnabled: safeGetItem(localStorage, 'notify_enabled') === 'true'
+  notifyEnabled: safeGetItem(localStorage, 'notify_enabled') === 'true',
+  triggerEnabled: safeGetItem(localStorage, 'trigger_enabled') === 'true'
 };
 const MAX_MESSAGES = 500;
 const recentUserMessages = new Map(); // Track recently sent messages to dedupe: normalized content -> timestamp

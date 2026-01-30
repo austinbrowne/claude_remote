@@ -162,6 +162,15 @@ function handleVisibilityChange() {
     } else {
       checkConnectionHealth();
     }
+
+    // Restart trigger listening when returning to foreground (iOS kills mic in background)
+    if (settings.triggerEnabled && triggerState === TRIGGER_STATE.LISTENING) {
+      setTimeout(() => {
+        if (triggerState !== TRIGGER_STATE.IDLE) {
+          try { recognition.start(); } catch (e) {}
+        }
+      }, 500);
+    }
   } else if (document.visibilityState === 'hidden') {
     lastVisibleTime = Date.now();
   }

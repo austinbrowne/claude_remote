@@ -8,7 +8,13 @@ function loadSettings() {
   document.getElementById('speechRate').value = settings.speechRate.toString();
   document.getElementById('notifyEnabled').checked = settings.notifyEnabled;
   document.getElementById('debugEnabled').checked = debugMode;
+  document.getElementById('triggerEnabled').checked = settings.triggerEnabled;
   updateTTSButton();
+
+  // Auto-start trigger mode if it was previously enabled
+  if (settings.triggerEnabled && recognition) {
+    enableTriggerMode();
+  }
 }
 
 function initVoices() {
@@ -45,7 +51,6 @@ function initSpeechRecognition() {
   recognition.lang = 'en-US';
 
   recognition.onresult = (event) => {
-    const input = document.getElementById('commandInput');
     let finalTranscript = '';
     let interimTranscript = '';
 
@@ -57,25 +62,109 @@ function initSpeechRecognition() {
       }
     }
 
-    // Check if this is a response to a prompt
+    const fullText = finalTranscript || interimTranscript;
+
+    // Priority 1: Prompt response (always takes precedence)
     if (finalTranscript && currentPrompt && handleVoicePromptResponse(finalTranscript)) {
-      return; // Handled as prompt response
+      return;
     }
 
-    input.value = finalTranscript || interimTranscript;
+    // Priority 2: Trigger word capturing (accumulate command)
+    if (triggerState === TRIGGER_STATE.CAPTURING) {
+      if (finalTranscript) {
+        // Check for cancel/stop
+        const lower = finalTranscript.toLowerCase().trim();
+        if (lower === 'cancel' || lower === 'stop') {
+          triggerCommandBuffer = '';
+          triggerState = TRIGGER_STATE.IDLE;
+          if (triggerSilenceTimer) { clearTimeout(triggerSilenceTimer); triggerSilenceTimer = null; }
+          try { recognition.stop(); } catch (e) {}
+          isRecording = false;
+          // Re-enable listening after pause
+          if (settings.triggerEnabled) {
+            setTimeout(() => {
+              if (settings.triggerEnabled && triggerState === TRIGGER_STATE.IDLE) {
+                triggerState = TRIGGER_STATE.LISTENING;
+                recognition.continuous = !isIOS;
+                try { recognition.start(); } catch (e) {}
+                updateTriggerUI();
+              }
+            }, TRIGGER_RESTART_DELAY_MS);
+          }
+          updateTriggerUI();
+          showToast('Cancelled', 'success');
+          document.getElementById('commandInput').value = '';
+          autoResize(document.getElementById('commandInput'));
+          return;
+        }
+        triggerCommandBuffer += ' ' + finalTranscript;
+      }
+      // Show interim preview
+      const input = document.getElementById('commandInput');
+      input.value = (triggerCommandBuffer + ' ' + interimTranscript).trim();
+      autoResize(input);
+      resetTriggerSilenceTimer();
+      return;
+    }
+
+    // Priority 3: Trigger word detection (scanning for "titus" + variants)
+    if (triggerState === TRIGGER_STATE.LISTENING) {
+      const lower = fullText.toLowerCase();
+
+      // Debug: show what's being heard
+      if (debugMode && fullText.trim()) {
+        showToast('Heard: ' + fullText.trim().substring(0, 40), 'info');
+      }
+
+      // Check all trigger variants
+      for (const variant of TRIGGER_VARIANTS) {
+        const idx = lower.indexOf(variant);
+        if (idx !== -1) {
+          const afterTrigger = fullText.substring(idx + variant.length).trim();
+          startTriggerCapture(afterTrigger);
+          return;
+        }
+      }
+      // Still listening, don't put text in input
+      return;
+    }
+
+    // Priority 4: Normal manual voice input
+    const input = document.getElementById('commandInput');
+    input.value = fullText;
     autoResize(input);
   };
 
   recognition.onend = () => {
     isRecording = false;
     document.getElementById('voiceBtn').classList.remove('recording');
+
+    // Auto-restart for trigger listening (both LISTENING and CAPTURING states)
+    if (triggerState !== TRIGGER_STATE.IDLE) {
+      setTimeout(() => {
+        if (triggerState !== TRIGGER_STATE.IDLE) {
+          try { recognition.start(); } catch (e) {}
+        }
+      }, TRIGGER_RESTART_DELAY_MS);
+    }
   };
 
   recognition.onerror = (event) => {
     console.error('Speech recognition error:', event.error);
     isRecording = false;
     document.getElementById('voiceBtn').classList.remove('recording');
-    if (event.error !== 'no-speech') {
+
+    // Restart trigger listening on no-speech timeout (Kieran's fix)
+    if (event.error === 'no-speech' && triggerState !== TRIGGER_STATE.IDLE) {
+      setTimeout(() => {
+        if (triggerState !== TRIGGER_STATE.IDLE) {
+          try { recognition.start(); } catch (e) {}
+        }
+      }, TRIGGER_RESTART_DELAY_MS);
+      return;
+    }
+
+    if (event.error !== 'no-speech' && event.error !== 'aborted') {
       showToast('Voice input error', 'error');
     }
   };

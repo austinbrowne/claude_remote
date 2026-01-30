@@ -764,10 +764,24 @@ body {
   color: white;
   animation: pulse 1s infinite;
 }
+.voice-btn.trigger-listening {
+  color: var(--teal);
+  box-shadow: 0 0 0 2px var(--teal);
+  animation: trigger-pulse 2s infinite;
+}
+.voice-btn.trigger-capturing {
+  background: var(--error);
+  color: white;
+  animation: pulse 1s infinite;
+}
 
 @keyframes pulse {
   0%, 100% { transform: translateY(-50%) scale(1); }
   50% { transform: translateY(-50%) scale(1.08); }
+}
+@keyframes trigger-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--teal); }
+  50% { box-shadow: 0 0 0 4px rgba(100, 210, 255, 0.4); }
 }
 
 .send-btn {
