@@ -64,7 +64,10 @@ private struct AssistantMessageView: View {
             .markdownTheme(.claudeRemote)
             .markdownCodeSyntaxHighlighter(Self.syntaxHighlighter)
             .textSelection(.enabled)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 

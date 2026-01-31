@@ -106,6 +106,7 @@ struct InputBarView: View {
         state.trackSentMessage(trimmed)
         coordinator.injectCommand(trimmed, sessionId: sessionId)
         inputText = ""
+        isFocused = false
         #if os(iOS)
         HapticService.light()
         #endif
