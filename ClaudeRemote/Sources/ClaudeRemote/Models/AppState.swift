@@ -94,8 +94,16 @@ public final class AppState {
 
     // MARK: - Message Management
 
-    /// Add a message, trimming oldest if over max
+    /// Add a message, trimming oldest if over max.
+    /// Filters out messages with no meaningful content.
     public func appendMessage(_ message: Message) {
+        let text = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if text.isEmpty || text == "(no content)" {
+            // Skip empty and "(no content)" messages for assistant/user types
+            if message.type == .assistant || message.type == .user {
+                return
+            }
+        }
         messages.append(message)
         if messages.count > Self.maxMessages {
             messages.removeFirst(messages.count - Self.maxMessages)

@@ -126,6 +126,9 @@ struct InputBarView: View {
 
         lastSendTime = Date()
         state.trackSentMessage(trimmed)
+        // Show the message locally immediately
+        let userMsg = Message(type: .user, content: trimmed)
+        state.appendMessage(userMsg)
         coordinator.injectCommand(trimmed, sessionId: sessionId)
         inputText = ""
         isFocused = false
