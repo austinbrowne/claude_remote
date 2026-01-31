@@ -25,7 +25,7 @@ struct InputBarView: View {
         VStack(spacing: 6) {
             // Utility row: session actions with proper touch targets
             if state.currentSessionId != nil {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     utilityButton(
                         icon: "xmark.circle",
                         label: "Escape",
@@ -108,9 +108,8 @@ struct InputBarView: View {
                     .fontWeight(.medium)
             }
             .foregroundStyle(tint)
-            .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .frame(minHeight: 36)
+            .frame(maxWidth: .infinity, minHeight: 36)
             .background(tint.opacity(0.1))
             .clipShape(Capsule())
         }
