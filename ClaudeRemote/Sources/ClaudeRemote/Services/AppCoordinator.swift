@@ -175,6 +175,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .history(_, let data):
             state.clearMessages()
             for entry in data {
+                // Skip spinner status_updates from history — they're transient noise
+                if entry.type == "status_update" { continue }
                 guard let msg = messageFromHistoryEntry(entry) else { continue }
                 state.appendMessage(msg)
             }

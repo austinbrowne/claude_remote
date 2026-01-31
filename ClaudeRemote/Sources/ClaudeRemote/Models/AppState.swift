@@ -99,9 +99,16 @@ public final class AppState {
 
     /// Add a message, trimming oldest if over max.
     /// Filters out literal "(no content)" placeholder messages.
+    /// Status updates replace the previous one instead of stacking.
     public func appendMessage(_ message: Message) {
         let text = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if text == "(no content)" {
+            return
+        }
+        // Replace the last status_update instead of accumulating spinner messages
+        if message.type == .statusUpdate,
+           let lastIndex = messages.lastIndex(where: { $0.type == .statusUpdate }) {
+            messages[lastIndex] = message
             return
         }
         messages.append(message)
