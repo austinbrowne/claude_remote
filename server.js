@@ -958,10 +958,19 @@ function parseLogEntry(entry) {
         timestamp
       });
     }
+    // Skip meta-injected messages (skill definitions, system context)
+    else if (entry.isMeta) {
+      // These are CLI-injected messages (e.g. expanded skill prompts) — not user input
+      return null;
+    }
     // Human input
     else if (entry.message?.content) {
       const content = entry.message.content;
       if (typeof content === 'string') {
+        // Skip command invocation wrappers (e.g. <command-message>commit</command-message>)
+        if (content.includes('<command-message>') || content.includes('<command-name>')) {
+          return null;
+        }
         results.push({
           type: 'user',
           content: content,
