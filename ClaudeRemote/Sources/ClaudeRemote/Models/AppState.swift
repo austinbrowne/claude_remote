@@ -63,6 +63,14 @@ public final class AppState {
     public var activeSubagents: [String: SubagentInfo] = [:]
     public var tasks: [TaskItem] = []
 
+    // MARK: - Toast
+    public var currentToast: ToastItem?
+
+    /// Show a toast notification that auto-dismisses
+    public func showToast(_ message: String, icon: String, style: ToastItem.ToastStyle = .info) {
+        currentToast = ToastItem(message: message, icon: icon, style: style)
+    }
+
     // MARK: - Settings
     public var ttsEnabled = false
     public var speakTools = false

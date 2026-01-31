@@ -3,6 +3,7 @@ import SwiftUI
 /// Session list for selecting which Claude session to watch
 public struct SessionPickerView: View {
     @Environment(AppState.self) private var state
+    @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
 
     public init() {}
@@ -45,6 +46,9 @@ public struct SessionPickerView: View {
                     ? Color.accentColor.opacity(0.1)
                     : Color.clear
             )
+        }
+        .refreshable {
+            coordinator.refreshSessions()
         }
     }
 

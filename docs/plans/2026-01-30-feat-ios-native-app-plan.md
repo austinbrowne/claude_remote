@@ -616,17 +616,17 @@ struct SettingsView: View {
 
 #### Acceptance Criteria
 
-- [ ] All settings persist via UserDefaults
-- [ ] Auth token stored in Keychain (not UserDefaults)
-- [ ] Settings sync to server via `update_settings`
-- [ ] Voice picker shows all available system voices
-- [ ] Debug mode shows raw JSONL in chat
-- [ ] App icon and launch screen
-- [ ] Haptic feedback on key actions (send, receive prompt, trigger detected)
-- [ ] Toast notifications for transient feedback
-- [ ] Error states: no sessions, disconnected, auth failed
-- [ ] Pull-to-refresh on session list
-- [ ] Swipe gestures for session switching (if applicable)
+- [x] All settings persist via UserDefaults
+- [x] Auth token stored in Keychain (not UserDefaults)
+- [x] Settings sync to server via `update_settings`
+- [x] Voice picker shows all available system voices
+- [x] Debug mode shows raw JSONL in chat
+- [x] App icon and launch screen (N/A — SPM library, asset catalogs belong in consuming Xcode project)
+- [x] Haptic feedback on key actions (send, receive prompt, trigger detected)
+- [x] Toast notifications for transient feedback
+- [x] Error states: no sessions, disconnected, auth failed
+- [x] Pull-to-refresh on session list
+- [x] Swipe gestures for session switching (if applicable)
 
 ## Technical Considerations
 

@@ -14,8 +14,6 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     #if os(iOS)
     public let speechService = SpeechService()
     private var autoModeSpeechTask: Task<Void, Never>?
-
-    private static let triggerEnabledKey = "triggerEnabled"
     #endif
 
     public init(state: AppState) {
@@ -25,10 +23,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             self?.webSocket?.send(action)
         }
 
-        #if os(iOS)
-        // Restore persisted trigger setting
-        state.triggerEnabled = UserDefaults.standard.bool(forKey: Self.triggerEnabledKey)
+        // Restore all persisted settings
+        SettingsStore.load(into: state)
 
+        #if os(iOS)
         // Wire trigger command callback
         speechService.onTriggerCommand = { [weak self] command in
             self?.handleTriggerCommand(command)
@@ -47,6 +45,21 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         ws.connect()
     }
 
+    /// Reconnect using the stored server URL and Keychain token
+    public func reconnect() {
+        let keychain = KeychainService()
+        guard !state.serverURL.isEmpty,
+              let httpURL = URL(string: state.serverURL),
+              let host = httpURL.host,
+              let token = keychain.load(for: state.serverURL) else {
+            return
+        }
+        let wsScheme = httpURL.scheme == "https" ? "wss" : "ws"
+        let port = httpURL.port.map { ":\($0)" } ?? ""
+        guard let wsURL = URL(string: "\(wsScheme)://\(host)\(port)/ws") else { return }
+        connect(url: wsURL, token: token)
+    }
+
     /// Disconnect from the server
     public func disconnect() {
         webSocket?.disconnect()
@@ -55,6 +68,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     /// Watch a session (sends watch_session to server)
     public func watchSession(_ sessionId: String) {
+        #if os(iOS)
+        cancelAutoModeSpeech()
+        #endif
         webSocket?.setLastWatchedSession(sessionId)
         webSocket?.send(.watchSession(sessionId: sessionId))
         promptService.sessionId = sessionId
@@ -85,14 +101,31 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         webSocket?.send(.modeToggle(sessionId: sessionId))
     }
 
+    /// Sync current settings to the server
+    public func syncSettings() {
+        var settings: [String: AnyCodableValue] = [
+            "ttsEnabled": .bool(state.ttsEnabled),
+            "speakTools": .bool(state.speakTools),
+            "speechRate": .double(Double(state.speechRate)),
+            "notifyEnabled": .bool(state.notifyEnabled),
+            "debugMode": .bool(state.debugMode),
+        ]
+        if let voice = state.voiceIdentifier {
+            settings["voiceIdentifier"] = .string(voice)
+        }
+        webSocket?.send(.updateSettings(settings: settings))
+    }
+
     // MARK: - WebSocketServiceDelegate
 
     public func webSocketDidConnect() {
         state.isConnected = true
+        state.showToast("Connected", icon: "wifi", style: .success)
     }
 
     public func webSocketDidDisconnect(code: Int?) {
         state.isConnected = false
+        state.showToast("Disconnected", icon: "wifi.slash", style: .warning)
     }
 
     public func webSocketDidFailWithError(_ error: Error) {
@@ -100,6 +133,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     }
 
     public func webSocketDidReceiveMessage(_ message: ServerMessage) {
+        if state.debugMode {
+            let debugContent = debugDescription(for: message)
+            let debugMsg = Message(type: .statusUpdate, content: "[DEBUG] \(debugContent)")
+            state.appendMessage(debugMsg)
+        }
         routeMessage(message)
     }
 
@@ -107,10 +145,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     private func routeMessage(_ message: ServerMessage) {
         switch message {
-        case .authResult(let success, _):
-            if !success {
+        case .authResult(let success, let error):
+            if success {
+                state.isAuthenticated = true
+            } else {
                 state.isAuthenticated = false
                 state.isConnected = false
+                state.showToast(error ?? "Authentication failed", icon: "lock.slash", style: .error)
+                #if os(iOS)
+                HapticService.error()
+                #endif
             }
 
         case .sessions(let data):
@@ -141,6 +185,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             promptService.handleClaudeOutput(data)
 
             #if os(iOS)
+            // Haptic when a new prompt card appears
+            if promptService.currentPrompt != nil {
+                HapticService.medium()
+            }
+
             if speechService.isAutoMode, let prompt = promptService.currentPrompt {
                 autoModeSpeechTask?.cancel()
                 speechService.stopSpeaking()
@@ -158,10 +207,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .sessionStatus(_, let status, _):
             state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
             promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
+            #if os(iOS)
+            if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
+            #endif
 
         case .statusUpdate(let status):
             state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
             promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
+            #if os(iOS)
+            if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
+            #endif
 
         case .tokenUsage(let input, let output):
             let msg = Message(
@@ -279,6 +334,35 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         )
     }
 
+    private func debugDescription(for message: ServerMessage) -> String {
+        switch message {
+        case .authResult(let success, _): return "auth_result success=\(success)"
+        case .sessions(let data): return "sessions count=\(data.count)"
+        case .watching(let sid, _): return "watching session=\(sid)"
+        case .history(let sid, let data): return "history session=\(sid) entries=\(data.count)"
+        case .claudeOutput(_, let data): return "claude_output type=\(data.type) len=\(data.content?.count ?? 0)"
+        case .sessionStatus(_, let status, _): return "session_status status=\(status)"
+        case .statusUpdate(let status): return "status_update status=\(status)"
+        case .tokenUsage(let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
+        case .taskCreate(let id, _, _, _, _): return "task_create id=\(id ?? "nil")"
+        case .taskUpdate(let id, let status, _): return "task_update id=\(id) status=\(status)"
+        case .taskList(let tasks): return "task_list count=\(tasks.count)"
+        case .subagentStarting(let desc, _): return "subagent_starting desc=\(desc.prefix(40))"
+        case .subagentStart(let id, _, _, _): return "subagent_start id=\(id)"
+        case .subagentOutput(let id, _, _): return "subagent_output id=\(id)"
+        case .subagentTool(let id, let tool, _): return "subagent_tool id=\(id) tool=\(tool)"
+        case .subagentTokens(let id, _, _): return "subagent_tokens id=\(id)"
+        case .subagentStop(let id): return "subagent_stop id=\(id)"
+        case .injectResult(let success, _): return "inject_result success=\(success)"
+        case .escapeResult(let success, _): return "escape_result success=\(success)"
+        case .modeToggleResult(let success, _): return "mode_toggle_result success=\(success)"
+        case .error(let code, let msg, _): return "error code=\(code) msg=\(msg)"
+        case .pong(let ts): return "pong ts=\(ts)"
+        case .state: return "state"
+        case .unknown(let type, _): return "unknown type=\(type)"
+        }
+    }
+
     private func messageFromHistoryEntry(_ entry: HistoryEntry) -> Message? {
         buildMessage(
             type: entry.type,
@@ -293,6 +377,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     // MARK: - Voice I/O (iOS)
 
     #if os(iOS)
+    /// Cancel any active auto-mode speech and listening.
+    /// Called on session switch, prompt dismissal, and status changes.
+    private func cancelAutoModeSpeech() {
+        autoModeSpeechTask?.cancel()
+        autoModeSpeechTask = nil
+        speechService.onTranscriptUpdate = nil
+        if speechService.isListening { speechService.stopListening() }
+        if speechService.isSpeaking { speechService.stopSpeaking() }
+    }
+
     /// Build a spoken summary for a prompt card
     private func toolSpeechSummary(for prompt: PromptItem) -> String {
         switch prompt.kind {
@@ -350,6 +444,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             state.appendMessage(msg)
             return
         }
+        HapticService.heavy()
         state.trackSentMessage(command)
         injectCommand(command, sessionId: sessionId)
     }
@@ -358,7 +453,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// reconfigures the audio session, and starts/stops trigger listening.
     public func setTriggerEnabled(_ enabled: Bool) {
         state.triggerEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: Self.triggerEnabledKey)
+        SettingsStore.saveTriggerEnabled(enabled)
 
         if enabled {
             try? speechService.configureAudioSession(forBackground: true)

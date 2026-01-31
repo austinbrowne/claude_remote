@@ -106,6 +106,9 @@ struct InputBarView: View {
         state.trackSentMessage(trimmed)
         coordinator.injectCommand(trimmed, sessionId: sessionId)
         inputText = ""
+        #if os(iOS)
+        HapticService.light()
+        #endif
     }
 
     private func escape() {

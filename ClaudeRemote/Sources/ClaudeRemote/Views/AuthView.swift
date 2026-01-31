@@ -3,6 +3,7 @@ import SwiftUI
 /// Authentication screen for entering server URL and token
 public struct AuthView: View {
     @Environment(AppState.self) private var state
+    @Environment(AppCoordinator.self) private var coordinator
     @State private var serverURL = "http://localhost:3456"
     @State private var token = ""
     @State private var isConnecting = false
@@ -74,6 +75,9 @@ public struct AuthView: View {
                 }
             }
             .navigationTitle("Claude Remote")
+            .onChange(of: state.isConnected) { _, isConnected in
+                if !isConnected { isConnecting = false }
+            }
         }
     }
 
@@ -106,9 +110,27 @@ public struct AuthView: View {
 
         isConnecting = true
         state.serverURL = serverURL
-        // The actual WebSocket connection is handled by the coordinator/service
-        // For now, just store the intent
-        state.isAuthenticated = true
-        isConnecting = false
+        SettingsStore.saveServerURL(serverURL)
+
+        // Save token to Keychain
+        let keychain = KeychainService()
+        do {
+            try keychain.save(token: token, for: serverURL)
+        } catch {
+            errorMessage = "Failed to save token"
+            isConnecting = false
+            return
+        }
+
+        // Build WebSocket URL
+        let wsScheme = url.scheme == "https" ? "wss" : "ws"
+        guard let wsURL = URL(string: "\(wsScheme)://\(host)\(url.port.map { ":\($0)" } ?? "")/ws") else {
+            errorMessage = "Failed to build WebSocket URL"
+            isConnecting = false
+            return
+        }
+
+        coordinator.connect(url: wsURL, token: token)
+        // isAuthenticated is set by AppCoordinator when authResult(success: true) arrives
     }
 }

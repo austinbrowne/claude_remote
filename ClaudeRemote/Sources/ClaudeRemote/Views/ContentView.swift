@@ -22,13 +22,28 @@ struct MainView: View {
     @Environment(AppState.self) private var state
     @Environment(AppCoordinator.self) private var coordinator
     @State private var showSessionPicker = false
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if !state.isConnected {
+                    disconnectedBanner
+                }
+
                 sessionHeader
 
                 ChatView()
+                    .gesture(
+                        DragGesture(minimumDistance: 50)
+                            .onEnded { value in
+                                let horizontal = value.translation.width
+                                let vertical = abs(value.translation.height)
+                                // Only trigger for horizontal swipes (not vertical scrolling)
+                                guard abs(horizontal) > vertical else { return }
+                                switchSession(forward: horizontal < 0)
+                            }
+                    )
             }
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
@@ -62,6 +77,11 @@ struct MainView: View {
                     HStack(spacing: 12) {
                         SubagentBadgeView()
                         Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
+                        Button {
                             showSessionPicker = true
                         } label: {
                             Image(systemName: "list.bullet")
@@ -71,6 +91,15 @@ struct MainView: View {
             }
             .sheet(isPresented: $showSessionPicker) {
                 SessionPickerView()
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
+            }
+            .overlay(alignment: .top) {
+                ToastOverlay(toast: state.currentToast) {
+                    state.currentToast = nil
+                }
+                .animation(.easeInOut(duration: 0.3), value: state.currentToast)
             }
         }
     }
@@ -109,6 +138,50 @@ struct MainView: View {
         }
     }
     #endif
+
+    private var disconnectedBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+                .font(.caption)
+            Text("Disconnected from server")
+                .font(.caption)
+                .fontWeight(.medium)
+            Spacer()
+            Button("Reconnect") {
+                coordinator.reconnect()
+            }
+            .font(.caption)
+            .fontWeight(.medium)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.red.opacity(0.1))
+        .foregroundStyle(.red)
+    }
+
+    /// Switch to the next or previous session in the list
+    private func switchSession(forward: Bool) {
+        guard !state.sessions.isEmpty else { return }
+        guard let currentId = state.currentSessionId,
+              let currentIndex = state.sessions.firstIndex(where: { $0.id == currentId }) else {
+            // No current session — select the first one
+            state.beginSessionSwitch(to: state.sessions[0].id)
+            return
+        }
+
+        let nextIndex: Int
+        if forward {
+            nextIndex = (currentIndex + 1) % state.sessions.count
+        } else {
+            nextIndex = (currentIndex - 1 + state.sessions.count) % state.sessions.count
+        }
+
+        let nextSession = state.sessions[nextIndex]
+        state.beginSessionSwitch(to: nextSession.id)
+        #if os(iOS)
+        HapticService.light()
+        #endif
+    }
 
     private var sessionHeader: some View {
         Group {

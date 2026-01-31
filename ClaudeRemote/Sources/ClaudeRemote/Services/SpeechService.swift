@@ -532,6 +532,13 @@ public final class SpeechService {
         isSpeaking = false
         self.synthesizerDelegate = nil
 
+        // Don't start listening if the task was cancelled during TTS
+        // (e.g., session switch, prompt dismissed, new prompt arrived)
+        guard !Task.isCancelled else {
+            resumeTriggerIfPaused()
+            return
+        }
+
         // Start manual listening for prompt response (not trigger)
         try? startListening()
         // Note: trigger resumes when stopListening() is called after voice match

@@ -41,12 +41,12 @@ struct AppCoordinatorTests {
     }
 
     @MainActor
-    @Test("authResult success does not clear state")
+    @Test("authResult success sets isAuthenticated")
     func authSuccess() {
         let state = AppState()
-        state.isAuthenticated = true
         state.isConnected = true
         let coordinator = AppCoordinator(state: state)
+        #expect(state.isAuthenticated == false)
         coordinator.webSocketDidReceiveMessage(.authResult(success: true, error: nil))
         #expect(state.isAuthenticated == true)
         #expect(state.isConnected == true)
@@ -377,5 +377,66 @@ struct AppCoordinatorTests {
         coordinator.webSocketDidReceiveMessage(.pong(timestamp: 123456))
         #expect(state.messages.isEmpty)
         #expect(state.tasks.isEmpty)
+    }
+
+    // MARK: - Debug Mode
+
+    @MainActor
+    @Test("debug mode prepends debug message before routing")
+    func debugModeAddsMessage() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Set after init since init calls SettingsStore.load which resets it
+        state.debugMode = true
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"))
+        let debugMessages = state.messages.filter { ($0.content ?? "").hasPrefix("[DEBUG]") }
+        #expect(debugMessages.count == 1)
+        #expect(debugMessages[0].content?.contains("status_update") == true)
+    }
+
+    @MainActor
+    @Test("debug mode off does not add debug messages")
+    func debugModeOff() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        state.debugMode = false
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"))
+        let debugMessages = state.messages.filter { ($0.content ?? "").hasPrefix("[DEBUG]") }
+        #expect(debugMessages.isEmpty)
+    }
+
+    // MARK: - Toast on Connect/Disconnect
+
+    @MainActor
+    @Test("connect shows success toast")
+    func connectToast() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidConnect()
+        #expect(state.currentToast != nil)
+        #expect(state.currentToast?.message == "Connected")
+        #expect(state.currentToast?.style == .success)
+    }
+
+    @MainActor
+    @Test("disconnect shows warning toast")
+    func disconnectToast() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidDisconnect(code: nil)
+        #expect(state.currentToast != nil)
+        #expect(state.currentToast?.message == "Disconnected")
+        #expect(state.currentToast?.style == .warning)
+    }
+
+    @MainActor
+    @Test("auth failure shows error toast")
+    func authFailureToast() {
+        let state = AppState()
+        state.isAuthenticated = true
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad"))
+        #expect(state.currentToast != nil)
+        #expect(state.currentToast?.style == .error)
     }
 }
