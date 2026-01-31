@@ -147,24 +147,58 @@ struct MainView: View {
             }
             #if os(iOS)
             ToolbarItem(placement: .principal) {
-                triggerToggle
+                sessionToolbarTitle
             }
             #endif
             ToolbarItem(placement: .confirmationAction) {
-                SubagentBadgeView()
+                HStack(spacing: 8) {
+                    #if os(iOS)
+                    triggerToggle
+                    #endif
+                    SubagentBadgeView()
+                }
             }
         }
     }
 
     // MARK: - Helpers
 
-    private var currentSessionName: String {
-        guard let sessionId = state.currentSessionId,
-              let session = state.sessions.first(where: { $0.id == sessionId }) else {
-            return "Claude Remote"
-        }
-        return session.name
+    private var currentSession: Session? {
+        guard let sessionId = state.currentSessionId else { return nil }
+        return state.sessions.first { $0.id == sessionId }
     }
+
+    private var currentSessionName: String {
+        currentSession?.name ?? "Claude Remote"
+    }
+
+    #if os(iOS)
+    private var sessionToolbarTitle: some View {
+        VStack(spacing: 1) {
+            Text(currentSessionName)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+
+            if let session = currentSession {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(session.status.color)
+                        .frame(width: 6, height: 6)
+
+                    if let branch = session.branch {
+                        Text(branch)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(session.status.rawValue)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+    #endif
 
     private var connectionIndicator: some View {
         Circle()

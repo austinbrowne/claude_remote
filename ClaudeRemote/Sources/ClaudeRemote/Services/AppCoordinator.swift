@@ -163,7 +163,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .commands(let data):
             state.slashCommands = data
 
-        case .watching(let sessionId, _):
+        case .watching(let sessionId, let session):
+            // Update session list with fresh data from server
+            if let index = state.sessions.firstIndex(where: { $0.id == sessionId }) {
+                state.sessions[index] = session
+            } else {
+                state.sessions.append(session)
+            }
             state.confirmSessionSwitch(sessionId: sessionId)
 
         case .history(_, let data):

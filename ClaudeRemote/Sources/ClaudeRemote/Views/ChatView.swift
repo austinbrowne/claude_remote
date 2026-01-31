@@ -91,14 +91,62 @@ struct ChatView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Current session looked up from state
+    private var currentSession: Session? {
+        guard let id = state.currentSessionId else { return nil }
+        return state.sessions.first { $0.id == id }
+    }
+
     private var waitingState: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-            Text("Waiting for output...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(spacing: 16) {
+            if let session = currentSession {
+                sessionInfoCard(session)
+            }
+
+            VStack(spacing: 8) {
+                ProgressView()
+                Text("Waiting for output...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func sessionInfoCard(_ session: Session) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+
+            Text(session.name)
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            VStack(spacing: 6) {
+                if let branch = session.branch {
+                    Label(branch, systemImage: "arrow.triangle.branch")
+                        .font(.subheadline)
+                        .foregroundStyle(.blue)
+                }
+
+                if let cwd = session.cwd {
+                    Label(shortenPath(cwd), systemImage: "folder")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                SessionStatusBadge(status: session.status)
+            }
+        }
+        .padding()
+    }
+
+    /// Shorten a path to last two components for display
+    private func shortenPath(_ path: String) -> String {
+        let components = path.split(separator: "/")
+        if components.count <= 2 { return path }
+        return components.suffix(2).joined(separator: "/")
     }
 
     private func newMessagesBanner(proxy: ScrollViewProxy) -> some View {
