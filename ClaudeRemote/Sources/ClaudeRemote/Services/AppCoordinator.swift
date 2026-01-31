@@ -50,13 +50,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         let keychain = KeychainService()
         guard !state.serverURL.isEmpty,
               let httpURL = URL(string: state.serverURL),
-              let host = httpURL.host,
+              let wsURL = WebSocketService.webSocketURL(from: httpURL),
               let token = keychain.load(for: state.serverURL) else {
             return
         }
-        let wsScheme = httpURL.scheme == "https" ? "wss" : "ws"
-        let port = httpURL.port.map { ":\($0)" } ?? ""
-        guard let wsURL = URL(string: "\(wsScheme)://\(host)\(port)/ws") else { return }
         connect(url: wsURL, token: token)
     }
 
@@ -71,6 +68,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         #if os(iOS)
         cancelAutoModeSpeech()
         #endif
+        // Unwatch previous session before watching new one
+        if let previous = state.currentSessionId, previous != sessionId {
+            webSocket?.send(.unwatchSession(sessionId: previous))
+        }
         webSocket?.setLastWatchedSession(sessionId)
         webSocket?.send(.watchSession(sessionId: sessionId))
         promptService.sessionId = sessionId
@@ -177,7 +178,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             for entry in data {
                 // Skip spinner status_updates from history — they're transient noise
                 if entry.type == "status_update" { continue }
-                guard let msg = messageFromHistoryEntry(entry) else { continue }
+                guard let msg = messageFromClaudeOutput(entry) else { continue }
                 if msg.type == .toolResult {
                     state.mergeOrAppendToolResult(msg)
                 } else {
@@ -220,8 +221,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
 
             if speechService.isAutoMode, let prompt = promptService.currentPrompt {
-                autoModeSpeechTask?.cancel()
-                speechService.stopSpeaking()
+                cancelAutoModeSpeech()
                 speechService.onTranscriptUpdate = { [weak self] transcript in
                     self?.handleVoiceResponse(transcript)
                 }
@@ -233,16 +233,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             #endif
 
-        case .sessionStatus(_, let status, _):
-            let parsed = SessionStatus(rawValue: status) ?? .unknown
-            state.sessionStatus = parsed
-            if parsed == .idle || parsed == .waiting { state.currentActivity = nil }
-            promptService.handleSessionStatus(parsed)
-            #if os(iOS)
-            if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
-            #endif
-
-        case .statusUpdate(let status):
+        case .sessionStatus(_, let status, _), .statusUpdate(let status):
             let parsed = SessionStatus(rawValue: status) ?? .unknown
             state.sessionStatus = parsed
             if parsed == .idle || parsed == .waiting { state.currentActivity = nil }
@@ -406,20 +397,6 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .state: return "state"
         case .unknown(let type, _): return "unknown type=\(type)"
         }
-    }
-
-    private func messageFromHistoryEntry(_ entry: HistoryEntry) -> Message? {
-        buildMessage(
-            type: entry.type,
-            content: entry.content,
-            tool: entry.tool,
-            input: entry.input,
-            language: entry.language,
-            questions: entry.questions,
-            isDestructive: entry.isDestructive ?? false,
-            toolUseId: entry.toolUseId,
-            isError: entry.isError ?? false
-        )
     }
 
     // MARK: - Voice I/O (iOS)

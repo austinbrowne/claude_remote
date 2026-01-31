@@ -26,7 +26,7 @@ struct DiffView: View {
     @State private var computedLines: [DiffLine]?
 
     /// Maximum product of line counts before falling back to simple diff
-    static let maxLCSComplexity = 500_000
+    nonisolated static let maxLCSComplexity = 500_000
 
     var body: some View {
         let lines = computedLines ?? []
@@ -63,15 +63,20 @@ struct DiffView: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
-        .onAppear {
+        .task {
             if computedLines == nil {
-                computedLines = Self.computeDiff(old: oldString, new: newString)
+                let old = oldString
+                let new = newString
+                let lines = await Task.detached(priority: .userInitiated) {
+                    DiffView.computeDiff(old: old, new: new)
+                }.value
+                computedLines = lines
             }
         }
     }
 
     /// Compute a line-by-line diff using a simple LCS-based algorithm
-    static func computeDiff(old: String, new: String) -> [DiffLine] {
+    nonisolated static func computeDiff(old: String, new: String) -> [DiffLine] {
         let oldLines = old.components(separatedBy: .newlines)
         let newLines = new.components(separatedBy: .newlines)
 
@@ -123,7 +128,7 @@ struct DiffView: View {
     }
 
     /// Simple fallback for large inputs: show all old as removals, all new as additions
-    private static func simpleDiff(oldLines: [String], newLines: [String]) -> [DiffLine] {
+    private nonisolated static func simpleDiff(oldLines: [String], newLines: [String]) -> [DiffLine] {
         var result: [DiffLine] = []
         var lineId = 0
         for (i, line) in oldLines.enumerated() {
@@ -138,7 +143,7 @@ struct DiffView: View {
     }
 
     /// Standard LCS algorithm for string arrays
-    private static func longestCommonSubsequence(_ a: [String], _ b: [String]) -> [String] {
+    private nonisolated static func longestCommonSubsequence(_ a: [String], _ b: [String]) -> [String] {
         let m = a.count
         let n = b.count
         var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)

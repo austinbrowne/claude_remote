@@ -1077,7 +1077,7 @@ function broadcastToClients(message) {
   }
   const data = JSON.stringify(message);
   clients.forEach((clientData, ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === WebSocket.OPEN && !clientData.pauseBroadcast) {
       if (!message.sessionId || clientData.watchingSessions.has(message.sessionId)) {
         ws.send(data);
       }
@@ -1111,6 +1111,8 @@ wss.on('connection', (ws, req) => {
 
   const clientId = Date.now().toString();
   let authenticated = false;
+  let authFailures = 0;
+  const MAX_AUTH_FAILURES = 3;
 
   // Per-connection rate limiting (60 messages/minute)
   const messageRateLimit = {
@@ -1184,8 +1186,11 @@ wss.on('connection', (ws, req) => {
           initializeClient();
           ws.send(JSON.stringify({ type: 'auth_result', success: true }));
         } else {
+          authFailures++;
           ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Invalid token' }));
-          ws.close(4001, 'Unauthorized');
+          if (authFailures >= MAX_AUTH_FAILURES) {
+            ws.close(4001, 'Too many failed auth attempts');
+          }
         }
         return;
       }
@@ -1225,14 +1230,17 @@ async function handleClientMessage(ws, msg) {
       const session = await watchSession(msg.sessionId);
       if (session) {
         clientData.watchingSessions.add(msg.sessionId);
+        // Pause broadcasting to this client until history is sent
+        clientData.pauseBroadcast = true;
         ws.send(JSON.stringify({
           type: 'watching',
           sessionId: msg.sessionId,
           session: session
         }));
         await sendRecentHistory(ws, msg.sessionId);
-        // Send active subagents state and output
         await sendActiveSubagents(ws, msg.sessionId);
+        // Resume broadcasting — live events will now flow after history
+        clientData.pauseBroadcast = false;
       } else {
         sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
@@ -1897,7 +1905,7 @@ server.listen(PORT, async () => {
 ╠═══════════════════════════════════════════════════════════════╣
 ║  URL:        http://localhost:${PORT}                           ║
 ║  WebSocket:  ws://localhost:${PORT}                             ║
-║  Token:      ${AUTH_TOKEN.substring(0, 10)}...                            ║
+║  Token:      ••••••••••••••••                                  ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Features:                                                    ║
 ║    ✓ Real-time output streaming                               ║

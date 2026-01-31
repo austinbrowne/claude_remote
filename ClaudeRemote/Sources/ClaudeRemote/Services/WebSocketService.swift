@@ -153,7 +153,29 @@ public final class WebSocketService {
         guard var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
-        components.scheme = serverURL.scheme == "https" ? "wss" : "ws"
+        switch components.scheme {
+        case "https", "wss": components.scheme = "wss"
+        default: components.scheme = "ws"
+        }
+        if components.path.isEmpty || components.path == "/" {
+            components.path = "/ws"
+        }
+        return components.url
+    }
+
+    /// Build a WebSocket URL from an HTTP server URL.
+    /// Converts http(s) to ws(s) and appends /ws path if needed.
+    public static func webSocketURL(from httpURL: URL) -> URL? {
+        guard var components = URLComponents(url: httpURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        switch components.scheme {
+        case "https", "wss": components.scheme = "wss"
+        default: components.scheme = "ws"
+        }
+        if components.path.isEmpty || components.path == "/" {
+            components.path = "/ws"
+        }
         return components.url
     }
 

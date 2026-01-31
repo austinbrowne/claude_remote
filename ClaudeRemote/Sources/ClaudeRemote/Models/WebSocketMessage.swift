@@ -8,7 +8,7 @@ public enum ServerMessage: Sendable {
     case sessions(data: [Session])
     case commands(data: [SlashCommand])
     case watching(sessionId: String, session: Session)
-    case history(sessionId: String, data: [HistoryEntry])
+    case history(sessionId: String, data: [ClaudeOutputData])
     case claudeOutput(sessionId: String, data: ClaudeOutputData)
     case sessionStatus(sessionId: String, status: String, lastActive: String?)
     case statusUpdate(status: String)
@@ -41,7 +41,6 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
     public let status: String?
     public let questions: [QuestionData]?
     public let isDestructive: Bool?
-    public let usage: TokenUsageData?
     public let toolUseId: String?
     public let isError: Bool?
 
@@ -54,7 +53,6 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
         status: String? = nil,
         questions: [QuestionData]? = nil,
         isDestructive: Bool? = nil,
-        usage: TokenUsageData? = nil,
         toolUseId: String? = nil,
         isError: Bool? = nil
     ) {
@@ -66,20 +64,8 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
         self.status = status
         self.questions = questions
         self.isDestructive = isDestructive
-        self.usage = usage
         self.toolUseId = toolUseId
         self.isError = isError
-    }
-}
-
-/// Token usage data
-public struct TokenUsageData: Codable, Sendable, Equatable {
-    public let input: Int?
-    public let output: Int?
-
-    public init(input: Int? = nil, output: Int? = nil) {
-        self.input = input
-        self.output = output
     }
 }
 
@@ -128,64 +114,6 @@ public struct TaskItem: Codable, Sendable, Equatable {
     }
 }
 
-/// A history entry (parsed message from server history)
-public struct HistoryEntry: Sendable, Equatable {
-    public let type: String
-    public let content: String?
-    public let tool: String?
-    public let input: [String: AnyCodableValue]?
-    public let language: String?
-    public let status: String?
-    public let questions: [QuestionData]?
-    public let isDestructive: Bool?
-    public let toolUseId: String?
-    public let isError: Bool?
-
-    public init(
-        type: String,
-        content: String? = nil,
-        tool: String? = nil,
-        input: [String: AnyCodableValue]? = nil,
-        language: String? = nil,
-        status: String? = nil,
-        questions: [QuestionData]? = nil,
-        isDestructive: Bool? = nil,
-        toolUseId: String? = nil,
-        isError: Bool? = nil
-    ) {
-        self.type = type
-        self.content = content
-        self.tool = tool
-        self.input = input
-        self.language = language
-        self.status = status
-        self.questions = questions
-        self.isDestructive = isDestructive
-        self.toolUseId = toolUseId
-        self.isError = isError
-    }
-}
-
-extension HistoryEntry: Decodable {
-    enum CodingKeys: String, CodingKey {
-        case type, content, tool, input, language, status, questions, isDestructive, toolUseId, isError
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        type = try container.decode(String.self, forKey: .type)
-        content = try? container.decodeIfPresent(String.self, forKey: .content)
-        tool = try? container.decodeIfPresent(String.self, forKey: .tool)
-        input = try? container.decodeIfPresent([String: AnyCodableValue].self, forKey: .input)
-        language = try? container.decodeIfPresent(String.self, forKey: .language)
-        status = try? container.decodeIfPresent(String.self, forKey: .status)
-        questions = try? container.decodeIfPresent([QuestionData].self, forKey: .questions)
-        isDestructive = try? container.decodeIfPresent(Bool.self, forKey: .isDestructive)
-        toolUseId = try? container.decodeIfPresent(String.self, forKey: .toolUseId)
-        isError = try? container.decodeIfPresent(Bool.self, forKey: .isError)
-    }
-}
-
 /// Wrapper for resilient array decoding — skips entries that fail to decode
 /// instead of failing the entire array.
 private struct LossyDecodableArray<Element: Decodable>: Decodable {
@@ -227,13 +155,11 @@ public enum ClientAction: Sendable {
     case watchSession(sessionId: String)
     case unwatchSession(sessionId: String)
     case refreshSessions
-    case catchUp(sessionId: String)
     case inject(command: String, sessionId: String)
     case escape(sessionId: String)
     case modeToggle(sessionId: String)
     case updateSettings(settings: [String: AnyCodableValue])
     case ping
-    case getState
 
     /// Encode to JSON dictionary for sending over WebSocket
     public func toJSON() -> [String: Any] {
@@ -246,8 +172,6 @@ public enum ClientAction: Sendable {
             return ["action": "unwatch_session", "sessionId": sessionId]
         case .refreshSessions:
             return ["action": "refresh_sessions"]
-        case .catchUp(let sessionId):
-            return ["action": "catch_up", "sessionId": sessionId]
         case .inject(let command, let sessionId):
             return ["action": "inject", "command": command, "sessionId": sessionId]
         case .escape(let sessionId):
@@ -264,8 +188,6 @@ public enum ClientAction: Sendable {
             return dict
         case .ping:
             return ["action": "ping"]
-        case .getState:
-            return ["action": "get_state"]
         }
     }
 
@@ -333,7 +255,7 @@ extension ServerMessage: Decodable {
             let sessionId = try container.decode(String.self, forKey: .sessionId)
             // Use lossy decoding: skip individual entries that fail instead of
             // dropping the entire history array.
-            let lossy = try container.decode(LossyDecodableArray<HistoryEntry>.self, forKey: .data)
+            let lossy = try container.decode(LossyDecodableArray<ClaudeOutputData>.self, forKey: .data)
             self = .history(sessionId: sessionId, data: lossy.elements)
 
         case "claude_output":

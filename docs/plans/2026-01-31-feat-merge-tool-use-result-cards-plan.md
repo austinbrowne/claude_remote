@@ -72,9 +72,9 @@ if (entry.toolUseResult) {
 }
 ```
 
-- [ ] Add `toolUseId: block.id` to `permission_request` emission
-- [ ] Add `toolUseId: block.id` to generic `tool` emission
-- [ ] Extract `tool_use_id` from `entry.message.content` and add to `tool_result` emission
+- [x] Add `toolUseId: block.id` to `permission_request` emission
+- [x] Add `toolUseId: block.id` to generic `tool` emission
+- [x] Extract `tool_use_id` from `entry.message.content` and add to `tool_result` emission
 
 ### 2. WebSocketMessage.swift — Add `toolUseId` to ClaudeOutputData
 
@@ -83,7 +83,7 @@ if (entry.toolUseResult) {
 let toolUseId: String?    // ADD — correlation ID for tool_use ↔ tool_result
 ```
 
-- [ ] Add `toolUseId` field to `ClaudeOutputData`
+- [x] Add `toolUseId` field to `ClaudeOutputData`
 
 ### 3. Message.swift — Add `toolUseId` and result fields
 
@@ -96,8 +96,8 @@ public struct Message: Identifiable, Sendable {
 }
 ```
 
-- [ ] Add `toolUseId`, `resultContent`, `resultIsError` to Message
-- [ ] Update `init` and all call sites
+- [x] Add `toolUseId`, `resultContent`, `resultIsError` to Message
+- [x] Update `init` and all call sites
 
 ### 4. AppState.swift — Merge tool_result into existing tool message
 
@@ -116,8 +116,8 @@ public func mergeOrAppendToolResult(_ message: Message) {
 }
 ```
 
-- [ ] Add `mergeOrAppendToolResult` to AppState
-- [ ] Make `resultContent` and `resultIsError` mutable (`var`) on Message
+- [x] Add `mergeOrAppendToolResult` to AppState
+- [x] Make `resultContent` and `resultIsError` mutable (`var`) on Message
 
 ### 5. AppCoordinator.swift — Route tool_results through merge
 
@@ -136,8 +136,8 @@ case .claudeOutput(_, let data):
     }
 ```
 
-- [ ] Route `.toolResult` messages through `mergeOrAppendToolResult`
-- [ ] Pass `toolUseId` through `buildMessage`
+- [x] Route `.toolResult` messages through `mergeOrAppendToolResult`
+- [x] Pass `toolUseId` through `buildMessage`
 
 ### 6. ToolCardView.swift — Render merged card
 
@@ -172,10 +172,10 @@ struct ToolCardView: View {
 
 The card header shows `tool name` (e.g. "Bash"). Tapping expands to show input + output stacked vertically inside one card. A `.toolResult` message that failed to merge (standalone) still renders normally.
 
-- [ ] Update ToolCardView to render `resultContent` inside the same card
-- [ ] Show result below input with a divider when expanded
-- [ ] Handle standalone `tool_result` messages (no merge match) gracefully
-- [ ] Color the result border red if `resultIsError`
+- [x] Update ToolCardView to render `resultContent` inside the same card
+- [x] Show result below input with a divider when expanded
+- [x] Handle standalone `tool_result` messages (no merge match) gracefully
+- [x] Color the result border red if `resultIsError`
 
 ### 7. PromptService — No changes needed
 
@@ -201,21 +201,21 @@ case .history(_, let data):
 
 And in the history data from the server, include `toolUseId` on history entries that have it.
 
-- [ ] Pass `toolUseId` through history entries in server.js `buildHistoryResults`
-- [ ] Use `mergeOrAppendToolResult` during history loading
-- [ ] Add `toolUseId` to HistoryEntry model
+- [x] Pass `toolUseId` through history entries in server.js `buildHistoryResults`
+- [x] Use `mergeOrAppendToolResult` during history loading
+- [x] Add `toolUseId` to HistoryEntry model
 
 ## Acceptance Criteria
 
-- [ ] Tool call + result renders as one card (not two separate bubbles)
-- [ ] Card is collapsed by default, showing just the tool name
-- [ ] Expanding shows input and result stacked vertically
-- [ ] Error results show red styling
-- [ ] History loads with merged cards
-- [ ] Permission request flow still works (prompt dismiss on result)
-- [ ] Standalone tool_results (no matching tool) still render normally
-- [ ] `swift build` passes
-- [ ] Tests pass
+- [x] Tool call + result renders as one card (not two separate bubbles)
+- [x] Card is collapsed by default, showing just the tool name
+- [x] Expanding shows input and result stacked vertically
+- [x] Error results show red styling
+- [x] History loads with merged cards
+- [x] Permission request flow still works (prompt dismiss on result)
+- [x] Standalone tool_results (no matching tool) still render normally
+- [x] `swift build` passes
+- [x] Tests pass
 
 ## References
 

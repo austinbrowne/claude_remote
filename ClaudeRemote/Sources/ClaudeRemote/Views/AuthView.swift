@@ -144,8 +144,7 @@ public struct AuthView: View {
         }
 
         // Build WebSocket URL
-        let wsScheme = url.scheme == "https" ? "wss" : "ws"
-        guard let wsURL = URL(string: "\(wsScheme)://\(host)\(url.port.map { ":\($0)" } ?? "")/ws") else {
+        guard let wsURL = WebSocketService.webSocketURL(from: url) else {
             errorMessage = "Failed to build WebSocket URL"
             isConnecting = false
             return

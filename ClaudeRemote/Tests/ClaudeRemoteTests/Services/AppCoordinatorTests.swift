@@ -94,8 +94,8 @@ struct AppCoordinatorTests {
         #expect(state.messages.count == 1)
 
         let entries = [
-            HistoryEntry(type: "assistant", content: "Hello"),
-            HistoryEntry(type: "user", content: "Hi"),
+            ClaudeOutputData(type: "assistant", content: "Hello"),
+            ClaudeOutputData(type: "user", content: "Hi"),
         ]
         coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries))
         #expect(state.messages.count == 2)
@@ -110,9 +110,9 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         let entries = [
-            HistoryEntry(type: "assistant", content: nil),
-            HistoryEntry(type: "assistant", content: ""),
-            HistoryEntry(type: "assistant", content: "valid"),
+            ClaudeOutputData(type: "assistant", content: nil),
+            ClaudeOutputData(type: "assistant", content: ""),
+            ClaudeOutputData(type: "assistant", content: "valid"),
         ]
         coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries))
         #expect(state.messages.count == 1)

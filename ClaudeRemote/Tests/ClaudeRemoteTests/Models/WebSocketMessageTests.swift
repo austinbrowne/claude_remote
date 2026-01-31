@@ -708,14 +708,6 @@ struct ClientActionEncodingTests {
         #expect(json["action"] as? String == "refresh_sessions")
     }
 
-    @Test("Encode catch_up action")
-    func encodeCatchUp() throws {
-        let action = ClientAction.catchUp(sessionId: "sess-1")
-        let json = action.toJSON()
-        #expect(json["action"] as? String == "catch_up")
-        #expect(json["sessionId"] as? String == "sess-1")
-    }
-
     @Test("Encode inject action")
     func encodeInject() throws {
         let action = ClientAction.inject(command: "hello world", sessionId: "sess-1")
@@ -746,13 +738,6 @@ struct ClientActionEncodingTests {
         let action = ClientAction.ping
         let json = action.toJSON()
         #expect(json["action"] as? String == "ping")
-    }
-
-    @Test("Encode get_state action")
-    func encodeGetState() throws {
-        let action = ClientAction.getState
-        let json = action.toJSON()
-        #expect(json["action"] as? String == "get_state")
     }
 
     @Test("Encode update_settings action")
