@@ -11,6 +11,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public let promptService: PromptService
     public private(set) var webSocket: WebSocketService?
 
+    #if os(iOS)
+    public let speechService = SpeechService()
+    private var autoModeSpeechTask: Task<Void, Never>?
+    #endif
+
     public init(state: AppState) {
         self.state = state
         self.promptService = PromptService()
@@ -122,6 +127,21 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
             }
             promptService.handleClaudeOutput(data)
+
+            #if os(iOS)
+            if speechService.isAutoMode, let prompt = promptService.currentPrompt {
+                autoModeSpeechTask?.cancel()
+                speechService.stopSpeaking()
+                speechService.onTranscriptUpdate = { [weak self] transcript in
+                    self?.handleVoiceResponse(transcript)
+                }
+                autoModeSpeechTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let speech = toolSpeechSummary(for: prompt)
+                    await speechService.speakThenListen(speech)
+                }
+            }
+            #endif
 
         case .sessionStatus(_, let status, _):
             state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
@@ -267,4 +287,56 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         }
         return "\(fmt(input)) in / \(fmt(output)) out"
     }
+
+    // MARK: - Voice I/O (iOS)
+
+    #if os(iOS)
+    /// Build a spoken summary for a prompt card
+    private func toolSpeechSummary(for prompt: PromptItem) -> String {
+        switch prompt.kind {
+        case .permission(let tool, let command, _):
+            let toolName = tool ?? "a tool"
+            let cmdSummary = command.map { String($0.prefix(50)) } ?? ""
+            return "Allow \(toolName) to run \(cmdSummary)? Say allow, always, or deny."
+
+        case .question(let questions):
+            guard let q = questions.first else { return "" }
+            let optionLabels = (q.options ?? []).map(\.label).joined(separator: ", ")
+            return "Question: \(q.question). Options are: \(optionLabels)."
+        }
+    }
+
+    /// Handle a voice transcript update in auto-mode.
+    /// Only stops listening and clears the callback on a successful match.
+    public func handleVoiceResponse(_ transcript: String) {
+        guard speechService.isAutoMode,
+              let prompt = promptService.currentPrompt else { return }
+
+        let match = VoicePromptMatcher.match(
+            transcript: transcript,
+            promptKind: prompt.kind
+        )
+
+        switch match {
+        case .noMatch:
+            return // Keep listening for a better transcript
+        case .allow:
+            promptService.respondPermission(.allow)
+        case .allowAlways:
+            promptService.respondPermission(.allowAlways)
+        case .deny:
+            promptService.respondPermission(.deny)
+        case .option(let index):
+            if case .question(let questions) = prompt.kind,
+               let q = questions.first,
+               let options = q.options,
+               index < options.count {
+                promptService.respond(text: options[index].label)
+            }
+        }
+
+        speechService.onTranscriptUpdate = nil
+        speechService.stopListening()
+    }
+    #endif
 }

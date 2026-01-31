@@ -18,6 +18,12 @@ struct ClaudeRemoteApp: App {
             ContentView()
                 .environment(appState)
                 .environment(coordinator)
+                #if os(iOS)
+                .environment(coordinator.speechService)
+                .task {
+                    try? coordinator.speechService.configureAudioSession()
+                }
+                #endif
         }
     }
 }

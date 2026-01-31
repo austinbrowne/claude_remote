@@ -1,9 +1,13 @@
 import SwiftUI
 
-/// Text input bar with send, escape, and mode-toggle buttons
+/// Text input bar with send, escape, mode-toggle, and mic buttons
 struct InputBarView: View {
     @Environment(AppState.self) private var state
     @Environment(AppCoordinator.self) private var coordinator
+
+    #if os(iOS)
+    @Environment(SpeechService.self) private var speechService
+    #endif
 
     @State private var inputText = ""
     @State private var lastSendTime: Date?
@@ -54,6 +58,19 @@ struct InputBarView: View {
             }
             .disabled(state.currentSessionId == nil)
 
+            #if os(iOS)
+            // Mic toggle (voice input)
+            Button {
+                try? speechService.toggleListening()
+            } label: {
+                Image(systemName: speechService.isListening ? "mic.fill" : "mic")
+                    .font(.title3)
+                    .foregroundStyle(speechService.isListening ? .red : .secondary)
+                    .symbolEffect(.pulse, isActive: speechService.isListening)
+            }
+            .disabled(state.currentSessionId == nil)
+            #endif
+
             // Send
             Button {
                 send()
@@ -67,6 +84,13 @@ struct InputBarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(.bar)
+        #if os(iOS)
+        .onChange(of: speechService.transcript) { _, newValue in
+            if speechService.isListening && !newValue.isEmpty {
+                inputText = newValue
+            }
+        }
+        #endif
     }
 
     private func send() {
