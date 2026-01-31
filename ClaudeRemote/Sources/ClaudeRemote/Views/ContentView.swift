@@ -27,13 +27,7 @@ struct MainView: View {
             VStack(spacing: 0) {
                 sessionHeader
 
-                if state.currentSessionId != nil {
-                    Text("Session active")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    emptyState
-                }
+                ChatView()
             }
             .navigationTitle("Claude Remote")
             #if os(iOS)
@@ -79,39 +73,12 @@ struct MainView: View {
                             .clipShape(Capsule())
                     }
                     Spacer()
-                    statusBadge(session.status)
+                    SessionStatusBadge(status: session.status)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "terminal")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("No session selected")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Button("Select Session") {
-                showSessionPicker = true
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func statusBadge(_ status: SessionStatus) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(status.color)
-                .frame(width: 8, height: 8)
-            Text(status.rawValue)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

@@ -13,11 +13,6 @@ extension String {
         components(separatedBy: .newlines).first ?? self
     }
 
-    /// Check if string matches any of the given prefixes (case-insensitive)
-    public func matchesAnyPrefix(_ prefixes: [String]) -> Bool {
-        let lower = lowercased()
-        return prefixes.contains { lower.hasPrefix($0.lowercased()) }
-    }
 }
 
 extension Date {
@@ -38,6 +33,28 @@ extension SessionStatus {
         case .processing, .active: .green
         case .idle, .unknown: .gray
         }
+    }
+}
+
+// MARK: - Cross-Platform Colors
+
+extension Color {
+    /// Secondary system background (cross-platform)
+    static var secondaryBackground: Color {
+        #if os(iOS)
+        Color(uiColor: .secondarySystemBackground)
+        #else
+        Color(nsColor: .controlBackgroundColor)
+        #endif
+    }
+
+    /// Tertiary system background (cross-platform)
+    static var tertiaryBackground: Color {
+        #if os(iOS)
+        Color(uiColor: .tertiarySystemBackground)
+        #else
+        Color(nsColor: .windowBackgroundColor)
+        #endif
     }
 }
 

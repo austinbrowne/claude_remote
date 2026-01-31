@@ -275,6 +275,11 @@ function renderHistory(history) {
 
 ---
 
+## Related Documentation
+
+- [Triaging Multi-Agent Review Findings](triaging-multi-agent-review-findings.md) - Phase 1 review triage, Swift 6 concurrency gotchas
+- [SwiftUI Review Findings Consolidation](../code-quality/swiftui-review-findings-consolidation.md) - Phase 2 review: shared singletons, diff caching, scroll debounce patterns
+
 ## Related Files
 
 | File | Description |

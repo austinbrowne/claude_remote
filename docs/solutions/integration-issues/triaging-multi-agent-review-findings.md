@@ -157,3 +157,4 @@ guard !Task.isCancelled else { break }  // self already strong
 - [Claude Code Remote Monitoring](claude-code-remote-monitoring.md) - Original architecture, session discovery, permission card patterns
 - [Multi-Select AppleScript Clipboard Race](multiselect-applescript-clipboard-race.md) - Terminal injection timing, clipboard race conditions
 - [iOS Native App Plan](/docs/plans/2026-01-30-feat-ios-native-app-plan.md) - Full 7-phase plan with 12 porting patterns from web client
+- [SwiftUI Review Findings Consolidation](../code-quality/swiftui-review-findings-consolidation.md) - Phase 2 review: 11 findings fixed (shared singletons, diff caching, scroll debounce, component extraction)

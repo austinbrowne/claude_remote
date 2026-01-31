@@ -98,7 +98,7 @@ struct SessionRow: View {
 
             Spacer()
 
-            statusIndicator(session.status)
+            SessionStatusBadge(status: session.status)
 
             if isSelected {
                 Image(systemName: "checkmark")
@@ -106,17 +106,6 @@ struct SessionRow: View {
             }
         }
         .contentShape(Rectangle())
-    }
-
-    private func statusIndicator(_ status: SessionStatus) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(status.color)
-                .frame(width: 8, height: 8)
-            Text(status.rawValue)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
     }
 
 }

@@ -321,19 +321,19 @@ enum KeychainService {
 
 #### Acceptance Criteria
 
-- [ ] `history` messages render correctly on session load
-- [ ] Streaming `assistant` messages append in real-time
-- [ ] Markdown renders: headers, bold, italic, lists, links, inline code
-- [ ] Code blocks render with syntax highlighting (Swift, Python, JS, Ruby, Bash, JSON, etc.)
-- [ ] Tool cards show collapsed summary, expand on tap
-- [ ] Edit tool shows inline diff with +/- coloring
-- [ ] User messages appear as right-aligned bubbles
-- [ ] Status updates show as subtle indicators (processing spinner, waiting badge)
-- [ ] Auto-scroll to bottom on new messages
-- [ ] User can scroll up without being pulled back down
-- [ ] `claude_output` raw lines handled (debug mode)
-- [ ] Empty assistant messages (tool-only responses) are filtered out
-- [ ] Message deduplication for user messages (10s window)
+- [x] `history` messages render correctly on session load
+- [x] Streaming `assistant` messages append in real-time
+- [x] Markdown renders: headers, bold, italic, lists, links, inline code
+- [x] Code blocks render with syntax highlighting (Swift, Python, JS, Ruby, Bash, JSON, etc.)
+- [x] Tool cards show collapsed summary, expand on tap
+- [x] Edit tool shows inline diff with +/- coloring
+- [x] User messages appear as right-aligned bubbles
+- [x] Status updates show as subtle indicators (processing spinner, waiting badge)
+- [x] Auto-scroll to bottom on new messages
+- [x] User can scroll up without being pulled back down
+- [x] `claude_output` raw lines handled (debug mode)
+- [x] Empty assistant messages (tool-only responses) are filtered out
+- [x] Message deduplication for user messages (10s window)
 
 ---
 

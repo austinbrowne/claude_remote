@@ -38,21 +38,6 @@ struct StringExtensionsTests {
         #expect("".firstLine == "")
     }
 
-    @Test("matchesAnyPrefix positive")
-    func matchesPrefixPositive() {
-        #expect("titus hello".matchesAnyPrefix(["titus", "hey"]) == true)
-        #expect("TITUS hello".matchesAnyPrefix(["titus"]) == true)
-    }
-
-    @Test("matchesAnyPrefix negative")
-    func matchesPrefixNegative() {
-        #expect("hello world".matchesAnyPrefix(["titus", "hey"]) == false)
-    }
-
-    @Test("matchesAnyPrefix empty prefixes")
-    func matchesPrefixEmpty() {
-        #expect("hello".matchesAnyPrefix([]) == false)
-    }
 }
 
 @Suite("Date Extensions")
