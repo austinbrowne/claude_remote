@@ -1,15 +1,22 @@
 import Foundation
+import Observation
 
 /// Bridges WebSocketService events into AppState.
 /// Acts as the WebSocketServiceDelegate, converting server messages
 /// into model updates on the shared AppState.
+@Observable
 @MainActor
 public final class AppCoordinator: WebSocketServiceDelegate {
     public let state: AppState
+    public let promptService: PromptService
     public private(set) var webSocket: WebSocketService?
 
     public init(state: AppState) {
         self.state = state
+        self.promptService = PromptService()
+        promptService.setSendHandler { [weak self] action in
+            self?.webSocket?.send(action)
+        }
     }
 
     // MARK: - Connection Lifecycle
@@ -33,6 +40,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public func watchSession(_ sessionId: String) {
         webSocket?.setLastWatchedSession(sessionId)
         webSocket?.send(.watchSession(sessionId: sessionId))
+        promptService.sessionId = sessionId
     }
 
     /// Unwatch a session
@@ -43,6 +51,21 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// Request session list refresh
     public func refreshSessions() {
         webSocket?.send(.refreshSessions)
+    }
+
+    /// Inject a command into a session
+    public func injectCommand(_ command: String, sessionId: String) {
+        webSocket?.send(.inject(command: command, sessionId: sessionId))
+    }
+
+    /// Send escape (Ctrl+C) to a session
+    public func escapeSession(_ sessionId: String) {
+        webSocket?.send(.escape(sessionId: sessionId))
+    }
+
+    /// Toggle plan/act mode for a session
+    public func toggleMode(_ sessionId: String) {
+        webSocket?.send(.modeToggle(sessionId: sessionId))
     }
 
     // MARK: - WebSocketServiceDelegate
@@ -85,6 +108,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 guard let msg = messageFromHistoryEntry(entry) else { continue }
                 state.appendMessage(msg)
             }
+            promptService.recoverFromHistory(state.messages, sessionStatus: state.sessionStatus)
 
         case .claudeOutput(_, let data):
             guard let msg = messageFromClaudeOutput(data) else { return }
@@ -97,12 +121,15 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if data.type == "status_update", let status = data.status {
                 state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
             }
+            promptService.handleClaudeOutput(data)
 
         case .sessionStatus(_, let status, _):
             state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
+            promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
 
         case .statusUpdate(let status):
             state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
+            promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
 
         case .tokenUsage(let input, let output):
             let msg = Message(
@@ -185,7 +212,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         tool: String?,
         input: [String: AnyCodableValue]?,
         language: String?,
-        subagentId: String? = nil
+        subagentId: String? = nil,
+        questions: [QuestionData]? = nil,
+        isDestructive: Bool = false
     ) -> Message? {
         let messageType = MessageType(rawValue: type) ?? .unknown
         // Filter empty assistant messages (tool-only responses)
@@ -199,16 +228,34 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             toolInput: input,
             language: language,
             isSubagent: subagentId != nil,
-            subagentId: subagentId
+            subagentId: subagentId,
+            questions: questions,
+            isDestructive: isDestructive
         )
     }
 
     private func messageFromClaudeOutput(_ data: ClaudeOutputData, subagentId: String? = nil) -> Message? {
-        buildMessage(type: data.type, content: data.content, tool: data.tool, input: data.input, language: data.language, subagentId: subagentId)
+        buildMessage(
+            type: data.type,
+            content: data.content,
+            tool: data.tool,
+            input: data.input,
+            language: data.language,
+            subagentId: subagentId,
+            questions: data.questions,
+            isDestructive: data.isDestructive ?? false
+        )
     }
 
     private func messageFromHistoryEntry(_ entry: HistoryEntry) -> Message? {
-        buildMessage(type: entry.type, content: entry.content, tool: entry.tool, input: entry.input, language: entry.language)
+        buildMessage(
+            type: entry.type,
+            content: entry.content,
+            tool: entry.tool,
+            input: entry.input,
+            language: entry.language,
+            questions: entry.questions
+        )
     }
 
     private func formatTokenUsage(input: Int?, output: Int?) -> String {

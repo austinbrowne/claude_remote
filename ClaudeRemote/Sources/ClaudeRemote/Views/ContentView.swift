@@ -20,6 +20,7 @@ public struct ContentView: View {
 /// Main app view with session list and connection status
 struct MainView: View {
     @Environment(AppState.self) private var state
+    @Environment(AppCoordinator.self) private var coordinator
     @State private var showSessionPicker = false
 
     var body: some View {
@@ -28,6 +29,16 @@ struct MainView: View {
                 sessionHeader
 
                 ChatView()
+            }
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    if coordinator.promptService.currentPrompt != nil {
+                        PromptCardView()
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    InputBarView()
+                }
+                .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.currentPrompt != nil)
             }
             .navigationTitle("Claude Remote")
             #if os(iOS)

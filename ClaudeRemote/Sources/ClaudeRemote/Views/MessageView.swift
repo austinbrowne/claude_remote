@@ -38,10 +38,10 @@ struct MessageView: View {
         case .tokenUsage:
             TokenUsageView(content: message.content ?? "")
         case .permissionRequest:
-            // Phase 3 will handle this with PromptCardView
+            // Shown inline as tool card; active prompt handled by PromptCardView
             ToolCardView(message: message)
         case .askUserQuestion:
-            // Phase 3 will handle this with PromptCardView
+            // Shown inline as status; active prompt handled by PromptCardView
             StatusIndicatorView(status: "Question pending...")
         case .subagentStarting:
             SubagentStartView(description: message.content ?? "", agentType: message.tool)

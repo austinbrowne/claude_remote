@@ -31,6 +31,8 @@ public struct Message: Identifiable, Sendable {
     public let timestamp: Date
     public let isSubagent: Bool
     public let subagentId: String?
+    public let questions: [QuestionData]?
+    public let isDestructive: Bool
 
     public init(
         type: MessageType,
@@ -40,7 +42,9 @@ public struct Message: Identifiable, Sendable {
         language: String? = nil,
         timestamp: Date = Date(),
         isSubagent: Bool = false,
-        subagentId: String? = nil
+        subagentId: String? = nil,
+        questions: [QuestionData]? = nil,
+        isDestructive: Bool = false
     ) {
         self.id = UUID()
         self.type = type
@@ -51,6 +55,8 @@ public struct Message: Identifiable, Sendable {
         self.timestamp = timestamp
         self.isSubagent = isSubagent
         self.subagentId = subagentId
+        self.questions = questions
+        self.isDestructive = isDestructive
     }
 }
 
