@@ -1,0 +1,3 @@
+module ClaudeRemotePackageTests {
+    header "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/include/ClaudeRemotePackageTests-Swift.h"
+}

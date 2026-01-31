@@ -1,0 +1,923 @@
+{
+  "builtTestProducts" : [
+    {
+      "binaryPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.xctest/Contents/MacOS/ClaudeRemotePackageTests",
+      "packagePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote",
+      "productName" : "ClaudeRemotePackageTests"
+    }
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.ClaudeRemote-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/sources",
+      "importPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Message.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Session.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/WebSocketMessage.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/KeychainService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/WebSocketService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Utilities/Extensions.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/AuthView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/SessionPickerView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ClaudeRemote",
+      "moduleOutputPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemote.swiftmodule",
+      "objects" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AppState.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Message.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Session.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketMessage.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/KeychainService.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketService.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Extensions.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AuthView.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/ContentView.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/SessionPickerView.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/include/ClaudeRemote-Swift.h",
+        "-swift-version",
+        "6",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "clauderemote"
+      ],
+      "outputFileMapPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Message.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Session.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketMessage.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/KeychainService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Extensions.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AuthView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/SessionPickerView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemote.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/AppState.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Message.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Session.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/WebSocketMessage.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/KeychainService.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/WebSocketService.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Utilities/Extensions.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/AuthView.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/ContentView.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/SessionPickerView.swift"
+      ],
+      "tempsPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.ClaudeRemotePackageTests-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/sources",
+      "importPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemoteTests.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ClaudeRemotePackageTests",
+      "moduleOutputPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemotePackageTests.swiftmodule",
+      "objects" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/runner.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-emit-objc-header",
+        "-emit-objc-header-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/include/ClaudeRemotePackageTests-Swift.h",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "clauderemote"
+      ],
+      "outputFileMapPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemotePackageTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift"
+      ],
+      "tempsPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build",
+      "wholeModuleOptimization" : false
+    },
+    "C.ClaudeRemoteTests-arm64-apple-macosx26.0-debug.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/sources",
+      "importPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/AppStateTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/MessageTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/SessionTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/WebSocketMessageTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/KeychainServiceTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/WebSocketServiceTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Utilities/ExtensionsTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemote.swiftmodule"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/sources"
+        }
+      ],
+      "isLibrary" : true,
+      "moduleName" : "ClaudeRemoteTests",
+      "moduleOutputPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemoteTests.swiftmodule",
+      "objects" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/AppStateTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/MessageTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/SessionTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketMessageTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/KeychainServiceTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketServiceTests.swift.o",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/ExtensionsTests.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx14.0",
+        "-incremental",
+        "-enable-batch-mode",
+        "-serialize-diagnostics",
+        "-index-store-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+        "-Onone",
+        "-enable-testing",
+        "-Xfrontend",
+        "-enable-cross-import-overlays",
+        "-j10",
+        "-DSWIFT_PACKAGE",
+        "-DDEBUG",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+        "-parseable-output",
+        "-parse-as-library",
+        "-swift-version",
+        "6",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "clauderemote"
+      ],
+      "outputFileMapPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/AppStateTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/MessageTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/SessionTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketMessageTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/KeychainServiceTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketServiceTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/ExtensionsTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules/ClaudeRemoteTests.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/AppStateTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/MessageTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/SessionTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/WebSocketMessageTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/KeychainServiceTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/WebSocketServiceTests.swift",
+        "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Utilities/ExtensionsTests.swift"
+      ],
+      "tempsPath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build",
+      "wholeModuleOptimization" : false
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "ClaudeRemote" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ClaudeRemote",
+      "-package-name",
+      "clauderemote",
+      "-c",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/AppState.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Message.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Session.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/WebSocketMessage.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/KeychainService.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/WebSocketService.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Utilities/Extensions.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/AuthView.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/ContentView.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/SessionPickerView.swift",
+      "-I",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/include/ClaudeRemote-Swift.h",
+      "-swift-version",
+      "6",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "clauderemote",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "ClaudeRemotePackageTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ClaudeRemotePackageTests",
+      "-package-name",
+      "clauderemote",
+      "-c",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift",
+      "-I",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-emit-objc-header",
+      "-emit-objc-header-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/include/ClaudeRemotePackageTests-Swift.h",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "clauderemote",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ],
+    "ClaudeRemoteTests" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "ClaudeRemoteTests",
+      "-package-name",
+      "clauderemote",
+      "-c",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/AppStateTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/MessageTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/SessionTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/WebSocketMessageTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/KeychainServiceTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/WebSocketServiceTests.swift",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Utilities/ExtensionsTests.swift",
+      "-I",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/Modules",
+      "-target",
+      "arm64-apple-macosx14.0",
+      "-incremental",
+      "-enable-batch-mode",
+      "-serialize-diagnostics",
+      "-index-store-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/index/store",
+      "-Onone",
+      "-enable-testing",
+      "-Xfrontend",
+      "-enable-cross-import-overlays",
+      "-j10",
+      "-DSWIFT_PACKAGE",
+      "-DDEBUG",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ModuleCache",
+      "-parseable-output",
+      "-parse-as-library",
+      "-swift-version",
+      "6",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.1.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/PrivateFrameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "clauderemote",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "ClaudeRemote" : [
+
+    ],
+    "ClaudeRemotePackageTests" : [
+      "ClaudeRemoteTests",
+      "ClaudeRemote"
+    ],
+    "ClaudeRemoteTests" : [
+      "ClaudeRemote"
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift" : {
+      "inputs" : [
+
+      ],
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift"
+        }
+      ]
+    }
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/AppState.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Message.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Session.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/WebSocketMessage.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/KeychainService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/WebSocketService.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Utilities/Extensions.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/AuthView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/ContentView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/SessionPickerView.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/sources"
+    },
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.derived/runner.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/sources"
+    },
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AppState.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/AuthView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/ContentView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Extensions.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/KeychainService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Message.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/Session.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/SessionPickerView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketMessage.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/WebSocketService.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.build/runner.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/AppStateTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/ExtensionsTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/KeychainServiceTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/MessageTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/SessionTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketMessageTests.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/WebSocketServiceTests.swift.o"
+        }
+      ],
+      "outputFilePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemotePackageTests.product/Objects.LinkFileList"
+    },
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/AppStateTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/MessageTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/SessionTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Models/WebSocketMessageTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/KeychainServiceTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Services/WebSocketServiceTests.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Tests/ClaudeRemoteTests/Utilities/ExtensionsTests.swift"
+        }
+      ],
+      "outputFilePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemoteTests.build/sources"
+    },
+    "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}

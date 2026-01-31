@@ -1,0 +1,10 @@
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/AppState.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Message.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/Session.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Models/WebSocketMessage.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/KeychainService.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Services/WebSocketService.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Utilities/Extensions.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/AuthView.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/ContentView.swift
+/Users/austin/Git_Repos/claude_remote/ClaudeRemote/Sources/ClaudeRemote/Views/SessionPickerView.swift
