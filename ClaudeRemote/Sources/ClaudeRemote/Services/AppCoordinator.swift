@@ -183,16 +183,25 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             promptService.recoverFromHistory(state.messages, sessionStatus: state.sessionStatus)
 
         case .claudeOutput(_, let data):
+            // Route spinner status_updates to the persistent activity indicator
+            if data.type == "status_update" {
+                state.currentActivity = data.content
+                if let status = data.status {
+                    state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
+                }
+                promptService.handleClaudeOutput(data)
+                return
+            }
+            // Any non-status message means activity finished for that step
+            if data.type == "assistant" || data.type == "tool_result" {
+                state.currentActivity = nil
+            }
             guard let msg = messageFromClaudeOutput(data) else { return }
             // Deduplicate user messages (server echoes what we sent)
             if msg.type == .user, let content = msg.content {
                 if state.shouldDedupeMessage(content) { return }
             }
             state.appendMessage(msg)
-            // Update session status from status_update messages
-            if data.type == "status_update", let status = data.status {
-                state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
-            }
             promptService.handleClaudeOutput(data)
 
             #if os(iOS)
@@ -216,15 +225,19 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             #endif
 
         case .sessionStatus(_, let status, _):
-            state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
-            promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
+            let parsed = SessionStatus(rawValue: status) ?? .unknown
+            state.sessionStatus = parsed
+            if parsed == .idle || parsed == .waiting { state.currentActivity = nil }
+            promptService.handleSessionStatus(parsed)
             #if os(iOS)
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
             #endif
 
         case .statusUpdate(let status):
-            state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
-            promptService.handleSessionStatus(SessionStatus(rawValue: status) ?? .unknown)
+            let parsed = SessionStatus(rawValue: status) ?? .unknown
+            state.sessionStatus = parsed
+            if parsed == .idle || parsed == .waiting { state.currentActivity = nil }
+            promptService.handleSessionStatus(parsed)
             #if os(iOS)
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
             #endif

@@ -124,6 +124,10 @@ struct MainView: View {
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
+                if let activity = state.currentActivity {
+                    activityBar(activity)
+                        .transition(.opacity)
+                }
                 if coordinator.promptService.currentPrompt != nil {
                     PromptCardView()
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -131,6 +135,7 @@ struct MainView: View {
                 InputBarView()
             }
             .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.currentPrompt != nil)
+            .animation(.easeInOut(duration: 0.2), value: state.currentActivity != nil)
         }
         .navigationTitle(currentSessionName)
         #if os(iOS)
@@ -234,6 +239,21 @@ struct MainView: View {
         }
     }
     #endif
+
+    private func activityBar(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .scaleEffect(0.7)
+                .frame(width: 14, height: 14)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
 
     private var disconnectedBanner: some View {
         HStack(spacing: 8) {
