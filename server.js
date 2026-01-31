@@ -813,7 +813,7 @@ function parseLogEntry(entry) {
   if (entry.type === 'progress') {
     return [{
       type: 'status_update',
-      text: `${getRandomSpinnerVerb()}...`,
+      content: `${getRandomSpinnerVerb()}...`,
       timestamp: entry.timestamp || new Date().toISOString()
     }];
   }
@@ -839,7 +839,7 @@ function parseLogEntry(entry) {
         else if (block.type === 'thinking') {
           results.push({
             type: 'status_update',
-            text: `${getRandomSpinnerVerb()}...`,
+            content: `${getRandomSpinnerVerb()}...`,
             timestamp
           });
         }
@@ -848,7 +848,7 @@ function parseLogEntry(entry) {
           // Emit status update with random spinner verb (like terminal)
           results.push({
             type: 'status_update',
-            text: `${getRandomSpinnerVerb()}...`,
+            content: `${getRandomSpinnerVerb()}...`,
             tool: block.name,
             timestamp
           });
@@ -953,7 +953,7 @@ function parseLogEntry(entry) {
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
         type: 'tool_result',
-        result: result.trim() || '(completed)',
+        content: result.trim() || '(completed)',
         isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
         timestamp
       });
