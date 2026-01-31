@@ -1,0 +1,25 @@
+name: ClaudeRemoteApp
+options:
+  bundleIdPrefix: com.clauderemote
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+
+packages:
+  ClaudeRemote:
+    path: .
+
+targets:
+  ClaudeRemoteApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/ClaudeRemote/App
+    dependencies:
+      - package: ClaudeRemote
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.clauderemote.app
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: Sources/ClaudeRemote/App/Info.plist

@@ -59,6 +59,12 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         lastActive = try container.decodeIfPresent(String.self, forKey: .lastActive)
         logFile = try container.decodeIfPresent(String.self, forKey: .logFile)
         tty = try container.decodeIfPresent(String.self, forKey: .tty)
-        pid = try container.decodeIfPresent(Int.self, forKey: .pid)
+        if let intPid = try? container.decodeIfPresent(Int.self, forKey: .pid) {
+            pid = intPid
+        } else if let strPid = try? container.decodeIfPresent(String.self, forKey: .pid) {
+            pid = Int(strPid)
+        } else {
+            pid = nil
+        }
     }
 }

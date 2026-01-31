@@ -55,13 +55,13 @@ public final class SpeechService {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let synthesizer = AVSpeechSynthesizer()
     private var synthesizerDelegate: SynthesizerDelegate?
-    private var restartTask: Task<Void, Never>?
+    nonisolated(unsafe) private var restartTask: Task<Void, Never>?
 
     /// Incremented on each new recognition session so stale callbacks are ignored
     private var recognitionGeneration = 0
 
     /// Stored observer token for audio interruption notifications
-    private var interruptionObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var interruptionObserver: (any NSObjectProtocol)?
 
     /// Whether recognition is running in trigger mode (vs manual mode)
     private var isInTriggerMode = false
@@ -73,10 +73,10 @@ public final class SpeechService {
     private var lastTranscriptLength = 0
 
     /// Timer task for 3-second silence auto-send
-    private var silenceTask: Task<Void, Never>?
+    nonisolated(unsafe) private var silenceTask: Task<Void, Never>?
 
     /// Stored cooldown task — cancellable when trigger is stopped
-    private var cooldownTask: Task<Void, Never>?
+    nonisolated(unsafe) private var cooldownTask: Task<Void, Never>?
 
     /// True when trigger listening is paused for higher-priority audio
     private var triggerPaused = false
@@ -114,16 +114,16 @@ public final class SpeechService {
             object: session,
             queue: nil
         ) { [weak self] notification in
+            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+            let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
             Task { @MainActor [weak self] in
-                self?.handleAudioInterruption(notification)
+                self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
             }
         }
     }
 
-    private func handleAudioInterruption(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+    private func handleAudioInterruption(typeValue: UInt?, optionsValue: UInt?) {
+        guard let typeValue, let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
         switch type {
         case .began:
@@ -134,10 +134,9 @@ public final class SpeechService {
                 triggerPaused = true
             }
         case .ended:
-            let options = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
+            if options.contains(.shouldResume) {
                 try? AVAudioSession.sharedInstance().setActive(true)
-                // Resume trigger if it was paused
                 if triggerPaused {
                     triggerPaused = false
                     try? startTriggerListening()

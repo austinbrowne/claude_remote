@@ -1,4 +1,5 @@
 import SwiftUI
+import ClaudeRemote
 
 @main
 @MainActor
