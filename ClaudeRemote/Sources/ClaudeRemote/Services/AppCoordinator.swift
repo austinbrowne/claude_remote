@@ -160,6 +160,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .sessions(let data):
             state.sessions = data
 
+        case .commands(let data):
+            state.slashCommands = data
+
         case .watching(let sessionId, _):
             state.confirmSessionSwitch(sessionId: sessionId)
 
@@ -338,6 +341,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         switch message {
         case .authResult(let success, _): return "auth_result success=\(success)"
         case .sessions(let data): return "sessions count=\(data.count)"
+        case .commands(let data): return "commands count=\(data.count)"
         case .watching(let sid, _): return "watching session=\(sid)"
         case .history(let sid, let data): return "history session=\(sid) entries=\(data.count)"
         case .claudeOutput(_, let data): return "claude_output type=\(data.type) len=\(data.content?.count ?? 0)"

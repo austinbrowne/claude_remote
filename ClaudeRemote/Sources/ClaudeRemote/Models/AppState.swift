@@ -59,6 +59,9 @@ public final class AppState {
     public var messages: [Message] = []
     public var sessionStatus: SessionStatus = .idle
 
+    // MARK: - Commands
+    public var slashCommands: [SlashCommand] = []
+
     // MARK: - Subagents & Tasks
     public var activeSubagents: [String: SubagentInfo] = [:]
     public var tasks: [TaskItem] = []

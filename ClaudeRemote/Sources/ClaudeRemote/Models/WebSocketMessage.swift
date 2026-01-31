@@ -6,6 +6,7 @@ import Foundation
 public enum ServerMessage: Sendable {
     case authResult(success: Bool, error: String?)
     case sessions(data: [Session])
+    case commands(data: [SlashCommand])
     case watching(sessionId: String, session: Session)
     case history(sessionId: String, data: [HistoryEntry])
     case claudeOutput(sessionId: String, data: ClaudeOutputData)
@@ -153,6 +154,19 @@ public struct HistoryEntry: Decodable, Sendable, Equatable {
     }
 }
 
+/// A slash command available in the session
+public struct SlashCommand: Decodable, Sendable, Identifiable {
+    public let name: String
+    public let description: String
+
+    public var id: String { name }
+
+    public init(name: String, description: String) {
+        self.name = name
+        self.description = description
+    }
+}
+
 // MARK: - Client → Server Actions
 
 /// All actions the client can send to the server
@@ -253,6 +267,10 @@ extension ServerMessage: Decodable {
         case "sessions":
             let data = try container.decode([Session].self, forKey: .data)
             self = .sessions(data: data)
+
+        case "commands":
+            let data = try container.decode([SlashCommand].self, forKey: .data)
+            self = .commands(data: data)
 
         case "watching":
             let sessionId = try container.decode(String.self, forKey: .sessionId)
