@@ -33,6 +33,11 @@ public struct Message: Identifiable, Sendable {
     public let subagentId: String?
     public let questions: [QuestionData]?
     public let isDestructive: Bool
+    public let toolUseId: String?
+    /// Merged tool result content (set when a tool_result is merged into its tool_use)
+    public var resultContent: String?
+    /// Whether the merged tool result was an error
+    public var resultIsError: Bool
 
     public init(
         type: MessageType,
@@ -44,7 +49,10 @@ public struct Message: Identifiable, Sendable {
         isSubagent: Bool = false,
         subagentId: String? = nil,
         questions: [QuestionData]? = nil,
-        isDestructive: Bool = false
+        isDestructive: Bool = false,
+        toolUseId: String? = nil,
+        resultContent: String? = nil,
+        resultIsError: Bool = false
     ) {
         self.id = UUID()
         self.type = type
@@ -57,6 +65,9 @@ public struct Message: Identifiable, Sendable {
         self.subagentId = subagentId
         self.questions = questions
         self.isDestructive = isDestructive
+        self.toolUseId = toolUseId
+        self.resultContent = resultContent
+        self.resultIsError = resultIsError
     }
 }
 

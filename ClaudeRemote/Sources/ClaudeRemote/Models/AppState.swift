@@ -139,6 +139,17 @@ public final class AppState {
         }
     }
 
+    /// Merge a tool_result into its matching tool message, or append standalone
+    public func mergeOrAppendToolResult(_ message: Message) {
+        if let toolUseId = message.toolUseId,
+           let index = messages.lastIndex(where: { $0.toolUseId == toolUseId && ($0.type == .tool || $0.type == .permissionRequest) }) {
+            messages[index].resultContent = message.content
+            messages[index].resultIsError = message.resultIsError
+        } else {
+            appendMessage(message)
+        }
+    }
+
     /// Clear all messages
     public func clearMessages() {
         messages.removeAll()

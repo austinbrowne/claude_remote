@@ -178,7 +178,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 // Skip spinner status_updates from history — they're transient noise
                 if entry.type == "status_update" { continue }
                 guard let msg = messageFromHistoryEntry(entry) else { continue }
-                state.appendMessage(msg)
+                if msg.type == .toolResult {
+                    state.mergeOrAppendToolResult(msg)
+                } else {
+                    state.appendMessage(msg)
+                }
             }
             promptService.recoverFromHistory(state.messages, sessionStatus: state.sessionStatus)
 
@@ -201,7 +205,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if msg.type == .user, let content = msg.content {
                 if state.shouldDedupeMessage(content) { return }
             }
-            state.appendMessage(msg)
+            // Merge tool_results into their matching tool_use cards
+            if msg.type == .toolResult {
+                state.mergeOrAppendToolResult(msg)
+            } else {
+                state.appendMessage(msg)
+            }
             promptService.handleClaudeOutput(data)
 
             #if os(iOS)
@@ -330,7 +339,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         language: String?,
         subagentId: String? = nil,
         questions: [QuestionData]? = nil,
-        isDestructive: Bool = false
+        isDestructive: Bool = false,
+        toolUseId: String? = nil,
+        isError: Bool = false
     ) -> Message? {
         let messageType = MessageType(rawValue: type) ?? .unknown
         // Filter empty assistant messages (tool-only responses)
@@ -346,7 +357,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             isSubagent: subagentId != nil,
             subagentId: subagentId,
             questions: questions,
-            isDestructive: isDestructive
+            isDestructive: isDestructive,
+            toolUseId: toolUseId,
+            resultIsError: isError
         )
     }
 
@@ -359,7 +372,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             language: data.language,
             subagentId: subagentId,
             questions: data.questions,
-            isDestructive: data.isDestructive ?? false
+            isDestructive: data.isDestructive ?? false,
+            toolUseId: data.toolUseId,
+            isError: data.isError ?? false
         )
     }
 
@@ -401,7 +416,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             input: entry.input,
             language: entry.language,
             questions: entry.questions,
-            isDestructive: entry.isDestructive ?? false
+            isDestructive: entry.isDestructive ?? false,
+            toolUseId: entry.toolUseId,
+            isError: entry.isError ?? false
         )
     }
 

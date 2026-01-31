@@ -42,6 +42,8 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
     public let questions: [QuestionData]?
     public let isDestructive: Bool?
     public let usage: TokenUsageData?
+    public let toolUseId: String?
+    public let isError: Bool?
 
     public init(
         type: String,
@@ -52,7 +54,9 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
         status: String? = nil,
         questions: [QuestionData]? = nil,
         isDestructive: Bool? = nil,
-        usage: TokenUsageData? = nil
+        usage: TokenUsageData? = nil,
+        toolUseId: String? = nil,
+        isError: Bool? = nil
     ) {
         self.type = type
         self.content = content
@@ -63,6 +67,8 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
         self.questions = questions
         self.isDestructive = isDestructive
         self.usage = usage
+        self.toolUseId = toolUseId
+        self.isError = isError
     }
 }
 
@@ -132,6 +138,8 @@ public struct HistoryEntry: Sendable, Equatable {
     public let status: String?
     public let questions: [QuestionData]?
     public let isDestructive: Bool?
+    public let toolUseId: String?
+    public let isError: Bool?
 
     public init(
         type: String,
@@ -141,7 +149,9 @@ public struct HistoryEntry: Sendable, Equatable {
         language: String? = nil,
         status: String? = nil,
         questions: [QuestionData]? = nil,
-        isDestructive: Bool? = nil
+        isDestructive: Bool? = nil,
+        toolUseId: String? = nil,
+        isError: Bool? = nil
     ) {
         self.type = type
         self.content = content
@@ -151,12 +161,14 @@ public struct HistoryEntry: Sendable, Equatable {
         self.status = status
         self.questions = questions
         self.isDestructive = isDestructive
+        self.toolUseId = toolUseId
+        self.isError = isError
     }
 }
 
 extension HistoryEntry: Decodable {
     enum CodingKeys: String, CodingKey {
-        case type, content, tool, input, language, status, questions, isDestructive
+        case type, content, tool, input, language, status, questions, isDestructive, toolUseId, isError
     }
 
     public init(from decoder: Decoder) throws {
@@ -169,6 +181,8 @@ extension HistoryEntry: Decodable {
         status = try? container.decodeIfPresent(String.self, forKey: .status)
         questions = try? container.decodeIfPresent([QuestionData].self, forKey: .questions)
         isDestructive = try? container.decodeIfPresent(Bool.self, forKey: .isDestructive)
+        toolUseId = try? container.decodeIfPresent(String.self, forKey: .toolUseId)
+        isError = try? container.decodeIfPresent(Bool.self, forKey: .isError)
     }
 }
 

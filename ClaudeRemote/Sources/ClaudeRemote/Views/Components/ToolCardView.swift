@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Collapsible card showing a tool call with icon, name, summary, and expandable details
+/// Collapsible card showing a tool call with icon, name, summary, and expandable details.
+/// When a tool_result is merged into its tool_use, both input and output render in one card.
 struct ToolCardView: View {
     let message: Message
 
@@ -57,6 +58,13 @@ struct ToolCardView: View {
             }
 
             Spacer()
+
+            // Show checkmark or error indicator when result is merged
+            if message.resultContent != nil {
+                Image(systemName: message.resultIsError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(message.resultIsError ? .red : .green)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -80,9 +88,22 @@ struct ToolCardView: View {
                 }
             }
 
-            // Show result content if this is a tool_result
+            // Standalone tool_result (not merged into a tool_use)
             if message.type == .toolResult, let content = message.content, !content.isEmpty {
                 CodeBlockView(code: content, language: message.language)
+            }
+
+            // Merged tool result (tool_use with result attached)
+            if let result = message.resultContent, !result.isEmpty {
+                Divider()
+                    .padding(.vertical, 2)
+                CodeBlockView(code: result, language: message.language)
+                    .overlay(
+                        message.resultIsError
+                            ? RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                            : nil
+                    )
             }
         }
         .padding(.horizontal, 10)
@@ -107,7 +128,9 @@ struct ToolCardView: View {
     }
 
     private var borderColor: Color {
-        message.type == .toolResult ? .secondary : .purple
+        if message.resultIsError { return .red }
+        if message.type == .toolResult { return .secondary }
+        return .purple
     }
 
     private var toolSummary: String? {

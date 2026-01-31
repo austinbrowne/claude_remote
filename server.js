@@ -871,6 +871,7 @@ function parseLogEntry(entry) {
               type: 'permission_request',
               tool: isMcpTool ? formatMcpToolName(block.name) : block.name,
               input: isMcpTool ? sanitizeMcpInput(block.input) : (block.input || {}),
+              toolUseId: block.id || null,
               timestamp
             });
           }
@@ -914,6 +915,7 @@ function parseLogEntry(entry) {
               type: 'tool',
               tool: block.name || 'unknown',
               input: block.input || {},
+              toolUseId: block.id || null,
               timestamp
             });
           }
@@ -950,11 +952,18 @@ function parseLogEntry(entry) {
     // Tool result - always emit when toolUseResult exists (even if no output)
     // This signals the tool completed, which is needed to dismiss permission cards
     if (entry.toolUseResult) {
+      // Extract tool_use_id from content blocks for correlation with tool_use
+      let toolUseId = null;
+      if (Array.isArray(entry.message?.content)) {
+        const resultBlock = entry.message.content.find(b => b.type === 'tool_result');
+        toolUseId = resultBlock?.tool_use_id || null;
+      }
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
         type: 'tool_result',
         content: result.trim() || '(completed)',
         isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
+        toolUseId,
         timestamp
       });
     }
