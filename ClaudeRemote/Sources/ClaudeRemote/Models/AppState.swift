@@ -8,6 +8,30 @@ public enum SessionSwitchState: Sendable {
     case active
 }
 
+/// Claude Code session mode (cycles: plan → act → default)
+public enum SessionMode: Sendable {
+    case plan
+    case act
+    case defaultMode
+
+    public var label: String {
+        switch self {
+        case .plan: "Plan"
+        case .act: "Act"
+        case .defaultMode: "Default"
+        }
+    }
+
+    /// Next mode in the cycle
+    public var next: SessionMode {
+        switch self {
+        case .plan: .act
+        case .act: .defaultMode
+        case .defaultMode: .plan
+        }
+    }
+}
+
 /// Info about an active subagent
 public struct SubagentInfo: Sendable {
     public var status: String
@@ -74,7 +98,8 @@ public final class AppState {
         currentToast = ToastItem(message: message, icon: icon, style: style)
     }
 
-    // MARK: - Activity
+    // MARK: - Mode & Activity
+    public var sessionMode: SessionMode = .defaultMode
     /// Current spinner/activity text (e.g. "Thinking..."), nil when idle
     public var currentActivity: String?
 
@@ -166,6 +191,7 @@ public final class AppState {
         tasks.removeAll()
         activeSubagents.removeAll()
         sessionStatus = .idle
+        sessionMode = .defaultMode
         currentActivity = nil
     }
 

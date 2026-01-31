@@ -54,9 +54,9 @@ struct InputBarView: View {
                         )
 
                         utilityButton(
-                            icon: "arrow.triangle.swap",
-                            label: "Plan/Act",
-                            tint: .secondary,
+                            icon: modeIcon,
+                            label: state.sessionMode.label,
+                            tint: modeTint,
                             action: toggleMode
                         )
 
@@ -173,6 +173,24 @@ struct InputBarView: View {
             .frame(maxWidth: .infinity, minHeight: 36)
             .background(tint.opacity(0.1))
             .clipShape(Capsule())
+        }
+    }
+
+    // MARK: - Mode Display
+
+    private var modeIcon: String {
+        switch state.sessionMode {
+        case .plan: "doc.text"
+        case .act: "bolt.fill"
+        case .defaultMode: "arrow.triangle.swap"
+        }
+    }
+
+    private var modeTint: Color {
+        switch state.sessionMode {
+        case .plan: .orange
+        case .act: .green
+        case .defaultMode: .secondary
         }
     }
 

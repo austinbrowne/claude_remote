@@ -297,8 +297,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentStop(let agentId):
             state.activeSubagents[agentId]?.status = "completed"
 
-        case .injectResult, .escapeResult, .modeToggleResult:
-            break // Handled by Phase 3
+        case .modeToggleResult(let success, _):
+            if success {
+                state.sessionMode = state.sessionMode.next
+            }
+
+        case .injectResult, .escapeResult:
+            break
 
         case .error(_, let errorMessage, _):
             let msg = Message(type: .statusUpdate, content: "Error: \(errorMessage)")
