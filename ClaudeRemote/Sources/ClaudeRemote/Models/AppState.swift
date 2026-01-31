@@ -157,6 +157,11 @@ public final class AppState {
     public func beginSessionSwitch(to sessionId: String) {
         sessionSwitchState = .switching
         pendingSessionId = sessionId
+        // Clear stale data from previous session immediately
+        messages.removeAll()
+        tasks.removeAll()
+        activeSubagents.removeAll()
+        sessionStatus = .idle
     }
 
     /// Confirm session switch completed

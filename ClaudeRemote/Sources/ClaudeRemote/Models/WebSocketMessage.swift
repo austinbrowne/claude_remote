@@ -123,7 +123,7 @@ public struct TaskItem: Codable, Sendable, Equatable {
 }
 
 /// A history entry (parsed message from server history)
-public struct HistoryEntry: Decodable, Sendable, Equatable {
+public struct HistoryEntry: Sendable, Equatable {
     public let type: String
     public let content: String?
     public let tool: String?
@@ -151,6 +151,44 @@ public struct HistoryEntry: Decodable, Sendable, Equatable {
         self.status = status
         self.questions = questions
         self.isDestructive = isDestructive
+    }
+}
+
+extension HistoryEntry: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case type, content, tool, input, language, status, questions, isDestructive
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        content = try? container.decodeIfPresent(String.self, forKey: .content)
+        tool = try? container.decodeIfPresent(String.self, forKey: .tool)
+        input = try? container.decodeIfPresent([String: AnyCodableValue].self, forKey: .input)
+        language = try? container.decodeIfPresent(String.self, forKey: .language)
+        status = try? container.decodeIfPresent(String.self, forKey: .status)
+        questions = try? container.decodeIfPresent([QuestionData].self, forKey: .questions)
+        isDestructive = try? container.decodeIfPresent(Bool.self, forKey: .isDestructive)
+    }
+}
+
+/// Wrapper for resilient array decoding — skips entries that fail to decode
+/// instead of failing the entire array.
+private struct LossyDecodableArray<Element: Decodable>: Decodable {
+    let elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var decoded: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                decoded.append(element)
+            } else {
+                // Skip the bad element by decoding as throwaway AnyCodableValue
+                _ = try? container.decode(AnyCodableValue.self)
+            }
+        }
+        elements = decoded
     }
 }
 
@@ -279,8 +317,10 @@ extension ServerMessage: Decodable {
 
         case "history":
             let sessionId = try container.decode(String.self, forKey: .sessionId)
-            let data = try container.decode([HistoryEntry].self, forKey: .data)
-            self = .history(sessionId: sessionId, data: data)
+            // Use lossy decoding: skip individual entries that fail instead of
+            // dropping the entire history array.
+            let lossy = try container.decode(LossyDecodableArray<HistoryEntry>.self, forKey: .data)
+            self = .history(sessionId: sessionId, data: lossy.elements)
 
         case "claude_output":
             let sessionId = try container.decode(String.self, forKey: .sessionId)
