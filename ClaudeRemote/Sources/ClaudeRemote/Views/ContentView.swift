@@ -17,95 +17,153 @@ public struct ContentView: View {
     }
 }
 
-/// Main app view with session list and connection status
+/// Main app view with sidebar session list and chat detail
 struct MainView: View {
     @Environment(AppState.self) private var state
     @Environment(AppCoordinator.self) private var coordinator
-    @State private var showSessionPicker = false
+    @State private var selectedSessionId: String?
     @State private var showSettings = false
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if !state.isConnected {
-                    disconnectedBanner
-                }
-
-                sessionHeader
-
-                ChatView()
-                    .gesture(
-                        DragGesture(minimumDistance: 50)
-                            .onEnded { value in
-                                let horizontal = value.translation.width
-                                let vertical = abs(value.translation.height)
-                                // Only trigger for horizontal swipes (not vertical scrolling)
-                                guard abs(horizontal) > vertical else { return }
-                                switchSession(forward: horizontal < 0)
-                            }
-                    )
-            }
-            .safeAreaInset(edge: .bottom) {
-                VStack(spacing: 0) {
-                    if coordinator.promptService.currentPrompt != nil {
-                        PromptCardView()
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    InputBarView()
-                }
-                .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.currentPrompt != nil)
-            }
-            .navigationTitle("Claude Remote")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .onChange(of: state.pendingSessionId) { _, newId in
-                guard let newId else { return }
-                coordinator.watchSession(newId)
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    HStack(spacing: 8) {
-                        connectionIndicator
-                        #if os(iOS)
-                        triggerIndicator
-                        #endif
-                    }
-                }
-                #if os(iOS)
-                ToolbarItem(placement: .principal) {
-                    triggerToggle
-                }
-                #endif
-                ToolbarItem(placement: .confirmationAction) {
-                    HStack(spacing: 12) {
-                        SubagentBadgeView()
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                        }
-                        Button {
-                            showSessionPicker = true
-                        } label: {
-                            Image(systemName: "list.bullet")
-                        }
-                    }
-                }
-            }
-            .sheet(isPresented: $showSessionPicker) {
-                SessionPickerView()
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView()
-            }
-            .overlay(alignment: .top) {
-                ToastOverlay(toast: state.currentToast) {
-                    state.currentToast = nil
-                }
-                .animation(.easeInOut(duration: 0.3), value: state.currentToast)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar
+        } detail: {
+            detail
+        }
+        .onChange(of: selectedSessionId) { _, newId in
+            guard let newId else { return }
+            state.beginSessionSwitch(to: newId)
+            // Collapse sidebar on iPhone after selection
+            columnVisibility = .detailOnly
+        }
+        .onChange(of: state.pendingSessionId) { _, newId in
+            guard let newId else { return }
+            coordinator.watchSession(newId)
+        }
+        .onChange(of: state.currentSessionId) { _, newId in
+            // Keep selection in sync when session confirmed
+            if newId != selectedSessionId {
+                selectedSessionId = newId
             }
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+        }
+        .overlay(alignment: .top) {
+            ToastOverlay(toast: state.currentToast) {
+                state.currentToast = nil
+            }
+            .animation(.easeInOut(duration: 0.3), value: state.currentToast)
+        }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        Group {
+            if state.sessions.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                    Text("No active sessions")
+                        .font(.title3)
+                    Text("Start a Claude Code session in iTerm to see it here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            } else {
+                List(state.sessions, selection: $selectedSessionId) { session in
+                    SessionRow(
+                        session: session,
+                        isSelected: session.id == state.currentSessionId
+                    )
+                    .tag(session.id)
+                }
+                .refreshable {
+                    coordinator.refreshSessions()
+                }
+            }
+        }
+        .navigationTitle("Sessions")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+            }
+        }
+    }
+
+    // MARK: - Detail
+
+    private var detail: some View {
+        VStack(spacing: 0) {
+            if !state.isConnected {
+                disconnectedBanner
+            }
+
+            ChatView()
+                .gesture(
+                    DragGesture(minimumDistance: 50)
+                        .onEnded { value in
+                            let horizontal = value.translation.width
+                            let vertical = abs(value.translation.height)
+                            guard abs(horizontal) > vertical else { return }
+                            switchSession(forward: horizontal < 0)
+                        }
+                )
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 0) {
+                if coordinator.promptService.currentPrompt != nil {
+                    PromptCardView()
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                InputBarView()
+            }
+            .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.currentPrompt != nil)
+        }
+        .navigationTitle(currentSessionName)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                HStack(spacing: 8) {
+                    connectionIndicator
+                    #if os(iOS)
+                    triggerIndicator
+                    #endif
+                }
+            }
+            #if os(iOS)
+            ToolbarItem(placement: .principal) {
+                triggerToggle
+            }
+            #endif
+            ToolbarItem(placement: .confirmationAction) {
+                SubagentBadgeView()
+            }
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var currentSessionName: String {
+        guard let sessionId = state.currentSessionId,
+              let session = state.sessions.first(where: { $0.id == sessionId }) else {
+            return "Claude Remote"
+        }
+        return session.name
     }
 
     private var connectionIndicator: some View {
@@ -163,12 +221,10 @@ struct MainView: View {
         .foregroundStyle(.red)
     }
 
-    /// Switch to the next or previous session in the list
     private func switchSession(forward: Bool) {
         guard !state.sessions.isEmpty else { return }
         guard let currentId = state.currentSessionId,
               let currentIndex = state.sessions.firstIndex(where: { $0.id == currentId }) else {
-            // No current session — select the first one
             state.beginSessionSwitch(to: state.sessions[0].id)
             return
         }
@@ -182,34 +238,9 @@ struct MainView: View {
 
         let nextSession = state.sessions[nextIndex]
         state.beginSessionSwitch(to: nextSession.id)
+        selectedSessionId = nextSession.id
         #if os(iOS)
         HapticService.light()
         #endif
     }
-
-    private var sessionHeader: some View {
-        Group {
-            if let sessionId = state.currentSessionId,
-               let session = state.sessions.first(where: { $0.id == sessionId }) {
-                HStack {
-                    Text(session.name)
-                        .font(.headline)
-                    if let branch = session.branch {
-                        Text(branch)
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(.blue.opacity(0.1))
-                            .clipShape(Capsule())
-                    }
-                    Spacer()
-                    SessionStatusBadge(status: session.status)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-        }
-    }
-
 }
