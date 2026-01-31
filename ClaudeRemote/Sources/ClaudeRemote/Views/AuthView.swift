@@ -4,10 +4,11 @@ import SwiftUI
 public struct AuthView: View {
     @Environment(AppState.self) private var state
     @Environment(AppCoordinator.self) private var coordinator
-    @State private var serverURL = "http://localhost:3456"
+    @State private var serverURL = ""
     @State private var token = ""
     @State private var isConnecting = false
     @State private var errorMessage: String?
+    @State private var didAttemptAutoConnect = false
 
     public init() {}
 
@@ -77,6 +78,26 @@ public struct AuthView: View {
             .navigationTitle("Claude Remote")
             .onChange(of: state.isConnected) { _, isConnected in
                 if !isConnected { isConnecting = false }
+            }
+            .onAppear {
+                // Pre-fill saved URL
+                let savedURL = state.serverURL
+                if !savedURL.isEmpty {
+                    serverURL = savedURL
+                } else {
+                    serverURL = "http://localhost:3456"
+                }
+
+                // Auto-connect if we have saved credentials
+                guard !didAttemptAutoConnect else { return }
+                didAttemptAutoConnect = true
+
+                let keychain = KeychainService()
+                if !savedURL.isEmpty, let savedToken = keychain.load(for: savedURL) {
+                    token = savedToken
+                    isConnecting = true
+                    coordinator.reconnect()
+                }
             }
         }
     }
