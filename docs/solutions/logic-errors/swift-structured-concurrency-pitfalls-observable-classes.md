@@ -190,3 +190,4 @@ func stop() {
 - [Triaging Multi-Agent Review Findings](/docs/solutions/integration-issues/triaging-multi-agent-review-findings.md) — Review triage methodology, Swift 6 concurrency gotchas
 - [Multi-select AppleScript Injection](/docs/solutions/integration-issues/multiselect-applescript-clipboard-race.md) — Server-side multi-select timing
 - [swarm-fix skill](/.claude/skills/swarm-fix/SKILL.md) — Parallel fix workflow used to resolve all 12 findings
+- [Voice I/O Phase 4 Review Fixes](../concurrency-issues/voice-io-phase4-review-fixes.md) — Phase 4 review: NSLock for delegate thread safety, generation counter for seamless restart, tracked TTS tasks
