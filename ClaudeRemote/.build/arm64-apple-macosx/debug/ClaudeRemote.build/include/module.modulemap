@@ -1,3 +1,0 @@
-module ClaudeRemote {
-    header "/Users/austin/Git_Repos/claude_remote/ClaudeRemote/.build/arm64-apple-macosx/debug/ClaudeRemote.build/include/ClaudeRemote-Swift.h"
-}
