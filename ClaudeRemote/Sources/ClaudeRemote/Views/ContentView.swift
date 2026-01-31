@@ -59,6 +59,10 @@ struct MainView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .onChange(of: state.pendingSessionId) { _, newId in
+                guard let newId else { return }
+                coordinator.watchSession(newId)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     HStack(spacing: 8) {
