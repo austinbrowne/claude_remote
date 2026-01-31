@@ -66,7 +66,7 @@ private struct AssistantMessageView: View {
             .textSelection(.enabled)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.secondary.opacity(0.12))
+            .background(Color.secondary.opacity(0.18))
             .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }

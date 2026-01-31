@@ -22,67 +22,65 @@ struct InputBarView: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            TextField("Send a message...", text: $inputText, axis: .vertical)
-                .lineLimit(1...4)
-                .focused($isFocused)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.gray.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .onSubmit { send() }
-                .onChange(of: inputText) { _, newValue in
-                    if newValue.count > 10_000 {
-                        inputText = String(newValue.prefix(10_000))
-                    }
+        VStack(spacing: 6) {
+            // Utility row: session actions with proper touch targets
+            if state.currentSessionId != nil {
+                HStack(spacing: 10) {
+                    utilityButton(
+                        icon: "xmark.circle",
+                        label: "Escape",
+                        tint: .secondary,
+                        action: escape
+                    )
+
+                    utilityButton(
+                        icon: "arrow.triangle.swap",
+                        label: "Plan/Act",
+                        tint: .secondary,
+                        action: toggleMode
+                    )
+
+                    #if os(iOS)
+                    utilityButton(
+                        icon: speechService.isListening ? "mic.fill" : "mic",
+                        label: speechService.isListening ? "Listening" : "Mic",
+                        tint: speechService.isListening ? .red : .secondary,
+                        pulsing: speechService.isListening,
+                        action: { try? speechService.toggleListening() }
+                    )
+                    #endif
                 }
-
-            // Escape button (Ctrl+C equivalent)
-            Button {
-                escape()
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
             }
-            .disabled(state.currentSessionId == nil)
 
-            // Plan/Act mode toggle
-            Button {
-                toggleMode()
-            } label: {
-                Image(systemName: "arrow.triangle.swap")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-            .disabled(state.currentSessionId == nil)
+            // Primary row: text field + send
+            HStack(spacing: 8) {
+                TextField("Send a message...", text: $inputText, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($isFocused)
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.gray.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                    .onSubmit { send() }
+                    .onChange(of: inputText) { _, newValue in
+                        if newValue.count > 10_000 {
+                            inputText = String(newValue.prefix(10_000))
+                        }
+                    }
 
-            #if os(iOS)
-            // Mic toggle (voice input)
-            Button {
-                try? speechService.toggleListening()
-            } label: {
-                Image(systemName: speechService.isListening ? "mic.fill" : "mic")
-                    .font(.title3)
-                    .foregroundStyle(speechService.isListening ? .red : .secondary)
-                    .symbolEffect(.pulse, isActive: speechService.isListening)
+                Button(action: send) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(canSend ? .blue : .secondary)
+                }
+                .disabled(!canSend)
+                .frame(width: 44, height: 44)
             }
-            .disabled(state.currentSessionId == nil)
-            #endif
-
-            // Send
-            Button {
-                send()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(canSend ? .blue : .secondary)
-            }
-            .disabled(!canSend)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
         .background(.bar)
         #if os(iOS)
         .onChange(of: speechService.transcript) { _, newValue in
@@ -91,6 +89,31 @@ struct InputBarView: View {
             }
         }
         #endif
+    }
+
+    private func utilityButton(
+        icon: String,
+        label: String,
+        tint: Color,
+        pulsing: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.subheadline)
+                    .symbolEffect(.pulse, isActive: pulsing)
+                Text(label)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: 36)
+            .background(tint.opacity(0.1))
+            .clipShape(Capsule())
+        }
     }
 
     private func send() {
