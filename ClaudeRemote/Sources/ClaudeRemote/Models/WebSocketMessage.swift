@@ -130,6 +130,7 @@ public struct HistoryEntry: Decodable, Sendable, Equatable {
     public let language: String?
     public let status: String?
     public let questions: [QuestionData]?
+    public let isDestructive: Bool?
 
     public init(
         type: String,
@@ -138,7 +139,8 @@ public struct HistoryEntry: Decodable, Sendable, Equatable {
         input: [String: AnyCodableValue]? = nil,
         language: String? = nil,
         status: String? = nil,
-        questions: [QuestionData]? = nil
+        questions: [QuestionData]? = nil,
+        isDestructive: Bool? = nil
     ) {
         self.type = type
         self.content = content
@@ -147,6 +149,7 @@ public struct HistoryEntry: Decodable, Sendable, Equatable {
         self.language = language
         self.status = status
         self.questions = questions
+        self.isDestructive = isDestructive
     }
 }
 

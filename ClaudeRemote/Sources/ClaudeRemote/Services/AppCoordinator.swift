@@ -370,7 +370,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             tool: entry.tool,
             input: entry.input,
             language: entry.language,
-            questions: entry.questions
+            questions: entry.questions,
+            isDestructive: entry.isDestructive ?? false
         )
     }
 

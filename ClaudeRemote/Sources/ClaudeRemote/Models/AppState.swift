@@ -95,14 +95,11 @@ public final class AppState {
     // MARK: - Message Management
 
     /// Add a message, trimming oldest if over max.
-    /// Filters out messages with no meaningful content.
+    /// Filters out literal "(no content)" placeholder messages.
     public func appendMessage(_ message: Message) {
         let text = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text.isEmpty || text == "(no content)" {
-            // Skip empty and "(no content)" messages for assistant/user types
-            if message.type == .assistant || message.type == .user {
-                return
-            }
+        if text == "(no content)" {
+            return
         }
         messages.append(message)
         if messages.count > Self.maxMessages {
