@@ -46,11 +46,6 @@ function getRandomSpinnerVerb() {
 // Track pending subagent descriptions for correlation with subagent IDs
 const pendingSubagentDescriptions = new Map(); // timestamp -> { description, type }
 
-// Count of consecutive suppressed tool_uses — used to also suppress their results.
-// Incremented when a suppressed tool_use is seen in an assistant message,
-// decremented when a tool_result is skipped.
-let suppressedToolCount = 0;
-
 // Format MCP tool names for readability
 // mcp__github__create_issue -> GitHub: create_issue
 function formatMcpToolName(name) {
@@ -859,16 +854,9 @@ function parseLogEntry(entry) {
           });
 
           const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
-          // Internal tools whose output is noise for the mobile UI
-          const SUPPRESSED_TOOLS = ['Skill', 'TodoRead', 'TodoWrite', 'EnterPlanMode', 'ExitPlanMode', 'Glob', 'Grep', 'LS', 'Read'];
           const isMcpTool = block.name && block.name.startsWith('mcp__');
 
-          if (SUPPRESSED_TOOLS.includes(block.name)) {
-            suppressedToolCount++;
-            // Don't emit anything for suppressed tools
-          }
           // Special handling for AskUserQuestion - emit as structured prompt
-          else
           if (block.name === 'AskUserQuestion' && block.input?.questions) {
             results.push({
               type: 'ask_user_question',
@@ -962,18 +950,13 @@ function parseLogEntry(entry) {
     // Tool result - always emit when toolUseResult exists (even if no output)
     // This signals the tool completed, which is needed to dismiss permission cards
     if (entry.toolUseResult) {
-      // Skip results for suppressed tools (Skill, Glob, Read, etc.)
-      if (suppressedToolCount > 0) {
-        suppressedToolCount--;
-      } else {
-        const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
-        results.push({
-          type: 'tool_result',
-          content: result.trim() || '(completed)',
-          isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
-          timestamp
-        });
-      }
+      const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+      results.push({
+        type: 'tool_result',
+        content: result.trim() || '(completed)',
+        isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
+        timestamp
+      });
     }
     // Human input
     else if (entry.message?.content) {
