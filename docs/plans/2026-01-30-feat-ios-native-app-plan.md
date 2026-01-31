@@ -518,23 +518,23 @@ LISTENING ──(trigger detected)──→ CAPTURING ──(silence/send)──
 
 #### Acceptance Criteria
 
-- [ ] Toggle trigger mode in settings
-- [ ] Trigger mode persisted across app launches (UserDefaults)
-- [ ] On enable: starts listening, visual indicator in UI
-- [ ] "Titus" detected → haptic feedback + visual state change
-- [ ] Text after trigger word captured as command
-- [ ] 3-second silence auto-sends command
-- [ ] "Cancel"/"Stop" aborts capture, returns to listening
-- [ ] Trigger mode survives screen lock (background audio)
-- [ ] Trigger mode survives app switching
-- [ ] Audio interruption (phone call) pauses and resumes
-- [ ] Manual mic tap pauses trigger, resumes after
-- [ ] TTS pauses trigger, resumes after
-- [ ] Prompt response pauses trigger, resumes after
-- [ ] No false triggers from TTS playback (mute mic during TTS)
-- [ ] Visual indicators: LISTENING (teal pulse), CAPTURING (red pulse), IDLE (no indicator)
-- [ ] Empty command after trigger → discard, return to LISTENING
-- [ ] No session selected → error toast, return to LISTENING
+- [x] Toggle trigger mode in settings
+- [x] Trigger mode persisted across app launches (UserDefaults)
+- [x] On enable: starts listening, visual indicator in UI
+- [x] "Titus" detected → haptic feedback + visual state change
+- [x] Text after trigger word captured as command
+- [x] 3-second silence auto-sends command
+- [x] "Cancel"/"Stop" aborts capture, returns to listening
+- [x] Trigger mode survives screen lock (background audio)
+- [x] Trigger mode survives app switching
+- [x] Audio interruption (phone call) pauses and resumes
+- [x] Manual mic tap pauses trigger, resumes after
+- [x] TTS pauses trigger, resumes after
+- [x] Prompt response pauses trigger, resumes after
+- [x] No false triggers from TTS playback (mute mic during TTS)
+- [x] Visual indicators: LISTENING (teal pulse), CAPTURING (red pulse), IDLE (no indicator)
+- [x] Empty command after trigger → discard, return to LISTENING
+- [x] No session selected → error toast, return to LISTENING
 
 ---
 

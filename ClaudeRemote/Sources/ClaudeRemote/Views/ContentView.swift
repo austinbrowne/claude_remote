@@ -46,8 +46,18 @@ struct MainView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    connectionIndicator
+                    HStack(spacing: 8) {
+                        connectionIndicator
+                        #if os(iOS)
+                        triggerIndicator
+                        #endif
+                    }
                 }
+                #if os(iOS)
+                ToolbarItem(placement: .principal) {
+                    triggerToggle
+                }
+                #endif
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         showSessionPicker = true
@@ -67,6 +77,35 @@ struct MainView: View {
             .fill(state.isConnected ? Color.green : Color.red)
             .frame(width: 10, height: 10)
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var triggerIndicator: some View {
+        switch coordinator.speechService.triggerState {
+        case .listening:
+            Image(systemName: "waveform")
+                .font(.caption2)
+                .foregroundStyle(.teal)
+        case .capturing:
+            Image(systemName: "waveform")
+                .font(.caption2)
+                .foregroundStyle(.red)
+                .symbolEffect(.variableColor.iterative, isActive: true)
+        case .idle, .cooldown:
+            EmptyView()
+        }
+    }
+
+    private var triggerToggle: some View {
+        Button {
+            coordinator.setTriggerEnabled(!state.triggerEnabled)
+        } label: {
+            Image(systemName: state.triggerEnabled ? "ear.fill" : "ear")
+                .font(.subheadline)
+                .foregroundStyle(state.triggerEnabled ? .teal : .secondary)
+        }
+    }
+    #endif
 
     private var sessionHeader: some View {
         Group {

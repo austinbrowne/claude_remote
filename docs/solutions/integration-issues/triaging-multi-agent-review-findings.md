@@ -160,3 +160,4 @@ guard !Task.isCancelled else { break }  // self already strong
 - [SwiftUI Review Findings Consolidation](../code-quality/swiftui-review-findings-consolidation.md) - Phase 2 review: 11 findings fixed (shared singletons, diff caching, scroll debounce, component extraction)
 - [Swift Structured Concurrency Pitfalls](../logic-errors/swift-structured-concurrency-pitfalls-observable-classes.md) - Phase 3 review: 12 findings fixed (Task cancellation, try? CancellationError, retain cycles, swarm-fix pattern)
 - [Voice I/O Phase 4 Review Fixes](../concurrency-issues/voice-io-phase4-review-fixes.md) - Phase 4 review: 10 findings fixed (delegate data race, dead code wiring, overlapping TTS tasks, hasPrefix false positives)
+- [Phase 5 Trigger Word Audio Arbitration](../concurrency-issues/trigger-word-phase5-audio-arbitration.md) - Phase 5: priority arbitration, trigger state machine, background audio, generation counters

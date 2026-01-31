@@ -190,3 +190,4 @@ grep -rln '#if os(iOS)' Tests/
 - [SwiftUI Review Findings Consolidation](/docs/solutions/code-quality/swiftui-review-findings-consolidation.md) — Task cancellation, nonisolated(unsafe)
 - [Triaging Multi-Agent Review Findings](/docs/solutions/integration-issues/triaging-multi-agent-review-findings.md) — Swift 6 Sendable, actor isolation
 - [Trigger Word Voice Activation Plan](/docs/plans/2026-01-30-feat-trigger-word-voice-activation-plan.md) — Phase 5 voice state machine, overlaps with audio session management
+- [Phase 5 Trigger Word Audio Arbitration](trigger-word-phase5-audio-arbitration.md) — Phase 5 review: priority arbitration, state machine design, background audio, generation counters, platform-neutral extraction

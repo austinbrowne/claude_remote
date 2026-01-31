@@ -184,3 +184,4 @@ When Swift 6 strict concurrency requires `nonisolated(unsafe)` for a singleton, 
 - [Claude Code Remote Monitoring](../integration-issues/claude-code-remote-monitoring.md) — WebSocket streaming patterns, delayed rendering with cancellation
 - [Swift Structured Concurrency Pitfalls](../logic-errors/swift-structured-concurrency-pitfalls-observable-classes.md) — Phase 3 review: Task cancellation, try? CancellationError, retain cycles in @Observable
 - [Voice I/O Phase 4 Review Fixes](../concurrency-issues/voice-io-phase4-review-fixes.md) — Phase 4 review: delegate data race, observer lifecycle, first-word matching, platform-neutral extraction
+- [Phase 5 Trigger Word Audio Arbitration](../concurrency-issues/trigger-word-phase5-audio-arbitration.md) — Phase 5: priority arbitration for shared AVAudioEngine, state machine, background audio

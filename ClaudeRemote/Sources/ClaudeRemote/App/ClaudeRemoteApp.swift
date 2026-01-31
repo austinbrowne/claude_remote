@@ -21,7 +21,11 @@ struct ClaudeRemoteApp: App {
                 #if os(iOS)
                 .environment(coordinator.speechService)
                 .task {
-                    try? coordinator.speechService.configureAudioSession()
+                    let forBackground = coordinator.state.triggerEnabled
+                    try? coordinator.speechService.configureAudioSession(forBackground: forBackground)
+                    if forBackground {
+                        try? coordinator.speechService.startTriggerListening()
+                    }
                 }
                 #endif
         }

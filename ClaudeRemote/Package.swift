@@ -22,7 +22,7 @@ let package = Package(
                 .product(name: "Highlightr", package: "Highlightr"),
             ],
             path: "Sources/ClaudeRemote",
-            exclude: ["App/ClaudeRemoteApp.swift"]
+            exclude: ["App/ClaudeRemoteApp.swift", "App/Info.plist"]
         ),
         .testTarget(
             name: "ClaudeRemoteTests",

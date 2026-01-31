@@ -14,6 +14,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     #if os(iOS)
     public let speechService = SpeechService()
     private var autoModeSpeechTask: Task<Void, Never>?
+
+    private static let triggerEnabledKey = "triggerEnabled"
     #endif
 
     public init(state: AppState) {
@@ -22,6 +24,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         promptService.setSendHandler { [weak self] action in
             self?.webSocket?.send(action)
         }
+
+        #if os(iOS)
+        // Restore persisted trigger setting
+        state.triggerEnabled = UserDefaults.standard.bool(forKey: Self.triggerEnabledKey)
+
+        // Wire trigger command callback
+        speechService.onTriggerCommand = { [weak self] command in
+            self?.handleTriggerCommand(command)
+        }
+        #endif
     }
 
     // MARK: - Connection Lifecycle
@@ -337,6 +349,34 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
         speechService.onTranscriptUpdate = nil
         speechService.stopListening()
+    }
+
+    // MARK: - Trigger Word
+
+    /// Handle a captured command from trigger word detection.
+    private func handleTriggerCommand(_ command: String) {
+        guard let sessionId = state.currentSessionId else {
+            let msg = Message(type: .statusUpdate, content: "Trigger command ignored (no active session): \(command)")
+            state.appendMessage(msg)
+            return
+        }
+        state.trackSentMessage(command)
+        injectCommand(command, sessionId: sessionId)
+    }
+
+    /// Enable or disable trigger word mode. Persists to UserDefaults,
+    /// reconfigures the audio session, and starts/stops trigger listening.
+    public func setTriggerEnabled(_ enabled: Bool) {
+        state.triggerEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.triggerEnabledKey)
+
+        if enabled {
+            try? speechService.configureAudioSession(forBackground: true)
+            try? speechService.startTriggerListening()
+        } else {
+            speechService.stopTriggerListening()
+            try? speechService.configureAudioSession(forBackground: false)
+        }
     }
     #endif
 }
