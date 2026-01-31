@@ -46,6 +46,7 @@ struct ChatView: View {
                             isNearBottom = false
                         }
                 }
+                .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: state.messages.count) { oldCount, newCount in
                     guard newCount > oldCount else {
@@ -54,9 +55,14 @@ struct ChatView: View {
                         showNewMessageIndicator = false
                         return
                     }
-                    // History just loaded — jump to bottom immediately
+                    // History just loaded — jump to bottom after layout
                     if oldCount == 0 && newCount > 0 {
-                        proxy.scrollTo("bottom", anchor: .bottom)
+                        scrollDebounceTask?.cancel()
+                        scrollDebounceTask = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(50))
+                            guard !Task.isCancelled else { return }
+                            proxy.scrollTo("bottom", anchor: .bottom)
+                        }
                         return
                     }
                     if isNearBottom {
