@@ -59,10 +59,13 @@ struct MainView: View {
                 }
                 #endif
                 ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        showSessionPicker = true
-                    } label: {
-                        Image(systemName: "list.bullet")
+                    HStack(spacing: 12) {
+                        SubagentBadgeView()
+                        Button {
+                            showSessionPicker = true
+                        } label: {
+                            Image(systemName: "list.bullet")
+                        }
                     }
                 }
             }

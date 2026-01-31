@@ -26,6 +26,16 @@ extension Date {
     }
 }
 
+/// Format token counts into a compact "Xk in / Yk out" string
+public func formatTokenCount(_ input: Int, _ output: Int) -> String {
+    let fmt = { (n: Int) -> String in
+        if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
+        if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
+        return "\(n)"
+    }
+    return "\(fmt(input)) in / \(fmt(output)) out"
+}
+
 extension SessionStatus {
     public var color: Color {
         switch self {

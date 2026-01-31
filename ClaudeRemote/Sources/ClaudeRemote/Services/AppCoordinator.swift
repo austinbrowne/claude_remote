@@ -166,7 +166,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .tokenUsage(let input, let output):
             let msg = Message(
                 type: .tokenUsage,
-                content: formatTokenUsage(input: input, output: output)
+                content: formatTokenCount(input ?? 0, output ?? 0)
             )
             state.appendMessage(msg)
 
@@ -288,16 +288,6 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             language: entry.language,
             questions: entry.questions
         )
-    }
-
-    private func formatTokenUsage(input: Int?, output: Int?) -> String {
-        let fmt = { (n: Int?) -> String in
-            guard let n else { return "0" }
-            if n >= 1_000_000 { return String(format: "%.1fM", Double(n) / 1_000_000) }
-            if n >= 1_000 { return String(format: "%.1fk", Double(n) / 1_000) }
-            return "\(n)"
-        }
-        return "\(fmt(input)) in / \(fmt(output)) out"
     }
 
     // MARK: - Voice I/O (iOS)

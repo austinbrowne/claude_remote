@@ -22,10 +22,14 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ZStack(alignment: .bottom) {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(state.messages) { message in
-                            MessageView(message: message)
-                                .id(message.id)
+                    VStack(spacing: 0) {
+                        TaskProgressView()
+
+                        LazyVStack(spacing: 0) {
+                            ForEach(state.messages) { message in
+                                MessageView(message: message)
+                                    .id(message.id)
+                            }
                         }
                     }
                     .padding(.vertical, 8)

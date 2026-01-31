@@ -557,15 +557,15 @@ LISTENING ──(trigger detected)──→ CAPTURING ──(silence/send)──
 
 #### Acceptance Criteria
 
-- [ ] `subagent_starting` shows "launching" indicator
-- [ ] `subagent_start` adds to active list with badge count
-- [ ] `subagent_output` updates subagent's latest output
-- [ ] `subagent_stop` removes from active list
-- [ ] Subagent permission prompts route correctly (with agentId)
-- [ ] `task_create` adds task to list
-- [ ] `task_update` updates task status
-- [ ] Completed tasks show checkmark
-- [ ] In-progress tasks show spinner with activeForm text
+- [x] `subagent_starting` shows "launching" indicator
+- [x] `subagent_start` adds to active list with badge count
+- [x] `subagent_output` updates subagent's latest output
+- [x] `subagent_stop` removes from active list
+- [x] Subagent permission prompts route correctly (with agentId)
+- [x] `task_create` adds task to list
+- [x] `task_update` updates task status
+- [x] Completed tasks show checkmark
+- [x] In-progress tasks show spinner with activeForm text
 
 ---
 
