@@ -54,6 +54,11 @@ struct ChatView: View {
                         showNewMessageIndicator = false
                         return
                     }
+                    // History just loaded — jump to bottom immediately
+                    if oldCount == 0 && newCount > 0 {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                        return
+                    }
                     if isNearBottom {
                         // Debounce scroll to prevent animation stacking during rapid streaming
                         scrollDebounceTask?.cancel()
