@@ -20,17 +20,22 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public init(state: AppState) {
         self.state = state
         self.promptService = PromptService()
-        promptService.setSendHandler { [weak self] action in
-            self?.webSocket?.send(action)
-        }
+
+        #if os(iOS)
+        self.notificationService = NotificationService(appState: state)
+        #endif
+
+        // All stored properties initialized — safe to capture [weak self]
 
         // Restore all persisted settings
         SettingsStore.load(into: state)
 
+        promptService.setSendHandler { [weak self] action in
+            self?.webSocket?.send(action)
+        }
+
         #if os(iOS)
-        let notifService = NotificationService(appState: state)
-        self.notificationService = notifService
-        notifService.onNotificationTap = { [weak self] sessionId in
+        notificationService.onNotificationTap = { [weak self] sessionId in
             self?.watchSession(sessionId)
         }
 
