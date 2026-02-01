@@ -34,7 +34,21 @@ struct SettingsView: View {
             .onChange(of: state.speakTools) { _, v in SettingsStore.saveSpeakTools(v) }
             .onChange(of: state.speechRate) { _, v in SettingsStore.saveSpeechRate(v) }
             .onChange(of: state.voiceIdentifier) { _, v in SettingsStore.saveVoiceIdentifier(v) }
-            .onChange(of: state.notifyEnabled) { _, v in SettingsStore.saveNotifyEnabled(v) }
+            .onChange(of: state.notifyEnabled) { _, v in
+                SettingsStore.saveNotifyEnabled(v)
+                #if os(iOS)
+                if v {
+                    Task {
+                        let granted = await coordinator.notificationService.requestAuthorization()
+                        if !granted {
+                            state.notifyEnabled = false
+                            SettingsStore.saveNotifyEnabled(false)
+                            state.showToast("Enable notifications in iOS Settings", icon: "bell.slash", style: .warning)
+                        }
+                    }
+                }
+                #endif
+            }
             .onChange(of: state.debugMode) { _, v in SettingsStore.saveDebugMode(v) }
         }
     }
