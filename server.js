@@ -233,8 +233,11 @@ async function discoverSessions() {
           // Read first 2KB to find cwd field
           const fh = await fsp.open(fullPath, 'r');
           const buffer = Buffer.alloc(2000);
-          await fh.read(buffer, 0, 2000, 0);
-          await fh.close();
+          try {
+            await fh.read(buffer, 0, 2000, 0);
+          } finally {
+            await fh.close();
+          }
 
           const content = buffer.toString('utf8');
           const cwdMatch = content.match(/"cwd":"([^"]+)"/);
@@ -331,16 +334,16 @@ async function discoverSessions() {
 }
 
 async function watchSession(sessionId) {
-  const sessions = await discoverSessions();
-  const session = sessions.find(s => s.id === sessionId);
-  
-  if (!session || !session.logFile) {
-    return null;
-  }
-  
-  // If already watching, return existing watcher
+  // If already watching, return existing watcher (avoid redundant discoverSessions call)
   if (activeSessions.has(sessionId)) {
     return activeSessions.get(sessionId).session;
+  }
+
+  const sessions = await discoverSessions();
+  const session = sessions.find(s => s.id === sessionId);
+
+  if (!session || !session.logFile) {
+    return null;
   }
   
   // Track file position to only read new content
@@ -379,8 +382,11 @@ async function watchSession(sessionId) {
         const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
         const fh = await fsp.open(filePath, 'r');
         const buffer = Buffer.alloc(bytesToRead);
-        await fh.read(buffer, 0, bytesToRead, lastPosition);
-        await fh.close();
+        try {
+          await fh.read(buffer, 0, bytesToRead, lastPosition);
+        } finally {
+          await fh.close();
+        }
 
         const newContent = buffer.toString('utf8');
 
@@ -394,6 +400,7 @@ async function watchSession(sessionId) {
         const completeContent = newContent.substring(0, lastNewlineIndex);
         const lines = completeContent.split('\n').filter(line => line.trim());
 
+        let linesProcessed = false;
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
@@ -408,15 +415,36 @@ async function watchSession(sessionId) {
 
             const parsed = parseLogEntry(entry);
             if (parsed) {
+              linesProcessed = true;
               // Handle single result or array of results
               const items = Array.isArray(parsed) ? parsed : [parsed];
               for (const item of items) {
-                console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
-                broadcastToClients({
-                  type: 'claude_output',
-                  sessionId: sessionId,
-                  data: item
-                });
+                if (item.type === 'token_usage') {
+                  broadcastToClients({
+                    type: 'token_usage',
+                    sessionId: sessionId,
+                    input: item.input,
+                    output: item.output
+                  });
+                } else if (item.type === 'mode_change') {
+                  const sd = activeSessions.get(sessionId);
+                  if (sd && sd.mode !== item.mode) {
+                    sd.mode = item.mode;
+                    console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
+                    broadcastToClients({
+                      type: 'mode_change',
+                      sessionId: sessionId,
+                      mode: item.mode
+                    });
+                  }
+                } else {
+                  console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
+                  broadcastToClients({
+                    type: 'claude_output',
+                    sessionId: sessionId,
+                    data: item
+                  });
+                }
               }
             }
           } catch (e) {
@@ -428,16 +456,18 @@ async function watchSession(sessionId) {
         // Only advance position to end of last complete line
         lastPosition += lastNewlineIndex + 1;
 
-        // Check and broadcast status changes
-        const newStatus = await getSessionStatus(filePath);
-        const sessionData = activeSessions.get(sessionId);
-        if (sessionData && newStatus !== sessionData.lastStatus) {
-          sessionData.lastStatus = newStatus;
-          broadcastToClients({
-            type: 'session_status',
-            sessionId: sessionId,
-            status: newStatus
-          });
+        // Check and broadcast status changes only when new lines were parsed
+        if (linesProcessed) {
+          const newStatus = await getSessionStatus(filePath);
+          const sessionData = activeSessions.get(sessionId);
+          if (sessionData && newStatus !== sessionData.lastStatus) {
+            sessionData.lastStatus = newStatus;
+            broadcastToClients({
+              type: 'session_status',
+              sessionId: sessionId,
+              status: newStatus
+            });
+          }
         }
 
         // If more data remains, schedule another read
@@ -471,18 +501,14 @@ async function watchSession(sessionId) {
   
   const initialStatus = await getSessionStatus(session.logFile);
 
-  // Fallback polling interval - check file every 2 seconds in case watcher misses events
-  const pollInterval = setInterval(() => {
-    watcher.emit('change', session.logFile);
-  }, 2000);
-
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
-    pollInterval,
+    pollInterval: null,
     session,
     lastPosition,
     lastStatus: initialStatus,
+    mode: 'default',             // Current permission mode (updated from JSONL)
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
@@ -666,8 +692,11 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
         const bytesToRead = Math.min(stats.size - position, MAX_READ_SIZE);
         const fh = await fsp.open(filePath, 'r');
         const buffer = Buffer.alloc(bytesToRead);
-        await fh.read(buffer, 0, bytesToRead, position);
-        await fh.close();
+        try {
+          await fh.read(buffer, 0, bytesToRead, position);
+        } finally {
+          await fh.close();
+        }
 
         const newContent = buffer.toString('utf8');
         const lastNewlineIndex = newContent.lastIndexOf('\n');
@@ -813,7 +842,7 @@ function parseLogEntry(entry) {
   if (entry.type === 'progress') {
     return [{
       type: 'status_update',
-      text: `${getRandomSpinnerVerb()}...`,
+      content: `${getRandomSpinnerVerb()}...`,
       timestamp: entry.timestamp || new Date().toISOString()
     }];
   }
@@ -839,7 +868,7 @@ function parseLogEntry(entry) {
         else if (block.type === 'thinking') {
           results.push({
             type: 'status_update',
-            text: `${getRandomSpinnerVerb()}...`,
+            content: `${getRandomSpinnerVerb()}...`,
             timestamp
           });
         }
@@ -848,7 +877,7 @@ function parseLogEntry(entry) {
           // Emit status update with random spinner verb (like terminal)
           results.push({
             type: 'status_update',
-            text: `${getRandomSpinnerVerb()}...`,
+            content: `${getRandomSpinnerVerb()}...`,
             tool: block.name,
             timestamp
           });
@@ -871,6 +900,7 @@ function parseLogEntry(entry) {
               type: 'permission_request',
               tool: isMcpTool ? formatMcpToolName(block.name) : block.name,
               input: isMcpTool ? sanitizeMcpInput(block.input) : (block.input || {}),
+              toolUseId: block.id || null,
               timestamp
             });
           }
@@ -893,6 +923,12 @@ function parseLogEntry(entry) {
               subject: block.input?.subject
             });
           }
+          else if (block.name === 'EnterPlanMode') {
+            results.push({ type: 'mode_change', mode: 'plan', timestamp });
+          }
+          else if (block.name === 'ExitPlanMode') {
+            results.push({ type: 'mode_change', mode: 'default', timestamp });
+          }
           else if (block.name === 'Task') {
             // Subagent being spawned - track description for correlation
             const agentDescription = block.input?.description || 'Subagent';
@@ -914,6 +950,7 @@ function parseLogEntry(entry) {
               type: 'tool',
               tool: block.name || 'unknown',
               input: block.input || {},
+              toolUseId: block.id || null,
               timestamp
             });
           }
@@ -950,18 +987,34 @@ function parseLogEntry(entry) {
     // Tool result - always emit when toolUseResult exists (even if no output)
     // This signals the tool completed, which is needed to dismiss permission cards
     if (entry.toolUseResult) {
+      // Extract tool_use_id from content blocks for correlation with tool_use
+      let toolUseId = null;
+      if (Array.isArray(entry.message?.content)) {
+        const resultBlock = entry.message.content.find(b => b.type === 'tool_result');
+        toolUseId = resultBlock?.tool_use_id || null;
+      }
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
         type: 'tool_result',
-        result: result.trim() || '(completed)',
+        content: result.trim() || '(completed)',
         isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
+        toolUseId,
         timestamp
       });
+    }
+    // Skip meta-injected messages (skill definitions, system context)
+    else if (entry.isMeta) {
+      // These are CLI-injected messages (e.g. expanded skill prompts) — not user input
+      return null;
     }
     // Human input
     else if (entry.message?.content) {
       const content = entry.message.content;
       if (typeof content === 'string') {
+        // Skip command invocation wrappers (e.g. <command-message>commit</command-message>)
+        if (content.includes('<command-message>') || content.includes('<command-name>')) {
+          return null;
+        }
         results.push({
           type: 'user',
           content: content,
@@ -980,6 +1033,11 @@ function parseLogEntry(entry) {
           // Skip tool_result blocks in user messages - we handle those via toolUseResult
         }
       }
+    }
+
+    // Extract permissionMode from user entries (present on human-typed messages)
+    if (entry.permissionMode) {
+      results.push({ type: 'mode_change', mode: entry.permissionMode, timestamp });
     }
   }
 
@@ -1001,8 +1059,11 @@ async function getSessionStatus(logFile) {
     const fh = await fsp.open(logFile, 'r');
     const size = Math.min(stats.size, 10000);
     const buffer = Buffer.alloc(size);
-    await fh.read(buffer, 0, size, stats.size - size);
-    await fh.close();
+    try {
+      await fh.read(buffer, 0, size, stats.size - size);
+    } finally {
+      await fh.close();
+    }
 
     const lines = buffer.toString('utf8').split('\n').filter(l => l.trim());
     if (lines.length === 0) return 'idle';
@@ -1059,7 +1120,7 @@ function broadcastToClients(message) {
   }
   const data = JSON.stringify(message);
   clients.forEach((clientData, ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState === WebSocket.OPEN && !clientData.pauseBroadcast) {
       if (!message.sessionId || clientData.watchingSessions.has(message.sessionId)) {
         ws.send(data);
       }
@@ -1087,12 +1148,10 @@ function maybeUnwatchSession(sessionId, excludeWs) {
 // ============================================
 
 wss.on('connection', (ws, req) => {
-  // Support both URL-based auth (legacy) and message-based auth (preferred)
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const urlToken = url.searchParams.get('token');
-
   const clientId = Date.now().toString();
   let authenticated = false;
+  let authFailures = 0;
+  const MAX_AUTH_FAILURES = 3;
 
   // Per-connection rate limiting (60 messages/minute)
   const messageRateLimit = {
@@ -1107,12 +1166,6 @@ wss.on('connection', (ws, req) => {
       return true;
     }
   };
-
-  // If token provided in URL (legacy), authenticate immediately
-  if (urlToken && secureCompare(urlToken, AUTH_TOKEN)) {
-    authenticated = true;
-    initializeClient();
-  }
 
   function initializeClient() {
     clients.set(ws, {
@@ -1133,6 +1186,14 @@ wss.on('connection', (ws, req) => {
       ws.send(JSON.stringify({
         type: 'sessions',
         data: sessions
+      }));
+    });
+
+    // Send available slash commands
+    discoverCommands().then(commands => {
+      ws.send(JSON.stringify({
+        type: 'commands',
+        data: commands
       }));
     });
   }
@@ -1158,8 +1219,11 @@ wss.on('connection', (ws, req) => {
           initializeClient();
           ws.send(JSON.stringify({ type: 'auth_result', success: true }));
         } else {
+          authFailures++;
           ws.send(JSON.stringify({ type: 'auth_result', success: false, error: 'Invalid token' }));
-          ws.close(4001, 'Unauthorized');
+          if (authFailures >= MAX_AUTH_FAILURES) {
+            ws.close(4001, 'Too many failed auth attempts');
+          }
         }
         return;
       }
@@ -1194,23 +1258,40 @@ wss.on('connection', (ws, req) => {
 async function handleClientMessage(ws, msg) {
   const clientData = clients.get(ws);
 
+  // Validate sessionId format when present
+  if (msg.sessionId && typeof msg.sessionId === 'string') {
+    // Session IDs are either UUIDs (from JSONL files) or tty-pid format
+    if (!/^[a-f0-9-]+$/.test(msg.sessionId) || msg.sessionId.length > 100) {
+      sendError(ws, 'INVALID_SESSION_ID', 'Invalid session ID format');
+      return;
+    }
+  }
+
   switch (msg.action) {
-    case 'watch_session':
+    case 'watch_session': {
       const session = await watchSession(msg.sessionId);
       if (session) {
         clientData.watchingSessions.add(msg.sessionId);
-        ws.send(JSON.stringify({
-          type: 'watching',
-          sessionId: msg.sessionId,
-          session: session
-        }));
-        await sendRecentHistory(ws, msg.sessionId);
-        // Send active subagents state and output
-        await sendActiveSubagents(ws, msg.sessionId);
+        // Pause broadcasting to this client until history is sent
+        clientData.pauseBroadcast = true;
+        try {
+          const sessionData = activeSessions.get(msg.sessionId);
+          ws.send(JSON.stringify({
+            type: 'watching',
+            sessionId: msg.sessionId,
+            session: { ...session, mode: sessionData?.mode || 'default' }
+          }));
+          await sendRecentHistory(ws, msg.sessionId);
+          await sendActiveSubagents(ws, msg.sessionId);
+        } finally {
+          // Resume broadcasting — live events will now flow after history
+          clientData.pauseBroadcast = false;
+        }
       } else {
         sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
       break;
+    }
       
     case 'unwatch_session':
       clientData.watchingSessions.delete(msg.sessionId);
@@ -1379,10 +1460,16 @@ async function sendRecentHistory(ws, sessionId) {
     const lines = content.split('\n').filter(line => line.trim());
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
     const history = [];
+    let lastMode = null;
 
     for (const line of recentLines) {
       try {
         const entry = JSON.parse(line);
+
+        // Track the last permissionMode from user entries for initial mode state
+        if (entry.type === 'user' && entry.permissionMode) {
+          lastMode = entry.permissionMode;
+        }
 
         // parseLogEntry already skips Task results (via agentId check),
         // but skip here too for efficiency
@@ -1393,15 +1480,26 @@ async function sendRecentHistory(ws, sessionId) {
         const parsed = parseLogEntry(entry);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
-          history.push(...items);
+          history.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
         }
       } catch (e) {
         // Skip invalid JSON lines in history (expected for partial writes)
       }
     }
 
+    // Set initial mode from history and notify the client
+    // sessionData already declared at top of function
+    if (lastMode && sessionData) {
+      sessionData.mode = lastMode;
+      console.log(`[Mode] Session ${sessionId.substring(0, 8)} initial mode from history: ${lastMode}`);
+    }
+
     console.log(`[HISTORY] Sending ${history.length} items for session ${sessionId.substring(0, 8)}`);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: history }));
+
+    // Send current mode after history so client knows the session's mode
+    const currentMode = sessionData?.mode || 'default';
+    ws.send(JSON.stringify({ type: 'mode_change', sessionId, mode: currentMode }));
   } catch (e) {
     console.error('Error reading history:', e);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: [], error: 'Failed to read history' }));
@@ -1511,9 +1609,16 @@ function injectCommandToTty(command, tty) {
     return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
   }
 
+  // Validate TTY format (e.g., "ttys001") to prevent path traversal
+  if (!/^ttys\d+$/.test(tty)) {
+    return Promise.reject(new Error('Invalid TTY format'));
+  }
+
   return new Promise((resolve, reject) => {
+    // Strip null bytes and control characters (except \t\n\r which are escaped below)
+    const sanitized = command.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
     // Escape the command for AppleScript string (prevent injection)
-    const escaped = command
+    const escaped = sanitized
       .replace(/\\/g, '\\\\')
       .replace(/"/g, '\\"')
       .replace(/\r/g, '\\r')
@@ -1694,18 +1799,143 @@ app.get('/health/detailed', async (req, res) => {
 });
 
 // ============================================
+// Slash Command Discovery
+// ============================================
+
+/**
+ * Parse YAML frontmatter from a markdown file.
+ * Returns an object with name, description, etc.
+ */
+function parseFrontmatter(content) {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return null;
+  const result = {};
+  for (const line of match[1].split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx === -1) continue;
+    const key = line.substring(0, idx).trim();
+    const value = line.substring(idx + 1).trim().replace(/^["']|["']$/g, '');
+    result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Scan a commands directory for .md files and return command entries.
+ * Handles nested directories for namespaced commands (e.g., workflows/plan.md → workflows:plan).
+ */
+async function scanCommandsDir(dir, prefix = '') {
+  const commands = [];
+  try {
+    const entries = await fsp.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // Recurse into subdirectories with namespace prefix
+        const nested = await scanCommandsDir(fullPath, entry.name);
+        commands.push(...nested);
+      } else if (entry.name.endsWith('.md')) {
+        try {
+          const content = await fsp.readFile(fullPath, 'utf8');
+          const fm = parseFrontmatter(content);
+          if (fm && fm.name) {
+            commands.push({
+              name: prefix ? `${prefix}:${fm.name.replace(`${prefix}:`, '')}` : fm.name,
+              description: fm.description || ''
+            });
+          }
+        } catch { /* skip unreadable files */ }
+      }
+    }
+  } catch { /* directory doesn't exist */ }
+  return commands;
+}
+
+/**
+ * Discover all available slash commands from:
+ * 1. Built-in Claude Code commands
+ * 2. User-global commands (~/.claude/commands/)
+ * 3. Project-local commands (.claude/commands/)
+ * 4. Installed plugin commands
+ */
+async function discoverCommands() {
+  const commands = [];
+  const seen = new Set();
+
+  function addCommand(cmd) {
+    const key = cmd.name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    commands.push(cmd);
+  }
+
+  // 1. Built-in commands
+  const builtins = [
+    { name: 'help', description: 'Show help and available commands' },
+    { name: 'clear', description: 'Clear conversation history' },
+    { name: 'compact', description: 'Compact conversation to save context' },
+    { name: 'config', description: 'Open configuration' },
+    { name: 'cost', description: 'Show token usage and cost' },
+    { name: 'doctor', description: 'Check Claude Code installation health' },
+    { name: 'init', description: 'Initialize project with CLAUDE.md' },
+    { name: 'login', description: 'Switch accounts or re-authenticate' },
+    { name: 'logout', description: 'Sign out of Claude Code' },
+    { name: 'memory', description: 'Edit CLAUDE.md memory files' },
+    { name: 'model', description: 'Switch AI model' },
+    { name: 'permissions', description: 'View and manage tool permissions' },
+    { name: 'review', description: 'Review a pull request' },
+    { name: 'status', description: 'Show current session status' },
+    { name: 'terminal-setup', description: 'Set up terminal integration' },
+    { name: 'vim', description: 'Toggle vim keybindings' },
+  ];
+  for (const cmd of builtins) addCommand(cmd);
+
+  // 2. User-global commands
+  const userCommandsDir = path.join(os.homedir(), '.claude', 'commands');
+  const userCmds = await scanCommandsDir(userCommandsDir);
+  for (const cmd of userCmds) addCommand(cmd);
+
+  // 3. Project-local commands (scan working directories of active sessions)
+  const projectDirs = new Set();
+  activeSessions.forEach((data) => {
+    if (data.session?.cwd) projectDirs.add(data.session.cwd);
+  });
+  for (const dir of projectDirs) {
+    const projectCommandsDir = path.join(dir, '.claude', 'commands');
+    const projCmds = await scanCommandsDir(projectCommandsDir);
+    for (const cmd of projCmds) addCommand(cmd);
+  }
+
+  // 4. Installed plugin commands
+  const pluginsFile = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
+  try {
+    const pluginsData = JSON.parse(await fsp.readFile(pluginsFile, 'utf8'));
+    for (const [key, installs] of Object.entries(pluginsData.plugins || {})) {
+      for (const install of installs) {
+        if (!install.installPath) continue;
+        const pluginCommandsDir = path.join(install.installPath, 'commands');
+        const pluginCmds = await scanCommandsDir(pluginCommandsDir);
+        for (const cmd of pluginCmds) addCommand(cmd);
+      }
+    }
+  } catch { /* no plugins file */ }
+
+  console.log(`[Commands] Discovered ${commands.length} slash commands`);
+  return commands;
+}
+
+// ============================================
 // Graceful Shutdown
 // ============================================
 
 function shutdown() {
   console.log('\nShutting down...');
 
-  // Close all file watchers
-  activeSessions.forEach((data, sessionId) => {
-    data.watcher.close();
-    data.logsDirWatcher?.close();
-  });
-  activeSessions.clear();
+  // Close all sessions cleanly (watchers, subagents, poll intervals, timeouts)
+  const sessionIds = Array.from(activeSessions.keys());
+  for (const sessionId of sessionIds) {
+    unwatchSession(sessionId);
+  }
 
   // Notify and close all WebSocket clients
   clients.forEach((data, ws) => {
@@ -1745,7 +1975,7 @@ server.listen(PORT, async () => {
 ╠═══════════════════════════════════════════════════════════════╣
 ║  URL:        http://localhost:${PORT}                           ║
 ║  WebSocket:  ws://localhost:${PORT}                             ║
-║  Token:      ${AUTH_TOKEN.substring(0, 10)}...                            ║
+║  Token:      ••••••••••••••••                                  ║
 ╠═══════════════════════════════════════════════════════════════╣
 ║  Features:                                                    ║
 ║    ✓ Real-time output streaming                               ║
