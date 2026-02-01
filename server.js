@@ -46,6 +46,14 @@ function getRandomSpinnerVerb() {
 // Track pending subagent descriptions for correlation with subagent IDs
 const pendingSubagentDescriptions = new Map(); // timestamp -> { description, type }
 
+// Throttle subagent_tool messages to prevent flooding iOS with re-renders
+const subagentToolThrottles = new Map(); // agentId → lastSentTimestamp
+const SUBAGENT_TOOL_THROTTLE_MS = 500;
+
+// Map pending task IDs to real task IDs assigned by Claude Code
+const pendingTaskIds = new Map();  // tool_use_id → pendingId
+const taskIdMap = new Map();       // realId → pendingId
+
 // Format MCP tool names for readability
 // mcp__github__create_issue -> GitHub: create_issue
 function formatMcpToolName(name) {
@@ -763,13 +771,19 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
                   if (info) {
                     info.currentTool = item.tool;
                   }
-                  broadcastToClients({
-                    type: 'subagent_tool',
-                    sessionId,
-                    agentId,
-                    tool: item.tool,
-                    input: item.input
-                  });
+                  // Throttle subagent_tool to max 1 per 500ms per agent
+                  const now = Date.now();
+                  const lastSent = subagentToolThrottles.get(agentId) || 0;
+                  if (now - lastSent >= SUBAGENT_TOOL_THROTTLE_MS) {
+                    subagentToolThrottles.set(agentId, now);
+                    broadcastToClients({
+                      type: 'subagent_tool',
+                      sessionId,
+                      agentId,
+                      tool: item.tool,
+                      input: item.input
+                    });
+                  }
                 }
                 if (item.type === 'token_usage') {
                   // Update stored subagent info
@@ -847,6 +861,7 @@ function stopSubagent(sessionId, agentId) {
     sessionData.subagentWatchers.delete(agentId);
     sessionData.subagentPositions.delete(agentId);
     sessionData.subagentInfo.delete(agentId);
+    subagentToolThrottles.delete(agentId);
 
     const timeout = sessionData.subagentTimeouts.get(agentId);
     if (timeout) {
@@ -937,9 +952,13 @@ function parseLogEntry(entry) {
           }
           // Task management tools - emit for task tracking
           else if (block.name === 'TaskCreate') {
+            const pendingId = 'pending-' + Date.now();
+            if (block.id) {
+              pendingTaskIds.set(block.id, pendingId);
+            }
             results.push({
               type: 'task_create',
-              id: 'pending-' + Date.now(),
+              id: pendingId,
               subject: block.input?.subject,
               description: block.input?.description,
               activeForm: block.input?.activeForm,
@@ -947,11 +966,15 @@ function parseLogEntry(entry) {
             });
           }
           else if (block.name === 'TaskUpdate') {
+            const realId = String(block.input?.taskId ?? '');
+            const mappedId = taskIdMap.get(realId) || realId;
             results.push({
               type: 'task_update',
-              id: block.input?.taskId,
+              taskId: mappedId,
               status: block.input?.status,
-              subject: block.input?.subject
+              subject: block.input?.subject,
+              description: block.input?.description,
+              activeForm: block.input?.activeForm
             });
           }
           else if (block.name === 'EnterPlanMode') {
@@ -1026,6 +1049,19 @@ function parseLogEntry(entry) {
         const resultBlock = entry.message.content.find(b => b.type === 'tool_result');
         toolUseId = resultBlock?.tool_use_id || null;
       }
+
+      // Map TaskCreate tool_result to real task ID
+      if (toolUseId && pendingTaskIds.has(toolUseId)) {
+        const pendingId = pendingTaskIds.get(toolUseId);
+        const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+        // TaskCreate result text contains "Created task N: ..." or "id: N"
+        const idMatch = result.match(/(?:task\s+#?|id[:\s]+)(\d+)/i);
+        if (idMatch) {
+          taskIdMap.set(idMatch[1], pendingId);
+        }
+        pendingTaskIds.delete(toolUseId);
+      }
+
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
         type: 'tool_result',

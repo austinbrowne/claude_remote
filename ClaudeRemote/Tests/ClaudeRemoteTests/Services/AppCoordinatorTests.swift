@@ -332,9 +332,11 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         state.tasks.append(TaskItem(id: "t1", subject: "Old", status: "pending"))
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New"))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New", activeForm: "Doing new", description: "New desc"))
         #expect(state.tasks[0].subject == "New")
         #expect(state.tasks[0].status == "completed")
+        #expect(state.tasks[0].activeForm == "Doing new")
+        #expect(state.tasks[0].description == "New desc")
     }
 
     @MainActor
@@ -342,7 +344,7 @@ struct AppCoordinatorTests {
     func taskUpdateUnknownId() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil, activeForm: nil, description: nil))
         #expect(state.tasks.isEmpty)
     }
 

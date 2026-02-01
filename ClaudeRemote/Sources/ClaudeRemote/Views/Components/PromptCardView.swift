@@ -46,7 +46,8 @@ struct PromptCardView: View {
                     isDestructive: isDestructive,
                     isStale: prompt.isStale,
                     isHead: isHead,
-                    onRespond: { coordinator.promptService.respondPermission($0) }
+                    onRespond: { coordinator.promptService.respondPermission($0) },
+                    onDismiss: { coordinator.promptService.dismiss() }
                 )
 
             case .question(let questions):
@@ -55,7 +56,8 @@ struct PromptCardView: View {
                     isStale: prompt.isStale,
                     isHead: isHead,
                     onRespond: { coordinator.promptService.respond(text: $0) },
-                    onRespondMulti: { coordinator.promptService.respondMultiSelect($0) }
+                    onRespondMulti: { coordinator.promptService.respondMultiSelect($0) },
+                    onDismiss: { coordinator.promptService.dismiss() }
                 )
             }
         }
@@ -108,6 +110,7 @@ private struct PermissionCardContent: View {
     let isStale: Bool
     let isHead: Bool
     let onRespond: (PermissionChoice) -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -119,6 +122,17 @@ private struct PermissionCardContent: View {
                     PendingBadge()
                 } else if isStale {
                     StaleBadge()
+                }
+                if isHead {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(.secondary.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
@@ -172,6 +186,7 @@ private struct QuestionCardContent: View {
     let isHead: Bool
     let onRespond: (String) -> Void
     let onRespondMulti: ([String]) -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
         if let question = questions.first {
@@ -180,7 +195,8 @@ private struct QuestionCardContent: View {
                 isStale: isStale,
                 isHead: isHead,
                 onSubmit: onRespond,
-                onSubmitMulti: onRespondMulti
+                onSubmitMulti: onRespondMulti,
+                onDismiss: onDismiss
             )
         }
     }
@@ -192,6 +208,7 @@ private struct SingleQuestionView: View {
     let isHead: Bool
     let onSubmit: (String) -> Void
     let onSubmitMulti: ([String]) -> Void
+    let onDismiss: () -> Void
 
     @State private var selectedOption: String?
     @State private var selectedOptions: Set<String> = []
@@ -215,6 +232,17 @@ private struct SingleQuestionView: View {
                     PendingBadge()
                 } else if isStale {
                     StaleBadge()
+                }
+                if isHead {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(.secondary.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 

@@ -14,7 +14,7 @@ public enum ServerMessage: Sendable {
     case statusUpdate(status: String)
     case tokenUsage(sessionId: String?, input: Int?, output: Int?)
     case taskCreate(id: String?, subject: String, description: String?, activeForm: String?, status: String?)
-    case taskUpdate(taskId: String, status: String, subject: String?)
+    case taskUpdate(taskId: String, status: String, subject: String?, activeForm: String?, description: String?)
     case taskList(tasks: [TaskItem])
     case subagentStarting(description: String, agentType: String?)
     case subagentStart(agentId: String, sessionId: String?, description: String?, agentType: String?)
@@ -301,7 +301,9 @@ extension ServerMessage: Decodable {
             let taskId = try container.decode(String.self, forKey: .taskId)
             let status = try container.decode(String.self, forKey: .status)
             let subject = try container.decodeIfPresent(String.self, forKey: .subject)
-            self = .taskUpdate(taskId: taskId, status: status, subject: subject)
+            let activeForm = try container.decodeIfPresent(String.self, forKey: .activeForm)
+            let description = try container.decodeIfPresent(String.self, forKey: .description)
+            self = .taskUpdate(taskId: taskId, status: status, subject: subject, activeForm: activeForm, description: description)
 
         case "task_list":
             let tasks = try container.decode([TaskItem].self, forKey: .tasks)

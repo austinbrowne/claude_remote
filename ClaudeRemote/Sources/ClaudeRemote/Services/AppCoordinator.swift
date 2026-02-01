@@ -346,15 +346,15 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             let task = TaskItem(id: id, subject: subject, status: status, description: description, activeForm: activeForm)
             state.tasks.append(task)
 
-        case .taskUpdate(let taskId, let status, let subject):
+        case .taskUpdate(let taskId, let status, let subject, let activeForm, let description):
             if let index = state.tasks.firstIndex(where: { $0.id == taskId }) {
                 let old = state.tasks[index]
                 state.tasks[index] = TaskItem(
                     id: old.id,
                     subject: subject ?? old.subject,
                     status: status,
-                    description: old.description,
-                    activeForm: old.activeForm
+                    description: description ?? old.description,
+                    activeForm: activeForm ?? old.activeForm
                 )
             }
 
@@ -541,7 +541,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .statusUpdate(let status): return "status_update status=\(status)"
         case .tokenUsage(_, let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
         case .taskCreate(let id, _, _, _, _): return "task_create id=\(id ?? "nil")"
-        case .taskUpdate(let id, let status, _): return "task_update id=\(id) status=\(status)"
+        case .taskUpdate(let id, let status, _, _, _): return "task_update id=\(id) status=\(status)"
         case .taskList(let tasks): return "task_list count=\(tasks.count)"
         case .subagentStarting(let desc, _): return "subagent_starting desc=\(desc.prefix(40))"
         case .subagentStart(let id, _, _, _): return "subagent_start id=\(id)"

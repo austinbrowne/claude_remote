@@ -163,6 +163,7 @@ public final class AppState {
     /// Clear all messages
     public func clearMessages() {
         messages.removeAll()
+        tasks.removeAll()
         pendingSubagentMessages.removeAll()
         subagentMessageMap.removeAll()
     }

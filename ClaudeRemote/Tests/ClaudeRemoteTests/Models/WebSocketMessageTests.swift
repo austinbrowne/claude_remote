@@ -418,15 +418,17 @@ struct ServerMessageDecodingTests {
     @Test("Decode task_update")
     func taskUpdate() throws {
         let msg = try decode("""
-        {"type": "task_update", "taskId": "task-1", "status": "completed", "subject": "Fixed the bug"}
+        {"type": "task_update", "taskId": "task-1", "status": "completed", "subject": "Fixed the bug", "activeForm": "Fixing bug", "description": "Fix the login bug"}
         """)
-        guard case .taskUpdate(let taskId, let status, let subject) = msg else {
+        guard case .taskUpdate(let taskId, let status, let subject, let activeForm, let description) = msg else {
             Issue.record("Expected taskUpdate")
             return
         }
         #expect(taskId == "task-1")
         #expect(status == "completed")
         #expect(subject == "Fixed the bug")
+        #expect(activeForm == "Fixing bug")
+        #expect(description == "Fix the login bug")
     }
 
     // MARK: - task_list

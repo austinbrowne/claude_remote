@@ -54,8 +54,10 @@ struct AppStateTests {
         let state = AppState()
         state.appendMessage(Message(type: .assistant, content: "Hello"))
         state.appendMessage(Message(type: .user, content: "Hi"))
+        state.tasks.append(TaskItem(id: "t1", subject: "Test task", status: "pending"))
         state.clearMessages()
         #expect(state.messages.isEmpty)
+        #expect(state.tasks.isEmpty)
     }
 
     // MARK: - Deduplication
