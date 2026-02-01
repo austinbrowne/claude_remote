@@ -148,6 +148,15 @@
     </div>
 
     <div class="input-area">
+      <!-- Mode Indicator (matches iOS InputBarView utility row) -->
+      <div class="mode-bar" id="modeBar">
+        <button class="mode-btn" id="modeBtn" onclick="sendModeToggle()" title="Toggle mode">
+          <span class="mode-icon" id="modeIcon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
+          </span>
+          <span class="mode-label" id="modeLabel">Default</span>
+        </button>
+      </div>
       <div class="input-row">
         <button class="action-btn more" onclick="showActionSheet()" title="More actions">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>

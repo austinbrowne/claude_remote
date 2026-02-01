@@ -168,6 +168,64 @@ body {
   gap: 4px;
 }
 
+/* Subagent Activity Cards (persistent inline, matches iOS SubagentActivityCard) */
+.subagent-activity-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  margin: 4px 0;
+  transition: background 0.2s, color 0.2s;
+}
+.subagent-activity-card.starting,
+.subagent-activity-card.running {
+  background: rgba(255, 159, 10, 0.10);
+  color: var(--orange);
+}
+.subagent-activity-card.completed {
+  background: rgba(48, 209, 88, 0.08);
+  color: var(--success);
+}
+.subagent-card-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.subagent-card-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 159, 10, 0.3);
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.subagent-card-check {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--success);
+}
+.subagent-card-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-card-status {
+  font-weight: 600;
+}
+.subagent-card-tool {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
 /* Subagent message styling */
 .message.subagent-message {
   opacity: 0.8;
@@ -389,6 +447,54 @@ body {
   font-size: 11px;
 }
 
+/* Tool result merge (inline in tool card - matches iOS) */
+.tool-result-inline {
+  margin-top: 6px;
+}
+.tool-result-separator {
+  height: 0.5px;
+  background: var(--separator);
+  margin: 6px 0;
+}
+.tool-result-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.tool-result-icon {
+  font-size: 12px;
+  color: var(--success);
+  font-weight: 600;
+}
+.tool-result-inline.error .tool-result-icon {
+  color: var(--error);
+}
+.tool-result-details {
+  display: none;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--bg-grouped);
+  border-radius: 6px;
+  font-size: 11px;
+  max-height: 150px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.message.tool.expanded .tool-result-details {
+  display: block;
+}
+.tool-status-icon {
+  font-size: 12px;
+  color: var(--success);
+  font-weight: 600;
+  margin-left: auto;
+}
+.tool-status-icon.error {
+  color: var(--error);
+}
+
 /* Collapsible tool messages - iOS Style */
 .message.tool, .message.tool_result {
   cursor: pointer;
@@ -519,6 +625,47 @@ body {
 @keyframes bounce {
   0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
   40% { transform: scale(1); opacity: 1; }
+}
+
+/* Mode Bar (matches iOS InputBarView utility row) */
+.mode-bar {
+  display: flex;
+  align-items: center;
+  padding: 0 12px 6px;
+}
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 14px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.mode-btn:active {
+  transform: scale(0.95);
+}
+.mode-btn .mode-icon {
+  display: flex;
+  align-items: center;
+}
+.mode-btn.mode-default {
+  color: var(--text-secondary);
+}
+.mode-btn.mode-plan {
+  color: var(--orange);
+  background: rgba(255, 159, 10, 0.12);
+}
+.mode-btn.mode-acceptEdits {
+  color: var(--success);
+  background: rgba(48, 209, 88, 0.12);
+}
+.mode-btn .mode-icon svg {
+  stroke: currentColor;
 }
 
 /* Input Area - iOS Style */

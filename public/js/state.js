@@ -114,8 +114,16 @@ const pending = {
   lastToolLanguage: 'plaintext' // Last tool language for syntax highlighting
 };
 
+// Session mode (matches iOS: 'default', 'plan', 'acceptEdits')
+let currentMode = 'default';
+
+// Slash commands from server (replaces hardcoded COMMANDS array)
+let slashCommands = [];
+
 // Active subagents: agentId -> { status, startTime, description, lastActivity }
 const activeSubagents = new Map();
+// Pending subagent descriptions for correlation with subagent_start (FIFO queue, matches iOS)
+const pendingSubagentCards = []; // { description, element, timeout }
 // Pending subagent permissions: agentId -> { timeout, card }
 const pendingSubagentPermissions = new Map();
 
