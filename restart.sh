@@ -19,16 +19,12 @@ sleep 2
 curl -sf http://localhost:3456/health || { echo "ERROR: Server failed to start"; cat server.log; exit 1; }
 echo "Server running on http://localhost:3456"
 
-# Kill and restart cloudflared to ensure clean connection
-pkill -9 cloudflared 2>/dev/null
-sleep 1
-echo "Starting cloudflared tunnel..."
-nohup cloudflared tunnel run > /tmp/cloudflared.log 2>&1 &
+# Restart cloudflared via LaunchAgent
+launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared 2>/dev/null
 sleep 3
 if pgrep -q cloudflared; then
   echo "Tunnel active at https://claude.dazztrazak.com"
 else
-  echo "ERROR: cloudflared failed to start"
-  cat /tmp/cloudflared.log
+  echo "ERROR: cloudflared failed to start (check: launchctl print gui/\$(id -u)/com.cloudflare.cloudflared)"
   exit 1
 fi

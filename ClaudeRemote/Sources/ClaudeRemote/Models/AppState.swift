@@ -63,6 +63,8 @@ public final class AppState {
     public var isAuthenticated = false
     public var isConnected = false
     public var serverURL: String = ""
+    /// Set when user explicitly disconnects; suppresses auto-connect in AuthView
+    public var userDidDisconnect = false
 
     // MARK: - Sessions
     public var sessions: [Session] = []

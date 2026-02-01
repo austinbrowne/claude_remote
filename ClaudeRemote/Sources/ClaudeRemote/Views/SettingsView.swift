@@ -81,6 +81,7 @@ struct SettingsView: View {
 
             Button("Disconnect", role: .destructive) {
                 coordinator.disconnect()
+                state.userDidDisconnect = true
                 state.isAuthenticated = false
             }
         }

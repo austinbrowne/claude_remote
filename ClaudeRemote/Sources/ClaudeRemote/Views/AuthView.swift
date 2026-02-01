@@ -83,8 +83,8 @@ public struct AuthView: View {
                     serverURL = "http://localhost:3456"
                 }
 
-                // Auto-connect if we have saved credentials
-                guard !didAttemptAutoConnect else { return }
+                // Auto-connect if we have saved credentials (skip if user explicitly disconnected)
+                guard !didAttemptAutoConnect, !state.userDidDisconnect else { return }
                 didAttemptAutoConnect = true
 
                 let keychain = KeychainService()
@@ -125,6 +125,7 @@ public struct AuthView: View {
         }
 
         isConnecting = true
+        state.userDidDisconnect = false
         state.serverURL = serverURL
         SettingsStore.saveServerURL(serverURL)
 
