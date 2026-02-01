@@ -237,6 +237,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 promptService.handleClaudeOutput(data)
                 return
             }
+            // Skip types that are handled as top-level ServerMessage (not chat messages)
+            if ["task_create", "task_update", "task_list", "mode_change", "token_usage"].contains(data.type) {
+                return
+            }
             // Subagent starting via claude_output fallback — handle like .subagentStarting
             // (Server normally sends this as top-level subagent_starting, but history entries
             // and older servers may still embed it in claude_output)
