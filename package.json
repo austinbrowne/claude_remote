@@ -4,7 +4,8 @@
   "description": "Remote access to Claude Code with real-time output, TTS, and voice input",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/"
   },
   "dependencies": {
     "express": "^4.18.2",
