@@ -520,6 +520,57 @@ struct AppCoordinatorTests {
     }
 
     @MainActor
+    @Test("subagentOutput routes permission_request to prompt queue")
+    func subagentOutputRoutesPermission() async throws {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Register an active subagent so description lookup works
+        state.activeSubagents["a1"] = SubagentInfo(description: "Security review", agentType: "general")
+        let data = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-sub-1")
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
+        // Should NOT add a chat message
+        #expect(state.messages.isEmpty)
+        // Wait for 500ms delay
+        try await Task.sleep(for: .milliseconds(700))
+        // Should be in prompt queue with agent description
+        #expect(coordinator.promptService.promptQueue.count == 1)
+        #expect(coordinator.promptService.currentPrompt?.agentDescription == "Security review")
+        #expect(coordinator.promptService.currentPrompt?.toolUseId == "tu-sub-1")
+    }
+
+    @MainActor
+    @Test("subagentOutput routes ask_user_question to prompt queue")
+    func subagentOutputRoutesQuestion() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        let questions = [QuestionData(question: "Which approach?", options: [QuestionOption(label: "A")])]
+        let data = ClaudeOutputData(type: "ask_user_question", questions: questions)
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
+        // Questions show immediately
+        #expect(coordinator.promptService.promptQueue.count == 1)
+        if case .question(let qs) = coordinator.promptService.currentPrompt?.kind {
+            #expect(qs[0].question == "Which approach?")
+        } else {
+            Issue.record("Expected question prompt")
+        }
+    }
+
+    @MainActor
+    @Test("session switch clears prompt queue")
+    func sessionSwitchClearsPromptQueue() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Add a question prompt to the queue
+        let questions = [QuestionData(question: "test")]
+        coordinator.promptService.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
+        #expect(coordinator.promptService.promptQueue.count == 1)
+
+        // Switch session
+        coordinator.watchSession("new-session")
+        #expect(coordinator.promptService.promptQueue.isEmpty)
+    }
+
+    @MainActor
     @Test("two subagents full lifecycle: starting → start → tool → stop")
     func twoSubagentsFullLifecycle() {
         let state = AppState()
