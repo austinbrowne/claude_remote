@@ -28,8 +28,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         SettingsStore.load(into: state)
 
         #if os(iOS)
-        notificationService = NotificationService(appState: state)
-        notificationService.onNotificationTap = { [weak self] sessionId in
+        let notifService = NotificationService(appState: state)
+        self.notificationService = notifService
+        notifService.onNotificationTap = { [weak self] sessionId in
             self?.watchSession(sessionId)
         }
 
