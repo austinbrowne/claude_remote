@@ -1435,6 +1435,38 @@ async function handleClientMessage(ws, msg) {
       })();
       break;
 
+    case 'select_option': {
+      // Navigate an interactive selector (AskUserQuestion) by sending arrow-down
+      // keystrokes to reach the correct option index, then Enter to confirm.
+      // Claude Code's ink-based selector ignores typed text — only arrow keys work.
+      const optionIndex = parseInt(msg.index, 10);
+      if (isNaN(optionIndex) || optionIndex < 0 || optionIndex > 20) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Invalid option index' }));
+        break;
+      }
+      (async () => {
+        try {
+          let selectTty = activeSessions.get(msg.sessionId)?.session?.tty;
+          if (!selectTty && msg.sessionId) {
+            const sessions = await discoverSessions();
+            const found = sessions.find(s => s.id === msg.sessionId);
+            selectTty = found?.tty;
+          }
+
+          if (selectTty) {
+            await selectOptionInTty(optionIndex, selectTty);
+            ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+          } else {
+            ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Session TTY not found' }));
+          }
+        } catch (err) {
+          console.error(`[SelectOption] Failed: ${err.message}`);
+          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
+        }
+      })();
+      break;
+    }
+
     case 'escape':
       // Use cached session first (fast), fall back to discovery (slow) if needed
       (async () => {
@@ -1745,6 +1777,57 @@ function injectCommandToTty(command, tty) {
         reject(new Error(`Session with TTY ${tty} not found`));
       } else {
         console.log(`[Inject TTY ${tty}] ${command.substring(0, 50)}${command.length > 50 ? '...' : ''}`);
+        resolve();
+      }
+    });
+  });
+}
+
+// Navigate an interactive selector by sending arrow-down keys then Enter.
+// Used for AskUserQuestion prompts where the ink Select component only
+// responds to arrow keys, not typed text.
+function selectOptionInTty(index, tty) {
+  if (!commandRateLimit.check()) {
+    return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
+  }
+  if (!/^ttys\d+$/.test(tty)) {
+    return Promise.reject(new Error('Invalid TTY format'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const targetTty = `/dev/${tty}`;
+
+    // Build arrow-down sequence: ESC (ASCII 27) + "[B" for each step
+    let arrowCommands = '';
+    for (let i = 0; i < index; i++) {
+      arrowCommands += `                    write text (ASCII character 27) & "[B" newline no\n`;
+    }
+
+    const appleScript = `
+      tell application "iTerm2"
+        repeat with w in windows
+          repeat with t in tabs of w
+            repeat with s in sessions of t
+              if tty of s is "${targetTty}" then
+                tell s
+${arrowCommands}                    write text (ASCII character 13) newline no
+                end tell
+                return "ok"
+              end if
+            end repeat
+          end repeat
+        end repeat
+        return "not found"
+      end tell
+    `;
+
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (err, stdout) => {
+      if (err) {
+        reject(new Error(err.message));
+      } else if (stdout.trim() === 'not found') {
+        reject(new Error(`Session with TTY ${tty} not found`));
+      } else {
+        console.log(`[SelectOption TTY ${tty}] index=${index}`);
         resolve();
       }
     });

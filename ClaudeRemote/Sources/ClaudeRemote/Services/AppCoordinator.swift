@@ -388,10 +388,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentOutput(let agentId, _, let data):
             // Route subagent permission_request and ask_user_question to the prompt queue
             if let data, (data.type == "permission_request" || data.type == "ask_user_question") {
+                let queueWasEmpty = promptService.promptQueue.isEmpty
                 let desc = state.activeSubagents[agentId]?.description
                 promptService.handleClaudeOutput(data, agentDescription: desc)
 
                 #if os(iOS)
+                // Only notify for the first permission in a burst (queue was empty before)
+                guard queueWasEmpty || promptService.promptQueue.isEmpty else { break }
                 if data.type == "permission_request" {
                     let tool = data.tool ?? "Tool"
                     let cmd = data.content ?? data.input?["command"]?.stringValue ?? ""
@@ -438,7 +441,19 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             // Actual mode update comes from server's mode_change broadcast
 
-        case .injectResult, .escapeResult:
+        case .injectResult(let success, let error):
+            if success {
+                // Only set "Delivered" if still showing "Sending..."
+                // (avoids overwriting a spinner verb that arrived faster)
+                if state.currentActivity == "Sending..." {
+                    state.currentActivity = "Delivered"
+                }
+            } else {
+                state.currentActivity = nil
+                state.showToast(error ?? "Failed to send message", icon: "exclamationmark.triangle", style: .error)
+            }
+
+        case .escapeResult:
             break
 
         case .error(_, let errorMessage, _):
@@ -613,7 +628,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                let q = questions.first,
                let options = q.options,
                index < options.count {
-                promptService.respond(text: options[index].label)
+                promptService.respondOption(index: index)
             }
         }
 

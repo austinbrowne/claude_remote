@@ -38,6 +38,7 @@ public final class WebSocketService {
     private var urlSession: URLSession
     private var pingTask: Task<Void, Never>?
     private var receiveTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
     private var pongDeadline: Date?
     private var lastWatchedSessionId: String?
     private var intentionalDisconnect = false
@@ -75,7 +76,12 @@ public final class WebSocketService {
 
     /// Connect to the WebSocket server
     public func connect() {
+        // Tear down any existing connection to prevent duplicate server connections.
+        // This handles the case where multiple reconnect attempts race, or connect()
+        // is called while an old WebSocket is still alive.
+        cleanup()
         intentionalDisconnect = false
+
         guard let wsURL = buildWebSocketURL() else {
             delegate?.webSocketDidFailWithError(
                 URLError(.badURL, userInfo: [NSLocalizedDescriptionKey: "Failed to build WebSocket URL from \(serverURL)"])
@@ -140,9 +146,12 @@ public final class WebSocketService {
         reconnectAttempts += 1
         let delay = reconnectDelay()
 
-        Task {
+        // Cancel any pending reconnect to prevent duplicate connections
+        // (handleDisconnect can be called multiple times from different error paths)
+        reconnectTask?.cancel()
+        reconnectTask = Task {
             try? await Task.sleep(for: .seconds(delay))
-            guard !intentionalDisconnect else { return }
+            guard !Task.isCancelled, !intentionalDisconnect else { return }
             connect()
         }
     }
@@ -308,6 +317,8 @@ public final class WebSocketService {
         pingTask = nil
         receiveTask?.cancel()
         receiveTask = nil
+        reconnectTask?.cancel()
+        reconnectTask = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false

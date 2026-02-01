@@ -56,6 +56,7 @@ struct PromptCardView: View {
                     isStale: prompt.isStale,
                     isHead: isHead,
                     onRespond: { coordinator.promptService.respond(text: $0) },
+                    onRespondOption: { coordinator.promptService.respondOption(index: $0) },
                     onRespondMulti: { coordinator.promptService.respondMultiSelect($0) },
                     onDismiss: { coordinator.promptService.dismiss() }
                 )
@@ -185,6 +186,7 @@ private struct QuestionCardContent: View {
     let isStale: Bool
     let isHead: Bool
     let onRespond: (String) -> Void
+    let onRespondOption: (Int) -> Void
     let onRespondMulti: ([String]) -> Void
     let onDismiss: () -> Void
 
@@ -195,6 +197,7 @@ private struct QuestionCardContent: View {
                 isStale: isStale,
                 isHead: isHead,
                 onSubmit: onRespond,
+                onSubmitOption: onRespondOption,
                 onSubmitMulti: onRespondMulti,
                 onDismiss: onDismiss
             )
@@ -207,10 +210,12 @@ private struct SingleQuestionView: View {
     let isStale: Bool
     let isHead: Bool
     let onSubmit: (String) -> Void
+    let onSubmitOption: (Int) -> Void
     let onSubmitMulti: ([String]) -> Void
     let onDismiss: () -> Void
 
     @State private var selectedOption: String?
+    @State private var selectedOptionIndex: Int?
     @State private var selectedOptions: Set<String> = []
     @State private var otherText = ""
     @State private var isOtherSelected = false
@@ -253,8 +258,8 @@ private struct SingleQuestionView: View {
             // Options
             if let options = question.options {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(options, id: \.label) { option in
-                        optionRow(option)
+                    ForEach(Array(options.enumerated()), id: \.element.label) { index, option in
+                        optionRow(option, index: index)
                     }
 
                     // "Other" freeform option
@@ -271,7 +276,7 @@ private struct SingleQuestionView: View {
     }
 
     @ViewBuilder
-    private func optionRow(_ option: QuestionOption) -> some View {
+    private func optionRow(_ option: QuestionOption, index: Int) -> some View {
         let value = option.value ?? option.label
         Button {
             if isMultiSelect {
@@ -283,6 +288,7 @@ private struct SingleQuestionView: View {
                 isOtherSelected = false
             } else {
                 selectedOption = value
+                selectedOptionIndex = index
                 isOtherSelected = false
             }
         } label: {
@@ -385,8 +391,10 @@ private struct SingleQuestionView: View {
             onSubmitMulti(selections)
         } else if isOtherSelected {
             onSubmit(otherText.trimmingCharacters(in: .whitespacesAndNewlines))
-        } else if let selected = selectedOption {
-            onSubmit(selected)
+        } else if let index = selectedOptionIndex {
+            // Use arrow-key navigation for pre-defined options (Claude Code's
+            // ink-based selector ignores typed text, only responds to arrow keys)
+            onSubmitOption(index)
         } else if question.options == nil {
             onSubmit(otherText.trimmingCharacters(in: .whitespacesAndNewlines))
         }

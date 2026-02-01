@@ -209,6 +209,7 @@ struct InputBarView: View {
         // Show the message locally immediately
         let userMsg = Message(type: .user, content: trimmed)
         state.appendMessage(userMsg)
+        state.currentActivity = "Sending..."
         coordinator.injectCommand(trimmed, sessionId: sessionId)
         inputText = ""
         isFocused = false

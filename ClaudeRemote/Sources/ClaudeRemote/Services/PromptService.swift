@@ -72,8 +72,17 @@ public final class PromptService {
     /// Permissions waiting for their individual 500ms delays to elapse (keyed by pendingKey)
     private var pendingPermissions: [String: (item: PromptItem, order: Int)] = [:]
 
-    /// Independent 500ms delay tasks per pending permission (keyed by pendingKey)
-    private var delayTasks: [String: Task<Void, Never>] = [:]
+    /// Single coalescing timer that batches rapid permission arrivals into one flush
+    private var coalesceTask: Task<Void, Never>?
+
+    /// Timestamp of the first buffered permission (for anti-starvation max-hold)
+    private var firstPendingArrival: Date?
+
+    /// Coalescing delay — resets on each new arrival
+    private static let coalesceDelay: Duration = .milliseconds(300)
+
+    /// Maximum time to hold permissions before forced flush (prevents starvation)
+    private static let maxHoldTime: TimeInterval = 0.6
 
     /// Task for multi-select sequential injection
     private var multiSelectTask: Task<Void, Never>?
@@ -192,10 +201,19 @@ public final class PromptService {
         multiSelectTask = nil
     }
 
-    /// Respond with a single text value (for "Other" freeform input or single-select)
+    /// Respond with a single text value (for "Other" freeform input)
     public func respond(text: String) {
         guard let sid = sessionId else { return }
         sendHandler?(.inject(command: text, sessionId: sid))
+        dismissHead()
+    }
+
+    /// Respond by selecting a pre-defined option by its index.
+    /// Uses arrow-key navigation instead of text injection because Claude Code's
+    /// ink-based AskUserQuestion selector ignores typed text.
+    public func respondOption(index: Int) {
+        guard let sid = sessionId else { return }
+        sendHandler?(.selectOption(index: index, sessionId: sid))
         dismissHead()
     }
 
@@ -268,16 +286,9 @@ public final class PromptService {
             arrivalOrder: order
         )
 
-        // Store as pending with arrival order and start independent 500ms timer
+        // Store as pending and schedule coalesced flush
         pendingPermissions[pendingKey] = (item: prompt, order: order)
-        delayTasks[pendingKey] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let self else { return }
-            if let pending = self.pendingPermissions.removeValue(forKey: pendingKey) {
-                self.delayTasks.removeValue(forKey: pendingKey)
-                self.enqueuePrompt(pending.item)
-            }
-        }
+        scheduleCoalescedEnqueue()
     }
 
     private func handleQuestion(_ data: ClaudeOutputData, agentDescription: String?) {
@@ -290,22 +301,17 @@ public final class PromptService {
         enqueuePrompt(prompt)
     }
 
-    /// Cancel a pending permission (still in its 500ms delay). Returns true if found.
+    /// Cancel a pending permission (still buffered before coalesce flush). Returns true if found.
     @discardableResult
     private func cancelPendingPermission(toolUseId: String?) -> Bool {
         if let toolUseId {
-            // Cancel the specific pending permission matching this toolUseId
             for (key, pending) in pendingPermissions where pending.item.toolUseId == toolUseId {
-                delayTasks[key]?.cancel()
-                delayTasks.removeValue(forKey: key)
                 pendingPermissions.removeValue(forKey: key)
                 return true
             }
         }
         // Fallback: cancel the oldest pending permission (by arrival order)
         if let oldest = pendingPermissions.min(by: { $0.value.order < $1.value.order })?.key {
-            delayTasks[oldest]?.cancel()
-            delayTasks.removeValue(forKey: oldest)
             pendingPermissions.removeValue(forKey: oldest)
             return true
         }
@@ -313,9 +319,60 @@ public final class PromptService {
     }
 
     private func cancelAllPendingPermissions() {
-        for (_, task) in delayTasks { task.cancel() }
-        delayTasks.removeAll()
+        coalesceTask?.cancel()
+        coalesceTask = nil
+        firstPendingArrival = nil
         pendingPermissions.removeAll()
+    }
+
+    /// Schedule a coalesced flush of all pending permissions.
+    /// Resets on each new arrival (debounce), but forces flush after maxHoldTime
+    /// to prevent starvation when permissions arrive continuously.
+    private func scheduleCoalescedEnqueue() {
+        if firstPendingArrival == nil {
+            firstPendingArrival = Date()
+        }
+        coalesceTask?.cancel()
+
+        // Compute delay: use coalesceDelay or remaining maxHoldTime, whichever is shorter
+        let elapsed = Date().timeIntervalSince(firstPendingArrival!)
+        let remaining = max(0, Self.maxHoldTime - elapsed)
+        let delayMs = min(Double(Self.coalesceDelay.components.seconds) * 1000
+                         + Double(Self.coalesceDelay.components.attoseconds) / 1e15,
+                         remaining * 1000)
+
+        coalesceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(delayMs)))
+            guard !Task.isCancelled, let self else { return }
+            self.flushPendingPermissions()
+        }
+    }
+
+    /// Flush all buffered permissions into the queue in one batch (single @Observable mutation).
+    private func flushPendingPermissions() {
+        guard !pendingPermissions.isEmpty else { return }
+        let sorted = pendingPermissions.sorted { $0.value.order < $1.value.order }
+        pendingPermissions.removeAll()
+        firstPendingArrival = nil
+        coalesceTask = nil
+
+        // Build new queue locally, then assign once for a single SwiftUI render pass
+        var queue = promptQueue
+        let wasEmpty = queue.isEmpty
+        for (_, entry) in sorted {
+            let prompt = entry.item
+            if prompt.arrivalOrder > 0 {
+                let insertAt = queue.firstIndex(where: { $0.arrivalOrder > prompt.arrivalOrder })
+                    ?? queue.count
+                queue.insert(prompt, at: insertAt)
+            } else {
+                queue.append(prompt)
+            }
+        }
+        promptQueue = queue  // Single @Observable mutation
+        if wasEmpty && !promptQueue.isEmpty {
+            messagesSincePrompt = 0
+        }
     }
 
     /// Enqueue a prompt. Items with arrivalOrder > 0 are inserted in FIFO order
@@ -362,8 +419,6 @@ public final class PromptService {
         // Cancel pending permissions for the same tool
         for (key, pending) in pendingPermissions {
             if case .permission(let t, _, _) = pending.item.kind, t == tool {
-                delayTasks[key]?.cancel()
-                delayTasks.removeValue(forKey: key)
                 pendingPermissions.removeValue(forKey: key)
             }
         }

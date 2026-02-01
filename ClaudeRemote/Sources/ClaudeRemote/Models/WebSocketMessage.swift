@@ -164,6 +164,7 @@ public enum ClientAction: Sendable {
     case unwatchSession(sessionId: String)
     case refreshSessions
     case inject(command: String, sessionId: String)
+    case selectOption(index: Int, sessionId: String)
     case escape(sessionId: String)
     case modeToggle(sessionId: String)
     case updateSettings(settings: [String: AnyCodableValue])
@@ -182,6 +183,8 @@ public enum ClientAction: Sendable {
             return ["action": "refresh_sessions"]
         case .inject(let command, let sessionId):
             return ["action": "inject", "command": command, "sessionId": sessionId]
+        case .selectOption(let index, let sessionId):
+            return ["action": "select_option", "index": index, "sessionId": sessionId]
         case .escape(let sessionId):
             return ["action": "escape", "sessionId": sessionId]
         case .modeToggle(let sessionId):
