@@ -56,6 +56,20 @@ struct MainView: View {
             }
             .animation(.easeInOut(duration: 0.3), value: state.currentToast)
         }
+        .overlay(alignment: .bottom) {
+            if !coordinator.promptService.promptQueue.isEmpty {
+                PromptCardView()
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.bottom, 8)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.promptQueue.count)
+        .onChange(of: coordinator.promptService.promptQueue.count) { _, newCount in
+            // Auto-dismiss settings when a prompt arrives so user can respond
+            if newCount > 0 && showSettings {
+                showSettings = false
+            }
+        }
     }
 
     // MARK: - Sidebar
@@ -130,13 +144,8 @@ struct MainView: View {
                     activityBar(activity)
                         .transition(.opacity)
                 }
-                if !coordinator.promptService.promptQueue.isEmpty {
-                    PromptCardView()
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
                 InputBarView()
             }
-            .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.promptQueue.count)
             .animation(.easeInOut(duration: 0.2), value: state.currentActivity != nil)
         }
         .navigationTitle(currentSessionName)

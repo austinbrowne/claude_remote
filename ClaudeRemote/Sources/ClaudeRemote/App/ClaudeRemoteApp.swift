@@ -6,6 +6,7 @@ import ClaudeRemote
 struct ClaudeRemoteApp: App {
     @State private var appState: AppState
     @State private var coordinator: AppCoordinator
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let state = AppState()
@@ -27,8 +28,13 @@ struct ClaudeRemoteApp: App {
                     if forBackground {
                         try? coordinator.speechService.startTriggerListening()
                     }
+                    // Check notification authorization status on launch
+                    await coordinator.notificationService.checkAuthorizationStatus()
                 }
                 #endif
+                .onChange(of: scenePhase) { _, newPhase in
+                    appState.isInForeground = newPhase == .active
+                }
         }
     }
 }

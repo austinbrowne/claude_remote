@@ -112,6 +112,10 @@ public final class AppState {
     public var notifyEnabled = false
     public var debugMode = false
 
+    // MARK: - App Lifecycle
+    /// Whether the app is currently in the foreground (used to suppress notifications)
+    public var isInForeground = true
+
     // MARK: - Pending State
     /// Recent user messages for deduplication (normalized content -> timestamp)
     public var recentUserMessages: [String: Date] = [:]

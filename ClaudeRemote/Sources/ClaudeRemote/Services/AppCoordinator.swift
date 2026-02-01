@@ -13,6 +13,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     #if os(iOS)
     public let speechService = SpeechService()
+    public let notificationService: NotificationService
     private var autoModeSpeechTask: Task<Void, Never>?
     #endif
 
@@ -27,6 +28,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         SettingsStore.load(into: state)
 
         #if os(iOS)
+        notificationService = NotificationService(appState: state)
+        notificationService.onNotificationTap = { [weak self] sessionId in
+            self?.watchSession(sessionId)
+        }
+
         // Wire trigger command callback
         speechService.onTriggerCommand = { [weak self] command in
             self?.handleTriggerCommand(command)
@@ -265,6 +271,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             promptService.handleClaudeOutput(data)
 
             #if os(iOS)
+            // Notify for permission requests and questions
+            if data.type == "permission_request" {
+                let tool = data.tool ?? "Tool"
+                let cmd = data.content ?? data.input?["command"]?.stringValue ?? ""
+                notify(trigger: .permission, sessionId: sessionId, body: "\(tool): \(cmd)")
+            } else if data.type == "ask_user_question" {
+                let questionText = data.questions?.first?.question ?? "Question from Claude"
+                notify(trigger: .question, sessionId: sessionId, body: questionText)
+            }
+
             // Haptic when a new prompt card appears
             if promptService.currentPrompt != nil {
                 HapticService.medium()
@@ -290,6 +306,18 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             promptService.handleSessionStatus(parsed)
             #if os(iOS)
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
+
+            // Notify on status changes
+            switch parsed {
+            case .processing:
+                notify(trigger: .status, sessionId: nil, body: "Work Started")
+            case .idle:
+                notify(trigger: .status, sessionId: nil, body: "Work Complete")
+            case .waiting:
+                notify(trigger: .status, sessionId: nil, body: "Waiting for Input")
+            default:
+                break
+            }
             #endif
 
         case .tokenUsage(let sessionId, let input, _):
@@ -352,6 +380,19 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if let data, (data.type == "permission_request" || data.type == "ask_user_question") {
                 let desc = state.activeSubagents[agentId]?.description
                 promptService.handleClaudeOutput(data, agentDescription: desc)
+
+                #if os(iOS)
+                if data.type == "permission_request" {
+                    let tool = data.tool ?? "Tool"
+                    let cmd = data.content ?? data.input?["command"]?.stringValue ?? ""
+                    let prefix = desc.map { "\($0) — " } ?? ""
+                    notify(trigger: .permission, sessionId: nil, body: "\(prefix)\(tool): \(cmd)")
+                } else {
+                    let questionText = data.questions?.first?.question ?? "Question from Claude"
+                    let prefix = desc.map { "\($0) — " } ?? ""
+                    notify(trigger: .question, sessionId: nil, body: "\(prefix)\(questionText)")
+                }
+                #endif
             }
             // Other subagent output suppressed — activity shown in inline card + badge detail sheet
 
@@ -393,6 +434,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .error(_, let errorMessage, _):
             let msg = Message(type: .statusUpdate, content: "Error: \(errorMessage)")
             state.appendMessage(msg)
+            #if os(iOS)
+            notify(trigger: .error, sessionId: nil, body: errorMessage)
+            #endif
 
         case .pong:
             break // Handled by WebSocketService
@@ -404,6 +448,27 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             break
         }
     }
+
+    // MARK: - Notification Helpers
+
+    #if os(iOS)
+    /// Get the session name for notification display
+    private func sessionName(for sessionId: String?) -> String {
+        guard let sessionId else { return "Claude" }
+        return state.sessions.first(where: { $0.id == sessionId })?.name ?? "Claude"
+    }
+
+    /// Schedule a local notification for a session event
+    private func notify(trigger: NotificationTrigger, sessionId: String?, body: String) {
+        guard let sessionId = sessionId ?? state.currentSessionId else { return }
+        notificationService.scheduleIfNeeded(
+            trigger: trigger,
+            sessionName: sessionName(for: sessionId),
+            sessionId: sessionId,
+            body: body
+        )
+    }
+    #endif
 
     // MARK: - Message Conversion
 
