@@ -1311,6 +1311,15 @@ async function handleClientMessage(ws, msg) {
             sessionId: msg.sessionId,
             session: { ...session, mode: sessionData?.mode || 'default' }
           }));
+          // Send current session status BEFORE history so recoverFromHistory
+          // knows whether the session is waiting for user input
+          const currentStatus = await getSessionStatus(session.logFile);
+          if (sessionData) sessionData.lastStatus = currentStatus;
+          ws.send(JSON.stringify({
+            type: 'session_status',
+            sessionId: msg.sessionId,
+            status: currentStatus
+          }));
           await sendRecentHistory(ws, msg.sessionId);
           await sendActiveSubagents(ws, msg.sessionId);
         } finally {
@@ -1489,7 +1498,7 @@ async function sendRecentHistory(ws, sessionId) {
 
     const lines = content.split('\n').filter(line => line.trim());
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
-    const history = [];
+    const allItems = [];
     let lastMode = null;
 
     for (const line of recentLines) {
@@ -1510,12 +1519,25 @@ async function sendRecentHistory(ws, sessionId) {
         const parsed = parseLogEntry(entry);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
-          history.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
+          allItems.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
         }
       } catch (e) {
         // Skip invalid JSON lines in history (expected for partial writes)
       }
     }
+
+    // Suppress auto-approved permission_requests (same logic as live messages)
+    const resolvedToolUseIds = new Set(
+      allItems
+        .filter(i => i.type === 'tool_result' && i.toolUseId)
+        .map(i => i.toolUseId)
+    );
+    const history = allItems.filter(item => {
+      if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
+        return false;
+      }
+      return true;
+    });
 
     // Set initial mode from history and notify the client
     // sessionData already declared at top of function
