@@ -15,24 +15,15 @@ struct InputBarView: View {
 
     /// Minimum interval between sends to prevent double-tap
     private static let sendCooldown: TimeInterval = 0.3
-    private static let maxSuggestions = 6
+    static let maxSuggestions = 6
 
     private var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        && state.currentSessionId != nil
+        InputBarHelpers.canSend(text: inputText, currentSessionId: state.currentSessionId)
     }
 
     /// Filtered slash command suggestions based on current input
     private var suggestions: [SlashCommand] {
-        guard inputText.hasPrefix("/"), !state.slashCommands.isEmpty else { return [] }
-        let query = String(inputText.dropFirst()).lowercased()
-        if query.isEmpty {
-            return Array(state.slashCommands.prefix(Self.maxSuggestions))
-        }
-        return state.slashCommands
-            .filter { $0.name.lowercased().contains(query) }
-            .prefix(Self.maxSuggestions)
-            .map { $0 }
+        InputBarHelpers.suggestions(text: inputText, commands: state.slashCommands, maxCount: Self.maxSuggestions)
     }
 
     var body: some View {
@@ -226,5 +217,28 @@ struct InputBarView: View {
     private func toggleMode() {
         guard let sessionId = state.currentSessionId else { return }
         coordinator.toggleMode(sessionId)
+    }
+}
+
+// MARK: - Extracted Logic (Testable)
+
+/// Pure logic extracted from InputBarView for testability.
+enum InputBarHelpers {
+
+    static func canSend(text: String, currentSessionId: String?) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && currentSessionId != nil
+    }
+
+    static func suggestions(text: String, commands: [SlashCommand], maxCount: Int) -> [SlashCommand] {
+        guard text.hasPrefix("/"), !commands.isEmpty else { return [] }
+        let query = String(text.dropFirst()).lowercased()
+        if query.isEmpty {
+            return Array(commands.prefix(maxCount))
+        }
+        return commands
+            .filter { $0.name.lowercased().contains(query) }
+            .prefix(maxCount)
+            .map { $0 }
     }
 }

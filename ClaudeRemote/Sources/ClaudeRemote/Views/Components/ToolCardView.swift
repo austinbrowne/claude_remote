@@ -110,10 +110,36 @@ struct ToolCardView: View {
         .padding(.bottom, 10)
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers (delegate to ToolCardHelpers for testability)
 
     private var toolIcon: String {
-        switch message.tool {
+        ToolCardHelpers.toolIcon(for: message.tool)
+    }
+
+    private var borderColor: Color {
+        ToolCardHelpers.borderColor(resultIsError: message.resultIsError, type: message.type)
+    }
+
+    private var toolSummary: String? {
+        ToolCardHelpers.toolSummary(tool: message.tool, input: message.toolInput, fallbackContent: message.content)
+    }
+
+    private var inputLanguage: String? {
+        ToolCardHelpers.inputLanguage(for: message.tool)
+    }
+
+    private func formatToolInput(_ input: [String: AnyCodableValue]) -> String {
+        ToolCardHelpers.formatToolInput(input, tool: message.tool)
+    }
+}
+
+// MARK: - Extracted Logic (Testable)
+
+/// Pure logic extracted from ToolCardView for testability.
+enum ToolCardHelpers {
+
+    static func toolIcon(for tool: String?) -> String {
+        switch tool {
         case "Read": "doc.text"
         case "Write": "pencil"
         case "Edit", "MultiEdit": "text.badge.plus"
@@ -127,16 +153,16 @@ struct ToolCardView: View {
         }
     }
 
-    private var borderColor: Color {
-        if message.resultIsError { return .red }
-        if message.type == .toolResult { return .secondary }
+    static func borderColor(resultIsError: Bool, type: MessageType) -> Color {
+        if resultIsError { return .red }
+        if type == .toolResult { return .secondary }
         return .purple
     }
 
-    private var toolSummary: String? {
-        guard let input = message.toolInput else { return message.content?.firstLine }
+    static func toolSummary(tool: String?, input: [String: AnyCodableValue]?, fallbackContent: String?) -> String? {
+        guard let input else { return fallbackContent?.firstLine }
 
-        switch message.tool {
+        switch tool {
         case "Read", "Write", "Edit", "MultiEdit":
             return input["file_path"]?.stringValue
         case "Bash":
@@ -154,21 +180,21 @@ struct ToolCardView: View {
         }
     }
 
-    private var inputLanguage: String? {
-        switch message.tool {
+    static func inputLanguage(for tool: String?) -> String? {
+        switch tool {
         case "Bash": "bash"
         case "Grep": nil
         default: "json"
         }
     }
 
-    private func formatToolInput(_ input: [String: AnyCodableValue]) -> String {
+    static func formatToolInput(_ input: [String: AnyCodableValue], tool: String?) -> String {
         // For Bash, just show the command
-        if message.tool == "Bash", let cmd = input["command"]?.stringValue {
+        if tool == "Bash", let cmd = input["command"]?.stringValue {
             return cmd
         }
         // For Edit, skip if we're showing diff
-        if message.tool == "Edit" && input["old_string"] != nil {
+        if tool == "Edit" && input["old_string"] != nil {
             if let filePath = input["file_path"]?.stringValue {
                 return filePath
             }
