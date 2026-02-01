@@ -360,161 +360,161 @@ async function watchSession(sessionId) {
     persistent: true,
     usePolling: true,   // Use polling - FSEvents can miss updates
     interval: 500,      // Poll every 500ms
-    binaryInterval: 500,
-    awaitWriteFinish: {
-      stabilityThreshold: 100,
-      pollInterval: 100
-    }
+    binaryInterval: 500
+    // NOTE: No awaitWriteFinish — it suppresses/coalesces change events on
+    // continuously-written log files, causing output to silently stop updating.
+    // Partial lines are handled by the lastNewlineIndex guard below.
   });
   
-  watcher.on('change', async (filePath) => {
-    console.log(`[Watcher] File change detected: ${filePath}`);
+  // Guard: prevent concurrent reads when fallback poll overlaps with chokidar
+  let processing = false;
+
+  async function processLogChanges() {
+    if (processing) return;
+    processing = true;
     try {
-      const stats = await fsp.stat(filePath);
+      // Loop to drain all available data (handles batches > MAX_READ_SIZE)
+      let continueReading = true;
+      while (continueReading) {
+        continueReading = false;
+        const stats = await fsp.stat(session.logFile);
 
-      // Handle file truncation/rotation (e.g., log file cleared)
-      if (stats.size < lastPosition) {
-        console.log(`[Watcher] File truncated, resetting position from ${lastPosition} to 0`);
-        lastPosition = 0;
-      }
-
-      if (stats.size > lastPosition) {
-        const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
-        const fh = await fsp.open(filePath, 'r');
-        const buffer = Buffer.alloc(bytesToRead);
-        try {
-          await fh.read(buffer, 0, bytesToRead, lastPosition);
-        } finally {
-          await fh.close();
+        // Handle file truncation/rotation
+        if (stats.size < lastPosition) {
+          console.log(`[Watcher] File truncated, resetting position from ${lastPosition} to 0`);
+          lastPosition = 0;
         }
 
-        const newContent = buffer.toString('utf8');
-
-        // Only process complete lines (handle partial final line)
-        const lastNewlineIndex = newContent.lastIndexOf('\n');
-        if (lastNewlineIndex === -1) {
-          // No complete lines yet, wait for more data
-          return;
-        }
-
-        const completeContent = newContent.substring(0, lastNewlineIndex);
-        const lines = completeContent.split('\n').filter(line => line.trim());
-
-        let linesProcessed = false;
-        for (const line of lines) {
+        if (stats.size > lastPosition) {
+          const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
+          const fh = await fsp.open(session.logFile, 'r');
+          const buffer = Buffer.alloc(bytesToRead);
           try {
-            const entry = JSON.parse(line);
+            await fh.read(buffer, 0, bytesToRead, lastPosition);
+          } finally {
+            await fh.close();
+          }
 
-            // Skip Task (subagent) tool results - their output is already
-            // streamed via the subagent_output channel. Task results have
-            // agentId in toolUseResult (simple, robust check).
-            if (entry.type === 'user' && entry.toolUseResult?.agentId) {
-              console.log(`[Watcher] Skipped Task tool result for agent ${entry.toolUseResult.agentId}`);
-              continue;
-            }
+          const newContent = buffer.toString('utf8');
+          const lastNewlineIndex = newContent.lastIndexOf('\n');
+          if (lastNewlineIndex === -1) break; // No complete lines yet
 
-            const parsed = parseLogEntry(entry);
-            if (parsed) {
-              linesProcessed = true;
-              // Handle single result or array of results
-              const items = Array.isArray(parsed) ? parsed : [parsed];
-              for (const item of items) {
-                if (item.type === 'token_usage') {
-                  broadcastToClients({
-                    type: 'token_usage',
-                    sessionId: sessionId,
-                    input: item.input,
-                    output: item.output
-                  });
-                } else if (item.type === 'mode_change') {
-                  const sd = activeSessions.get(sessionId);
-                  if (sd && sd.mode !== item.mode) {
-                    sd.mode = item.mode;
-                    console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
+          const completeContent = newContent.substring(0, lastNewlineIndex);
+          const lines = completeContent.split('\n').filter(line => line.trim());
+
+          let linesProcessed = false;
+          for (const line of lines) {
+            try {
+              const entry = JSON.parse(line);
+
+              // Skip Task (subagent) tool results — streamed via subagent_output
+              if (entry.type === 'user' && entry.toolUseResult?.agentId) {
+                continue;
+              }
+
+              const parsed = parseLogEntry(entry);
+              if (parsed) {
+                linesProcessed = true;
+                const items = Array.isArray(parsed) ? parsed : [parsed];
+                for (const item of items) {
+                  if (item.type === 'token_usage') {
                     broadcastToClients({
-                      type: 'mode_change',
+                      type: 'token_usage',
                       sessionId: sessionId,
-                      mode: item.mode
+                      input: item.input,
+                      output: item.output
+                    });
+                  } else if (item.type === 'mode_change') {
+                    const sd = activeSessions.get(sessionId);
+                    if (sd && sd.mode !== item.mode) {
+                      sd.mode = item.mode;
+                      console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
+                      broadcastToClients({
+                        type: 'mode_change',
+                        sessionId: sessionId,
+                        mode: item.mode
+                      });
+                    }
+                  } else if (item.type === 'subagent_starting') {
+                    // Broadcast as top-level message so iOS .subagentStarting handler
+                    // catches it (not buried inside claude_output where description/agentType
+                    // fields are lost by ClaudeOutputData decoding)
+                    broadcastToClients({
+                      type: 'subagent_starting',
+                      sessionId: sessionId,
+                      description: item.description,
+                      agentType: item.agentType
+                    });
+                  } else {
+                    broadcastToClients({
+                      type: 'claude_output',
+                      sessionId: sessionId,
+                      data: item
                     });
                   }
-                } else if (item.type === 'subagent_starting') {
-                  // Broadcast as top-level message so iOS .subagentStarting handler
-                  // catches it (not buried inside claude_output where description/agentType
-                  // fields are lost by ClaudeOutputData decoding)
-                  broadcastToClients({
-                    type: 'subagent_starting',
-                    sessionId: sessionId,
-                    description: item.description,
-                    agentType: item.agentType
-                  });
-                } else {
-                  console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
-                  broadcastToClients({
-                    type: 'claude_output',
-                    sessionId: sessionId,
-                    data: item
-                  });
                 }
               }
+            } catch (e) {
+              console.debug(`[Watcher] Skipped invalid JSON: ${e.message}`);
             }
-          } catch (e) {
-            // Skip invalid JSON lines (log for debugging)
-            console.debug(`[Watcher] Skipped invalid JSON: ${e.message}`);
           }
-        }
 
-        // Only advance position to end of last complete line
-        lastPosition += lastNewlineIndex + 1;
+          lastPosition += lastNewlineIndex + 1;
 
-        // Check and broadcast status changes only when new lines were parsed
-        if (linesProcessed) {
-          const newStatus = await getSessionStatus(filePath);
-          const sessionData = activeSessions.get(sessionId);
-          if (sessionData && newStatus !== sessionData.lastStatus) {
-            sessionData.lastStatus = newStatus;
-            broadcastToClients({
-              type: 'session_status',
-              sessionId: sessionId,
-              status: newStatus
-            });
+          if (linesProcessed) {
+            const newStatus = await getSessionStatus(session.logFile);
+            const sessionData = activeSessions.get(sessionId);
+            if (sessionData && newStatus !== sessionData.lastStatus) {
+              sessionData.lastStatus = newStatus;
+              broadcastToClients({
+                type: 'session_status',
+                sessionId: sessionId,
+                status: newStatus
+              });
+            }
           }
-        }
 
-        // If more data remains, schedule another read
-        if (stats.size > lastPosition) {
-          setImmediate(() => watcher.emit('change', filePath));
+          // More data remains — continue draining
+          if (stats.size > lastPosition) {
+            continueReading = true;
+          }
         }
       }
     } catch (e) {
       console.error('Error reading log file:', e);
+    } finally {
+      processing = false;
     }
-  });
-  
-  // Also watch for new log files in the logs directory
+  }
+
+  watcher.on('change', () => processLogChanges());
+
+  // Watch logs directory for awareness only — no auto-switch, which would cause
+  // watchers to accidentally follow unrelated sessions sharing the same project dir
   const logsDir = path.dirname(session.logFile);
   const logsDirWatcher = chokidar.watch(logsDir, {
     persistent: true,
     ignoreInitial: true,
-    depth: 0  // Only watch top-level files, not subdirectories (subagent files live in subagents/)
+    depth: 0
   });
-  
+
   logsDirWatcher.on('add', (newFile) => {
     if (newFile.endsWith('.jsonl')) {
-      // Switch to watching the new file
-      watcher.unwatch(session.logFile);
-      session.logFile = newFile;
-      lastPosition = 0;
-      watcher.add(newFile);
-      console.log(`[Session ${sessionId.substring(0, 8)}] Switched to new log file`);
+      console.log(`[Session ${sessionId.substring(0, 8)}] New log file in project dir: ${path.basename(newFile)}`);
     }
   });
+
+  // Fallback poll: catches missed chokidar events. macOS FSEvents and polling
+  // can both miss rapid writes. Ensures output never silently stops updating.
+  const FALLBACK_POLL_MS = 2000;
+  const fallbackPoll = setInterval(() => processLogChanges(), FALLBACK_POLL_MS);
   
   const initialStatus = await getSessionStatus(session.logFile);
 
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
-    pollInterval: null,
+    pollInterval: fallbackPoll,
     session,
     lastPosition,
     lastStatus: initialStatus,
