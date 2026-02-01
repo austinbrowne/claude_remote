@@ -403,6 +403,8 @@ async function watchSession(sessionId) {
           const lines = completeContent.split('\n').filter(line => line.trim());
 
           let linesProcessed = false;
+          // Parse all lines first, then filter auto-approved permissions
+          const allItems = [];
           for (const line of lines) {
             try {
               const entry = JSON.parse(line);
@@ -416,46 +418,62 @@ async function watchSession(sessionId) {
               if (parsed) {
                 linesProcessed = true;
                 const items = Array.isArray(parsed) ? parsed : [parsed];
-                for (const item of items) {
-                  if (item.type === 'token_usage') {
-                    broadcastToClients({
-                      type: 'token_usage',
-                      sessionId: sessionId,
-                      input: item.input,
-                      output: item.output
-                    });
-                  } else if (item.type === 'mode_change') {
-                    const sd = activeSessions.get(sessionId);
-                    if (sd && sd.mode !== item.mode) {
-                      sd.mode = item.mode;
-                      console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
-                      broadcastToClients({
-                        type: 'mode_change',
-                        sessionId: sessionId,
-                        mode: item.mode
-                      });
-                    }
-                  } else if (item.type === 'subagent_starting') {
-                    // Broadcast as top-level message so iOS .subagentStarting handler
-                    // catches it (not buried inside claude_output where description/agentType
-                    // fields are lost by ClaudeOutputData decoding)
-                    broadcastToClients({
-                      type: 'subagent_starting',
-                      sessionId: sessionId,
-                      description: item.description,
-                      agentType: item.agentType
-                    });
-                  } else {
-                    broadcastToClients({
-                      type: 'claude_output',
-                      sessionId: sessionId,
-                      data: item
-                    });
-                  }
-                }
+                allItems.push(...items);
               }
             } catch (e) {
               console.debug(`[Watcher] Skipped invalid JSON: ${e.message}`);
+            }
+          }
+
+          // Suppress permission_requests that have a matching tool_result in the
+          // same batch — these were auto-approved (Always Allow) and need no user input
+          const resolvedToolUseIds = new Set(
+            allItems
+              .filter(i => i.type === 'tool_result' && i.toolUseId)
+              .map(i => i.toolUseId)
+          );
+          const filteredItems = allItems.filter(item => {
+            if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
+              return false;
+            }
+            return true;
+          });
+
+          for (const item of filteredItems) {
+            if (item.type === 'token_usage') {
+              broadcastToClients({
+                type: 'token_usage',
+                sessionId: sessionId,
+                input: item.input,
+                output: item.output
+              });
+            } else if (item.type === 'mode_change') {
+              const sd = activeSessions.get(sessionId);
+              if (sd && sd.mode !== item.mode) {
+                sd.mode = item.mode;
+                console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
+                broadcastToClients({
+                  type: 'mode_change',
+                  sessionId: sessionId,
+                  mode: item.mode
+                });
+              }
+            } else if (item.type === 'subagent_starting') {
+              // Broadcast as top-level message so iOS .subagentStarting handler
+              // catches it (not buried inside claude_output where description/agentType
+              // fields are lost by ClaudeOutputData decoding)
+              broadcastToClients({
+                type: 'subagent_starting',
+                sessionId: sessionId,
+                description: item.description,
+                agentType: item.agentType
+              });
+            } else {
+              broadcastToClients({
+                type: 'claude_output',
+                sessionId: sessionId,
+                data: item
+              });
             }
           }
 
