@@ -73,8 +73,16 @@ struct InputBarView: View {
                         .padding(.vertical, 10)
                         .background(.gray.opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .submitLabel(.send)
                         .onSubmit { send() }
                         .onChange(of: inputText) { _, newValue in
+                            // On iOS, Return in a vertical TextField inserts a newline
+                            // instead of triggering .onSubmit. Detect and submit instead.
+                            if newValue.hasSuffix("\n") {
+                                inputText = String(newValue.dropLast())
+                                send()
+                                return
+                            }
                             if newValue.count > 10_000 {
                                 inputText = String(newValue.prefix(10_000))
                             }
