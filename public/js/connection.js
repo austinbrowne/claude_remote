@@ -379,7 +379,9 @@ function handleMessage(msg) {
         if (currentPrompt?.type === 'permission') {
           hidePromptCard();
         }
-        break; // Don't fall through to appendMessage - tool results handled above
+        // Merge result into matching tool card (like iOS), or append standalone
+        mergeOrAppendToolResult(msg.data);
+        break;
       }
       // Dedupe user messages we just sent
       if (msg.data.type === 'user') {
@@ -394,11 +396,6 @@ function handleMessage(msg) {
       }
       // Skip subagent_starting - it's handled via subagent_start message
       if (msg.data.type === 'subagent_starting') {
-        break;
-      }
-      // Route token usage to token handler
-      if (msg.data.type === 'token_usage') {
-        handleTokenUsage(msg.data);
         break;
       }
       appendMessage(msg.data);
@@ -447,24 +444,41 @@ function handleMessage(msg) {
       handleTaskList(msg);
       break;
 
-    case 'subagent_starting':
-      // Store pending description for correlation with subagent_start
-      pendingSubagentInfo = {
-        description: msg.description,
-        type: msg.agentType,
-        timestamp: Date.now()
-      };
-      // Display as a tool message so user sees what's being launched
-      appendMessage({
-        type: 'tool',
-        tool: 'Task',
-        input: { description: msg.description, subagent_type: msg.agentType }
-      });
-      break;
+    case 'subagent_starting': {
+      // Create persistent inline activity card (matches iOS SubagentActivityCard)
+      const card = createSubagentActivityCard(msg.description, msg.agentType);
+      const outputArea = document.getElementById('outputArea');
+      outputArea.appendChild(card);
+      outputArea.scrollTop = outputArea.scrollHeight;
 
-    case 'subagent_start':
-      // Correlate with pending description if available
+      // Queue for correlation with subagent_start (FIFO, matches iOS pendingSubagentMessages)
+      const autoCompleteTimeout = setTimeout(() => {
+        // 30s auto-complete for orphaned starting cards (matches iOS)
+        updateSubagentCardStatus(card, 'completed');
+        const idx = pendingSubagentCards.findIndex(p => p.element === card);
+        if (idx !== -1) pendingSubagentCards.splice(idx, 1);
+      }, 30000);
+      pendingSubagentCards.push({ description: msg.description, element: card, timeout: autoCompleteTimeout });
+
+      // Also store for legacy correlation
+      pendingSubagentInfo = { description: msg.description, type: msg.agentType, timestamp: Date.now() };
+      break;
+    }
+
+    case 'subagent_start': {
+      // Correlate with pending card (FIFO match by description, matches iOS)
       const info = pendingSubagentInfo || {};
+      let matchedCard = null;
+      const pendingIdx = pendingSubagentCards.findIndex(p => p.description === msg.description);
+      if (pendingIdx !== -1) {
+        const pending = pendingSubagentCards[pendingIdx];
+        clearTimeout(pending.timeout);
+        matchedCard = pending.element;
+        matchedCard.dataset.agentId = msg.agentId;
+        updateSubagentCardStatus(matchedCard, 'running');
+        pendingSubagentCards.splice(pendingIdx, 1);
+      }
+
       activeSubagents.set(msg.agentId, {
         status: 'running',
         startTime: msg.timestamp,
@@ -473,11 +487,13 @@ function handleMessage(msg) {
         currentTool: null,
         inputTokens: 0,
         outputTokens: 0,
-        lastActivity: Date.now()
+        lastActivity: Date.now(),
+        cardElement: matchedCard
       });
       pendingSubagentInfo = null;
       updateSubagentIndicator();
       break;
+    }
 
     case 'subagent_output':
       handleSubagentOutput(msg.agentId, msg.data);
@@ -489,6 +505,10 @@ function handleMessage(msg) {
         agent.currentTool = msg.tool;
         agent.lastActivity = Date.now();
         updateSubagentIndicator();
+        // Update inline activity card
+        if (agent.cardElement) {
+          updateSubagentCardTool(agent.cardElement, msg.tool);
+        }
       }
       break;
 
@@ -501,10 +521,15 @@ function handleMessage(msg) {
       }
       break;
 
-    case 'subagent_stop':
+    case 'subagent_stop': {
+      const stoppedAgent = activeSubagents.get(msg.agentId);
+      if (stoppedAgent?.cardElement) {
+        updateSubagentCardStatus(stoppedAgent.cardElement, 'completed');
+      }
       activeSubagents.delete(msg.agentId);
       updateSubagentIndicator();
       break;
+    }
 
     case 'inject_result':
       if (pendingInjectResolve) {
@@ -516,6 +541,21 @@ function handleMessage(msg) {
 
     case 'error':
       showToast(msg.message, 'error');
+      break;
+
+    case 'commands':
+      // Server-provided slash commands (matches iOS: entirely server-driven)
+      if (Array.isArray(msg.data)) {
+        slashCommands = msg.data.map(c => ({
+          cmd: '/' + c.name,
+          desc: c.description || ''
+        }));
+      }
+      break;
+
+    case 'mode_change':
+      currentMode = msg.mode || 'default';
+      updateModeIndicator();
       break;
 
     case 'pong':

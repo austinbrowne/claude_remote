@@ -79,7 +79,12 @@ function switchSession() {
   resetSessionTokens();
   clearTasks();
   activeSubagents.clear();
+  // Clear pending subagent card timeouts
+  pendingSubagentCards.forEach(p => clearTimeout(p.timeout));
+  pendingSubagentCards.length = 0;
   updateSubagentIndicator();
+  currentMode = 'default';
+  updateModeIndicator();
   document.getElementById('statusBar')?.classList.add('hidden');
 
   wsSend({ action: 'watch_session', sessionId: sessionId });
@@ -355,6 +360,57 @@ function refreshSessions() {
 }
 
 // ============================================
+// Tool Result Merging (matches iOS mergeOrAppendToolResult)
+// ============================================
+function mergeOrAppendToolResult(data) {
+  const toolUseId = data.toolUseId;
+  if (toolUseId) {
+    // Find the last tool card with matching toolUseId
+    const outputArea = document.getElementById('outputArea');
+    const allTools = outputArea.querySelectorAll(`.message.tool[data-tool-use-id="${CSS.escape(toolUseId)}"]`);
+    const matchingCard = allTools.length > 0 ? allTools[allTools.length - 1] : null;
+
+    if (matchingCard) {
+      // Merge: append result inline into the existing tool card
+      const result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+      const isError = !!data.resultIsError;
+      const lang = pending.lastToolLanguage || 'plaintext';
+
+      // Add result section to the tool card
+      const resultDiv = document.createElement('div');
+      resultDiv.className = `tool-result-inline${isError ? ' error' : ''}`;
+      const lines = result.split('\n');
+      const preview = lines[0].substring(0, 50);
+      const needsEllipsis = lines[0].length > 50 || lines.length > 1;
+      resultDiv.innerHTML = `
+        <div class="tool-result-separator"></div>
+        <div class="tool-result-header">
+          <span class="tool-result-icon">${isError ? '✕' : '✓'}</span>
+          <span class="tool-result-preview">${escapeHtml(preview)}${needsEllipsis ? '...' : ''} (${lines.length} lines)</span>
+        </div>
+        <div class="tool-result-details"><pre>${escapeHtml(result)}</pre></div>
+      `;
+      matchingCard.appendChild(resultDiv);
+
+      // Update the chevron summary to show completion status
+      const summary = matchingCard.querySelector('.tool-summary');
+      if (summary) {
+        const statusIcon = document.createElement('span');
+        statusIcon.className = `tool-status-icon${isError ? ' error' : ''}`;
+        statusIcon.textContent = isError ? '✕' : '✓';
+        summary.appendChild(statusIcon);
+      }
+
+      outputArea.scrollTop = outputArea.scrollHeight;
+      return;
+    }
+  }
+
+  // Fallback: append as standalone tool_result message
+  appendMessage(data);
+}
+
+// ============================================
 // Output Rendering
 // ============================================
 function renderHistory(history) {
@@ -432,6 +488,11 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
     showToast(`CLASS: ${msg.className}`, 'success');
   }
 
+  // Store toolUseId for tool card merging (matches iOS)
+  if (data.toolUseId && (data.type === 'tool' || data.type === 'permission_request')) {
+    msg.dataset.toolUseId = data.toolUseId;
+  }
+
   if (data.type === 'tool') {
     const toolInput = formatToolInput(data.input);
     // Guard against null/undefined input
@@ -469,7 +530,7 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
       `;
     }
   } else if (data.type === 'tool_result') {
-    const result = typeof data.result === 'string' ? data.result : JSON.stringify(data.result, null, 2);
+    const result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
     // Split once, reuse for preview and line count
     const lines = result.split('\n');
     const preview = lines[0].substring(0, 50);

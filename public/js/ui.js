@@ -142,37 +142,19 @@ function autoResize(el) {
 }
 
 // ============================================
-// Command Autocomplete
+// Command Autocomplete (server-driven, matches iOS)
 // ============================================
-const COMMANDS = [
-  { cmd: '/workflows:plan', desc: 'Create implementation plan' },
-  { cmd: '/workflows:work', desc: 'Execute a plan' },
-  { cmd: '/workflows:review', desc: 'Code review with agents' },
-  { cmd: '/workflows:brainstorm', desc: 'Explore approaches' },
-  { cmd: '/workflows:compound', desc: 'Document a solved problem' },
-  { cmd: '/commit', desc: 'Commit changes' },
-  { cmd: '/commit-and-pr', desc: 'Commit and create PR' },
-  { cmd: '/clear', desc: 'Clear conversation' },
-  { cmd: '/compact', desc: 'Compact context' },
-  { cmd: '/status', desc: 'Show status' },
-  { cmd: '/help', desc: 'Show help' },
-  { cmd: '/plan', desc: 'Enter plan mode' },
-  { cmd: '/explore', desc: 'Explore codebase' },
-  { cmd: '/security-review', desc: 'Security checklist' },
-  { cmd: '/generate-tests', desc: 'Generate tests' },
-  { cmd: '/fresh-eyes-review', desc: 'Unbiased code review' },
-  { cmd: '/refactor', desc: 'Guided refactoring' },
-];
-
 let autocompleteIndex = -1;
 
 function handleInput(el) {
   autoResize(el);
   const value = el.value;
 
-  if (value.startsWith('/')) {
+  if (value.startsWith('/') && slashCommands.length > 0) {
     const query = value.toLowerCase();
-    const matches = COMMANDS.filter(c => c.cmd.toLowerCase().includes(query));
+    const matches = slashCommands
+      .filter(c => c.cmd.toLowerCase().includes(query))
+      .slice(0, 6); // Max 6 suggestions (matches iOS)
     if (matches.length > 0) {
       showAutocomplete(matches);
     } else {
@@ -546,6 +528,37 @@ function updateSettings() {
 }
 
 // ============================================
+// Mode Indicator (matches iOS InputBarView)
+// ============================================
+function updateModeIndicator() {
+  const btn = document.getElementById('modeBtn');
+  const icon = document.getElementById('modeIcon');
+  const label = document.getElementById('modeLabel');
+  if (!btn) return;
+
+  // Remove old mode classes
+  btn.classList.remove('mode-default', 'mode-plan', 'mode-acceptEdits');
+
+  switch (currentMode) {
+    case 'plan':
+      btn.classList.add('mode-plan');
+      label.textContent = 'Plan';
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>';
+      break;
+    case 'acceptEdits':
+      btn.classList.add('mode-acceptEdits');
+      label.textContent = 'Accept Edits';
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+      break;
+    default:
+      btn.classList.add('mode-default');
+      label.textContent = 'Default';
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>';
+      break;
+  }
+}
+
+// ============================================
 // Status Bar and Token Tracking
 // ============================================
 let sessionTokens = { input: 0, output: 0 };
@@ -567,7 +580,7 @@ function handleStatusUpdate(data) {
   const statusVerb = document.getElementById('statusVerb');
 
   statusBar.classList.remove('hidden');
-  statusVerb.textContent = data.text || 'Working...';
+  statusVerb.textContent = data.content || 'Working...';
   updateActionButtons();
 
   // Auto-hide after 5 seconds of no updates
@@ -678,6 +691,49 @@ function clearTasks() {
 // ============================================
 // Subagent Handling
 // ============================================
+
+// Persistent inline activity cards (matches iOS SubagentActivityCard lifecycle)
+function createSubagentActivityCard(description, agentType) {
+  const card = document.createElement('div');
+  card.className = 'subagent-activity-card starting';
+  card.innerHTML = `
+    <div class="subagent-card-icon">
+      <span class="subagent-card-spinner"></span>
+    </div>
+    <div class="subagent-card-content">
+      <span class="subagent-card-status">Starting</span>: <span class="subagent-card-desc">${escapeHtml(description || 'Subagent')}</span>
+      <span class="subagent-card-tool"></span>
+    </div>
+  `;
+  return card;
+}
+
+function updateSubagentCardStatus(card, status) {
+  if (!card) return;
+  card.classList.remove('starting', 'running', 'completed');
+  card.classList.add(status);
+
+  const iconEl = card.querySelector('.subagent-card-icon');
+  const statusEl = card.querySelector('.subagent-card-status');
+  const toolEl = card.querySelector('.subagent-card-tool');
+
+  if (status === 'running') {
+    statusEl.textContent = 'Running';
+  } else if (status === 'completed') {
+    statusEl.textContent = 'Completed';
+    iconEl.innerHTML = '<span class="subagent-card-check">✓</span>';
+    if (toolEl) toolEl.textContent = '';
+  }
+}
+
+function updateSubagentCardTool(card, tool) {
+  if (!card) return;
+  const toolEl = card.querySelector('.subagent-card-tool');
+  if (toolEl) {
+    toolEl.textContent = tool ? ` — ${tool}` : '';
+  }
+}
+
 function updateSubagentIndicator() {
   const indicator = document.getElementById('subagentIndicator');
   const countEl = indicator.querySelector('.subagent-count');
