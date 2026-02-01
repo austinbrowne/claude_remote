@@ -38,6 +38,12 @@ public struct Message: Identifiable, Sendable {
     public var resultContent: String?
     /// Whether the merged tool result was an error
     public var resultIsError: Bool
+    /// Subagent lifecycle state: "starting", "running", "completed"
+    public var subagentStatus: String?
+    /// Current tool being used by subagent (updated on subagent_tool)
+    public var subagentCurrentTool: String?
+    /// Linked agent ID (set when subagent_start correlates to this message)
+    public var subagentAgentId: String?
 
     public init(
         type: MessageType,
@@ -52,7 +58,10 @@ public struct Message: Identifiable, Sendable {
         isDestructive: Bool = false,
         toolUseId: String? = nil,
         resultContent: String? = nil,
-        resultIsError: Bool = false
+        resultIsError: Bool = false,
+        subagentStatus: String? = nil,
+        subagentCurrentTool: String? = nil,
+        subagentAgentId: String? = nil
     ) {
         self.id = UUID()
         self.type = type
@@ -68,6 +77,9 @@ public struct Message: Identifiable, Sendable {
         self.toolUseId = toolUseId
         self.resultContent = resultContent
         self.resultIsError = resultIsError
+        self.subagentStatus = subagentStatus
+        self.subagentCurrentTool = subagentCurrentTool
+        self.subagentAgentId = subagentAgentId
     }
 }
 

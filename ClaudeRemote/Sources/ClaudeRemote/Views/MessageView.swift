@@ -44,7 +44,7 @@ struct MessageView: View {
             // Shown inline as status; active prompt handled by PromptCardView
             StatusIndicatorView(status: "Question pending...")
         case .subagentStarting:
-            SubagentStartView(description: message.content ?? "", agentType: message.tool)
+            SubagentActivityCard(message: message)
         case .unknown:
             StatusIndicatorView(status: message.content ?? "Unknown message")
         }
@@ -136,31 +136,61 @@ private struct TokenUsageView: View {
     }
 }
 
-/// Shows subagent start notification
-private struct SubagentStartView: View {
-    let description: String
-    let agentType: String?
+/// Single-line inline activity card for a subagent — updates in-place through its lifecycle.
+private struct SubagentActivityCard: View {
+    let message: Message
+
+    private var status: String { message.subagentStatus ?? "starting" }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "person.2")
-                .font(.caption)
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Subagent starting")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.orange)
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+        HStack(spacing: 5) {
+            statusIcon
+            statusText
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(Color.orange.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .font(.caption)
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(backgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .animation(.easeInOut(duration: 0.2), value: status)
+        .animation(.easeInOut(duration: 0.2), value: message.subagentCurrentTool)
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch status {
+        case "completed":
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        default:
+            ProgressView()
+                .controlSize(.mini)
+        }
+    }
+
+    private var statusText: Text {
+        let desc = message.content ?? ""
+        switch status {
+        case "completed":
+            return Text("Completed: ").fontWeight(.medium).foregroundColor(.green)
+                + Text(desc).foregroundColor(.secondary)
+        case "running":
+            if let tool = message.subagentCurrentTool {
+                return Text(tool).fontWeight(.medium).foregroundColor(.orange)
+                    + Text(" — ").foregroundColor(.secondary)
+                    + Text(desc).foregroundColor(.secondary)
+            }
+            return Text("Running: ").fontWeight(.medium).foregroundColor(.orange)
+                + Text(desc).foregroundColor(.secondary)
+        default:
+            return Text("Starting: ").fontWeight(.medium).foregroundColor(.orange)
+                + Text(desc).foregroundColor(.secondary)
+        }
+    }
+
+    private var backgroundColor: Color {
+        status == "completed" ? Color.green.opacity(0.08) : Color.orange.opacity(0.1)
     }
 }
 

@@ -437,6 +437,16 @@ async function watchSession(sessionId) {
                       mode: item.mode
                     });
                   }
+                } else if (item.type === 'subagent_starting') {
+                  // Broadcast as top-level message so iOS .subagentStarting handler
+                  // catches it (not buried inside claude_output where description/agentType
+                  // fields are lost by ClaudeOutputData decoding)
+                  broadcastToClients({
+                    type: 'subagent_starting',
+                    sessionId: sessionId,
+                    description: item.description,
+                    agentType: item.agentType
+                  });
                 } else {
                   console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
                   broadcastToClients({
@@ -939,6 +949,8 @@ function parseLogEntry(entry) {
             });
             results.push({
               type: 'subagent_starting',
+              content: agentDescription,
+              tool: agentType,
               description: agentDescription,
               agentType: agentType,
               timestamp

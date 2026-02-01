@@ -118,6 +118,12 @@ public final class AppState {
     /// Queued prompt message during session switching
     public var pendingPromptMessage: ServerMessage?
 
+    // MARK: - Subagent Correlation
+    /// Pending subagent_starting messages awaiting agentId correlation (FIFO).
+    public var pendingSubagentMessages: [(description: String, messageIndex: Int)] = []
+    /// Maps agentId to index in messages array for in-place updates.
+    public var subagentMessageMap: [String: Int] = [:]
+
     // MARK: - Constants
     public static let maxMessages = 500
     public static let dedupWindow: TimeInterval = 10
@@ -153,6 +159,16 @@ public final class AppState {
     /// Clear all messages
     public func clearMessages() {
         messages.removeAll()
+        pendingSubagentMessages.removeAll()
+        subagentMessageMap.removeAll()
+    }
+
+    /// Update a subagent message's mutable fields by its index.
+    public func updateSubagentMessage(at index: Int, status: String?, tool: String?, agentId: String? = nil) {
+        guard index < messages.count else { return }
+        if let status { messages[index].subagentStatus = status }
+        if let tool { messages[index].subagentCurrentTool = tool }
+        if let agentId { messages[index].subagentAgentId = agentId }
     }
 
     // MARK: - Deduplication
@@ -201,6 +217,8 @@ public final class AppState {
         messages.removeAll()
         tasks.removeAll()
         activeSubagents.removeAll()
+        pendingSubagentMessages.removeAll()
+        subagentMessageMap.removeAll()
         contextTokensUsed = 0
         sessionStatus = .idle
         sessionMode = .defaultMode

@@ -252,32 +252,12 @@ struct AppCoordinatorTests {
     // MARK: - Token Usage
 
     @MainActor
-    @Test("tokenUsage appends formatted message")
-    func tokenUsage() {
+    @Test("tokenUsage does not append message to chat")
+    func tokenUsageNoMessage() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 1500, output: 200))
-        #expect(state.messages.count == 1)
-        #expect(state.messages[0].type == .tokenUsage)
-        #expect(state.messages[0].content == "1.5k in / 200 out")
-    }
-
-    @MainActor
-    @Test("tokenUsage formats millions")
-    func tokenUsageMillions() {
-        let state = AppState()
-        let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 2_500_000, output: nil))
-        #expect(state.messages[0].content == "2.5M in / 0 out")
-    }
-
-    @MainActor
-    @Test("tokenUsage handles nil values")
-    func tokenUsageNil() {
-        let state = AppState()
-        let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: nil, output: nil))
-        #expect(state.messages[0].content == "0 in / 0 out")
+        #expect(state.messages.isEmpty)
     }
 
     @MainActor
@@ -381,7 +361,7 @@ struct AppCoordinatorTests {
     // MARK: - Subagents
 
     @MainActor
-    @Test("subagentStarting appends message")
+    @Test("subagentStarting appends message with starting status and registers pending")
     func subagentStarting() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
@@ -390,39 +370,253 @@ struct AppCoordinatorTests {
         #expect(state.messages[0].type == .subagentStarting)
         #expect(state.messages[0].content == "Exploring code")
         #expect(state.messages[0].tool == "Explore")
+        #expect(state.messages[0].subagentStatus == "starting")
+        #expect(state.pendingSubagentMessages.count == 1)
+        #expect(state.pendingSubagentMessages[0].description == "Exploring code")
+        #expect(state.pendingSubagentMessages[0].messageIndex == 0)
     }
 
     @MainActor
-    @Test("subagentStart tracks in activeSubagents")
+    @Test("subagentStart correlates to pending message and sets running status")
     func subagentStart() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
+        // First, create a pending subagent_starting message
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
+        #expect(state.pendingSubagentMessages.count == 1)
+        // Now correlate via subagent_start
         coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore"))
         #expect(state.activeSubagents["a1"] != nil)
         #expect(state.activeSubagents["a1"]?.description == "Research")
         #expect(state.activeSubagents["a1"]?.agentType == "Explore")
+        // Correlation should have linked the message
+        #expect(state.subagentMessageMap["a1"] == 0)
+        #expect(state.messages[0].subagentStatus == "running")
+        #expect(state.messages[0].subagentAgentId == "a1")
+        // Pending should be consumed
+        #expect(state.pendingSubagentMessages.isEmpty)
     }
 
     @MainActor
-    @Test("subagentOutput appends message with subagent flag")
+    @Test("subagentOutput is suppressed from chat messages")
     func subagentOutput() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "Found it")
         coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
-        #expect(state.messages.count == 1)
-        #expect(state.messages[0].isSubagent == true)
-        #expect(state.messages[0].subagentId == "a1")
+        #expect(state.messages.isEmpty)
     }
 
     @MainActor
-    @Test("subagentStop marks agent as completed")
+    @Test("subagentStop marks agent and inline message as completed")
     func subagentStop() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        state.activeSubagents["a1"] = SubagentInfo(description: "test", agentType: "general")
+        // Set up: starting -> start -> stop
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general"))
+        #expect(state.messages[0].subagentStatus == "running")
         coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
         #expect(state.activeSubagents["a1"]?.status == "completed")
+        #expect(state.messages[0].subagentStatus == "completed")
+    }
+
+    // MARK: - Subagent Correlation (New Tests)
+
+    @MainActor
+    @Test("parallel subagent correlation: 3 starting + 3 start correctly correlate by description")
+    func parallelSubagentCorrelation() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // 3 subagents starting
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Performance check", agentType: "Bash"))
+        #expect(state.messages.count == 3)
+        #expect(state.pendingSubagentMessages.count == 3)
+        // Correlate in different order
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b2", sessionId: nil, description: "Code analysis", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b1", sessionId: nil, description: "Security review", agentType: "Plan"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b3", sessionId: nil, description: "Performance check", agentType: "Bash"))
+        // All should be correlated
+        #expect(state.pendingSubagentMessages.isEmpty)
+        #expect(state.subagentMessageMap["b1"] == 0)
+        #expect(state.subagentMessageMap["b2"] == 1)
+        #expect(state.subagentMessageMap["b3"] == 2)
+        #expect(state.messages[0].subagentStatus == "running")
+        #expect(state.messages[1].subagentStatus == "running")
+        #expect(state.messages[2].subagentStatus == "running")
+    }
+
+    @MainActor
+    @Test("subagentStart with no matching pending still tracks in activeSubagents")
+    func subagentStartNoMatchingPending() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // No subagentStarting was sent first
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Mystery agent", agentType: "general"))
+        #expect(state.activeSubagents["a1"] != nil)
+        #expect(state.activeSubagents["a1"]?.description == "Mystery agent")
+        // No message map entry since no pending message matched
+        #expect(state.subagentMessageMap["a1"] == nil)
+    }
+
+    @MainActor
+    @Test("subagentTool updates both activeSubagents and inline message")
+    func subagentToolUpdatesInlineCard() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Full lifecycle: starting -> start -> tool
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil))
+        #expect(state.activeSubagents["a1"]?.currentTool == "Read")
+        #expect(state.messages[0].subagentCurrentTool == "Read")
+        #expect(state.messages[0].subagentStatus == "running")
+    }
+
+    @MainActor
+    @Test("session switch clears pendingSubagentMessages and subagentMessageMap")
+    func sessionSwitchClearsSubagentState() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general"))
+        #expect(!state.subagentMessageMap.isEmpty)
+        // Switch session
+        state.beginSessionSwitch(to: "new-session")
+        #expect(state.pendingSubagentMessages.isEmpty)
+        #expect(state.subagentMessageMap.isEmpty)
+        #expect(state.messages.isEmpty)
+    }
+
+    @MainActor
+    @Test("updateSubagentMessage with out-of-bounds index does nothing")
+    func updateSubagentMessageOutOfBounds() {
+        let state = AppState()
+        // No messages exist
+        state.updateSubagentMessage(at: 5, status: "running", tool: "Bash")
+        #expect(state.messages.isEmpty)
+        // Add one message, try index beyond it
+        state.appendMessage(Message(type: .assistant, content: "hello"))
+        state.updateSubagentMessage(at: 10, status: "running", tool: "Bash")
+        #expect(state.messages[0].subagentStatus == nil)
+    }
+
+    @MainActor
+    @Test("suppressed subagentOutput with data does not increase message count")
+    func subagentOutputSuppressedWithData() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Pre-existing message
+        state.appendMessage(Message(type: .assistant, content: "existing"))
+        let initialCount = state.messages.count
+        // Send multiple subagent outputs
+        let data1 = ClaudeOutputData(type: "assistant", content: "Result 1")
+        let data2 = ClaudeOutputData(type: "tool", content: "Tool output", tool: "Bash")
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data1))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data2))
+        #expect(state.messages.count == initialCount)
+    }
+
+    @MainActor
+    @Test("two subagents full lifecycle: starting → start → tool → stop")
+    func twoSubagentsFullLifecycle() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+
+        // Both start
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"))
+        #expect(state.messages.count == 2)
+        #expect(state.messages[0].subagentStatus == "starting")
+        #expect(state.messages[1].subagentStatus == "starting")
+        #expect(state.pendingSubagentMessages.count == 2)
+
+        // Both correlate
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Security review", agentType: "Plan"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a2", sessionId: nil, description: "Code analysis", agentType: "Explore"))
+        #expect(state.messages[0].subagentStatus == "running")
+        #expect(state.messages[0].subagentAgentId == "a1")
+        #expect(state.messages[1].subagentStatus == "running")
+        #expect(state.messages[1].subagentAgentId == "a2")
+        #expect(state.pendingSubagentMessages.isEmpty)
+
+        // Tool updates on each
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Grep", input: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a2", tool: "Read", input: nil))
+        #expect(state.messages[0].subagentCurrentTool == "Grep")
+        #expect(state.messages[1].subagentCurrentTool == "Read")
+
+        // Outputs suppressed — message count stays at 2
+        let output1 = ClaudeOutputData(type: "assistant", content: "Found vulnerability")
+        let output2 = ClaudeOutputData(type: "assistant", content: "Code looks clean")
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: output1))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a2", sessionId: nil, data: output2))
+        #expect(state.messages.count == 2)
+
+        // a2 finishes first
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a2"))
+        #expect(state.messages[1].subagentStatus == "completed")
+        #expect(state.messages[1].subagentCurrentTool == nil)
+        #expect(state.messages[0].subagentStatus == "running")  // a1 still running
+
+        // a1 gets another tool update then finishes
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Bash", input: nil))
+        #expect(state.messages[0].subagentCurrentTool == "Bash")
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
+        #expect(state.messages[0].subagentStatus == "completed")
+        #expect(state.messages[0].subagentCurrentTool == nil)
+
+        // Both tracked in activeSubagents as completed
+        #expect(state.activeSubagents["a1"]?.status == "completed")
+        #expect(state.activeSubagents["a2"]?.status == "completed")
+
+        // Still only 2 messages total — no output noise
+        #expect(state.messages.count == 2)
+    }
+
+    @MainActor
+    @Test("subagent_starting via claude_output creates card with status and registers for correlation")
+    func subagentStartingViaClaudeOutput() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        // Simulate subagent_starting arriving as claude_output (older server / history fallback)
+        let data = ClaudeOutputData(type: "subagent_starting", content: "Security review", tool: "Plan")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        #expect(state.messages.count == 1)
+        #expect(state.messages[0].type == .subagentStarting)
+        #expect(state.messages[0].content == "Security review")
+        #expect(state.messages[0].tool == "Plan")
+        #expect(state.messages[0].subagentStatus == "starting")
+        // Should be registered for correlation
+        #expect(state.pendingSubagentMessages.count == 1)
+        #expect(state.pendingSubagentMessages[0].description == "Security review")
+    }
+
+    @MainActor
+    @Test("subagent_starting via claude_output correlates with subsequent subagent_start")
+    func subagentStartingViaClaudeOutputCorrelation() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        // subagent_starting via claude_output
+        let data = ClaudeOutputData(type: "subagent_starting", content: "Research code", tool: "Explore")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        // subagent_start correlates
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research code", agentType: "Explore"))
+        #expect(state.subagentMessageMap["a1"] == 0)
+        #expect(state.messages[0].subagentStatus == "running")
+        #expect(state.messages[0].subagentAgentId == "a1")
+        #expect(state.pendingSubagentMessages.isEmpty)
+        // Tool update should propagate
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil))
+        #expect(state.messages[0].subagentCurrentTool == "Read")
+        // Stop should complete the card
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
+        #expect(state.messages[0].subagentStatus == "completed")
+        #expect(state.messages[0].subagentCurrentTool == nil)
     }
 
     // MARK: - Mode Change

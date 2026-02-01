@@ -180,14 +180,41 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 if entry.type == "status_update" { continue }
                 // Skip local CLI commands (/compact, /help, etc.)
                 if entry.isLocalCommand { continue }
-                guard let msg = messageFromClaudeOutput(entry) else { continue }
+                guard var msg = messageFromClaudeOutput(entry) else { continue }
                 if msg.type == .toolResult {
                     state.mergeOrAppendToolResult(msg)
                 } else {
+                    // Set subagentStatus on history subagent_starting entries
+                    if entry.type == "subagent_starting" {
+                        msg.subagentStatus = "starting"
+                    }
                     state.appendMessage(msg)
+                    // Register for correlation so live subagent_start can link to it
+                    if entry.type == "subagent_starting" {
+                        state.pendingSubagentMessages.append(
+                            (description: entry.content ?? "", messageIndex: state.messages.count - 1)
+                        )
+                    }
                 }
             }
             promptService.recoverFromHistory(state.messages, sessionStatus: state.sessionStatus)
+            // Auto-complete any unmatched subagent cards after 30s (fast-finishing agents)
+            let pendingSnapshot = state.pendingSubagentMessages
+            if !pendingSnapshot.isEmpty {
+                Task { @MainActor [weak state] in
+                    try? await Task.sleep(for: .seconds(30))
+                    guard let state else { return }
+                    for pending in pendingSnapshot {
+                        // Only complete if still pending (not yet correlated by a live subagent_start)
+                        if state.pendingSubagentMessages.contains(where: { $0.messageIndex == pending.messageIndex }) {
+                            state.updateSubagentMessage(at: pending.messageIndex, status: "completed", tool: nil)
+                        }
+                    }
+                    state.pendingSubagentMessages.removeAll(where: { p in
+                        pendingSnapshot.contains(where: { $0.messageIndex == p.messageIndex })
+                    })
+                }
+            }
 
         case .claudeOutput(let sessionId, let data):
             // Ignore output from a different session (prevents cross-session message leaks)
@@ -201,6 +228,22 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                     state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
                 }
                 promptService.handleClaudeOutput(data)
+                return
+            }
+            // Subagent starting via claude_output fallback — handle like .subagentStarting
+            // (Server normally sends this as top-level subagent_starting, but history entries
+            // and older servers may still embed it in claude_output)
+            if data.type == "subagent_starting" {
+                let desc = data.content ?? ""
+                let msg = Message(
+                    type: .subagentStarting,
+                    content: desc,
+                    tool: data.tool,
+                    subagentStatus: "starting"
+                )
+                state.appendMessage(msg)
+                let index = state.messages.count - 1
+                state.pendingSubagentMessages.append((description: desc, messageIndex: index))
                 return
             }
             // Any non-status message means activity finished for that step
@@ -248,7 +291,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
             #endif
 
-        case .tokenUsage(let sessionId, let input, let output):
+        case .tokenUsage(let sessionId, let input, _):
             // Ignore token_usage from a different session (prevents cross-session contamination)
             if let sessionId, sessionId != state.currentSessionId { break }
 
@@ -259,12 +302,6 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if oldPct < 0.9 && newPct >= 0.9 {
                 state.showToast("Context nearly full — consider /compact", icon: "exclamationmark.triangle.fill", style: .warning)
             }
-
-            let msg = Message(
-                type: .tokenUsage,
-                content: formatTokenCount(input ?? 0, output ?? 0)
-            )
-            state.appendMessage(msg)
 
         case .taskCreate(let id, let subject, let description, let activeForm, let status):
             let task = TaskItem(id: id, subject: subject, status: status, description: description, activeForm: activeForm)
@@ -289,23 +326,35 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             let msg = Message(
                 type: .subagentStarting,
                 content: description,
-                tool: agentType
+                tool: agentType,
+                subagentStatus: "starting"
             )
             state.appendMessage(msg)
+            let index = state.messages.count - 1
+            state.pendingSubagentMessages.append((description: description, messageIndex: index))
 
         case .subagentStart(let agentId, _, let description, let agentType):
             state.activeSubagents[agentId] = SubagentInfo(
                 description: description ?? "",
                 agentType: agentType ?? "general"
             )
+            // Correlate to pending subagentStarting message (FIFO by description match)
+            if let idx = state.pendingSubagentMessages.firstIndex(where: { $0.description == (description ?? "") }) {
+                let msgIndex = state.pendingSubagentMessages[idx].messageIndex
+                state.pendingSubagentMessages.remove(at: idx)
+                state.subagentMessageMap[agentId] = msgIndex
+                state.updateSubagentMessage(at: msgIndex, status: "running", tool: nil, agentId: agentId)
+            }
 
-        case .subagentOutput(let agentId, _, let data):
-            guard let data, let msg = messageFromClaudeOutput(data, subagentId: agentId) else { return }
-            state.appendMessage(msg)
+        case .subagentOutput:
+            break  // Suppressed — activity shown in inline card + badge detail sheet
 
         case .subagentTool(let agentId, let tool, _):
             state.activeSubagents[agentId]?.currentTool = tool
             state.activeSubagents[agentId]?.lastActivity = Date()
+            if let msgIndex = state.subagentMessageMap[agentId] {
+                state.updateSubagentMessage(at: msgIndex, status: "running", tool: tool)
+            }
 
         case .subagentTokens(let agentId, let input, let output):
             if let input { state.activeSubagents[agentId]?.inputTokens += input }
@@ -313,6 +362,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
         case .subagentStop(let agentId):
             state.activeSubagents[agentId]?.status = "completed"
+            if let msgIndex = state.subagentMessageMap[agentId] {
+                state.updateSubagentMessage(at: msgIndex, status: "completed", tool: nil)
+                // Explicitly clear stale tool name on completion
+                state.messages[msgIndex].subagentCurrentTool = nil
+            }
 
         case .modeChange(let sessionId, let mode):
             // Ignore mode changes from a different session
