@@ -84,6 +84,69 @@ struct WebSocketServiceTests {
     }
 }
 
+@Suite("WebSocketService URL Conversion")
+struct WebSocketServiceURLTests {
+
+    @MainActor
+    @Test("http converts to ws with /ws path")
+    func httpToWs() {
+        let url = URL(string: "http://localhost:3456")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "ws")
+        #expect(result?.host == "localhost")
+        #expect(result?.port == 3456)
+        #expect(result?.path == "/ws")
+    }
+
+    @MainActor
+    @Test("https converts to wss with /ws path")
+    func httpsToWss() {
+        let url = URL(string: "https://myserver.com:8080")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "wss")
+        #expect(result?.host == "myserver.com")
+        #expect(result?.port == 8080)
+        #expect(result?.path == "/ws")
+    }
+
+    @MainActor
+    @Test("wss input stays wss")
+    func wssStaysWss() {
+        let url = URL(string: "wss://myserver.com/ws")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "wss")
+        #expect(result?.path == "/ws")
+    }
+
+    @MainActor
+    @Test("preserves existing non-root path")
+    func preservesExistingPath() {
+        let url = URL(string: "https://myserver.com/custom/path")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "wss")
+        #expect(result?.path == "/custom/path")
+    }
+
+    @MainActor
+    @Test("handles trailing slash")
+    func handlesTrailingSlash() {
+        let url = URL(string: "http://localhost:3456/")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "ws")
+        #expect(result?.path == "/ws")
+    }
+
+    @MainActor
+    @Test("preserves host without port")
+    func preservesHostNoPort() {
+        let url = URL(string: "http://192.168.1.100")!
+        let result = WebSocketService.webSocketURL(from: url)
+        #expect(result?.scheme == "ws")
+        #expect(result?.host == "192.168.1.100")
+        #expect(result?.path == "/ws")
+    }
+}
+
 @Suite("WebSocketService Delegate")
 struct WebSocketServiceDelegateTests {
 

@@ -14,12 +14,7 @@ public struct AuthView: View {
 
     /// True when the server URL uses plain HTTP to a non-localhost host.
     private var isInsecureRemote: Bool {
-        guard let url = URL(string: serverURL),
-              url.scheme?.lowercased() == "http",
-              let host = url.host?.lowercased() else {
-            return false
-        }
-        return host != "localhost" && host != "127.0.0.1"
+        AuthHelpers.isInsecureRemote(serverURL)
     }
 
     public var body: some View {
@@ -152,5 +147,21 @@ public struct AuthView: View {
 
         coordinator.connect(url: wsURL, token: token)
         // isAuthenticated is set by AppCoordinator when authResult(success: true) arrives
+    }
+}
+
+// MARK: - Extracted Logic (Testable)
+
+/// Pure validation logic extracted from AuthView for testability.
+public enum AuthHelpers {
+
+    /// True when the URL uses plain HTTP to a non-localhost host.
+    public static func isInsecureRemote(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString),
+              url.scheme?.lowercased() == "http",
+              let host = url.host?.lowercased() else {
+            return false
+        }
+        return host != "localhost" && host != "127.0.0.1"
     }
 }

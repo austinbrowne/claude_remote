@@ -169,6 +169,131 @@ struct AppStateTests {
         #expect(state.contextPercentage == 0)
     }
 
+    // MARK: - mergeOrAppendToolResult
+
+    @MainActor
+    @Test("mergeOrAppendToolResult merges by toolUseId")
+    func mergeToolResultByToolUseId() {
+        let state = AppState()
+        let toolMsg = Message(type: .tool, content: nil, tool: "Bash", toolUseId: "tu-1")
+        state.appendMessage(toolMsg)
+        #expect(state.messages.count == 1)
+        #expect(state.messages[0].resultContent == nil)
+
+        let resultMsg = Message(type: .toolResult, content: "output here", toolUseId: "tu-1")
+        state.mergeOrAppendToolResult(resultMsg)
+        // Should merge, not append
+        #expect(state.messages.count == 1)
+        #expect(state.messages[0].resultContent == "output here")
+    }
+
+    @MainActor
+    @Test("mergeOrAppendToolResult appends when no matching toolUseId")
+    func mergeToolResultNoMatch() {
+        let state = AppState()
+        let toolMsg = Message(type: .tool, content: nil, tool: "Bash", toolUseId: "tu-1")
+        state.appendMessage(toolMsg)
+
+        let resultMsg = Message(type: .toolResult, content: "output", toolUseId: "tu-999")
+        state.mergeOrAppendToolResult(resultMsg)
+        // Should append as new message
+        #expect(state.messages.count == 2)
+    }
+
+    @MainActor
+    @Test("mergeOrAppendToolResult appends when no toolUseId")
+    func mergeToolResultNilToolUseId() {
+        let state = AppState()
+        let resultMsg = Message(type: .toolResult, content: "standalone result")
+        state.mergeOrAppendToolResult(resultMsg)
+        #expect(state.messages.count == 1)
+        #expect(state.messages[0].content == "standalone result")
+    }
+
+    @MainActor
+    @Test("mergeOrAppendToolResult matches permissionRequest type")
+    func mergeToolResultMatchesPermissionRequest() {
+        let state = AppState()
+        let permMsg = Message(type: .permissionRequest, content: "Allow?", tool: "Bash", toolUseId: "tu-1")
+        state.appendMessage(permMsg)
+
+        let resultMsg = Message(type: .toolResult, content: "allowed", toolUseId: "tu-1")
+        state.mergeOrAppendToolResult(resultMsg)
+        // Should merge into the permissionRequest
+        #expect(state.messages.count == 1)
+        #expect(state.messages[0].resultContent == "allowed")
+    }
+
+    @MainActor
+    @Test("mergeOrAppendToolResult merges into last matching message")
+    func mergeToolResultLastMatch() {
+        let state = AppState()
+        // Two tool messages with the same toolUseId (shouldn't happen, but tests lastIndex)
+        let first = Message(type: .tool, content: "first", tool: "Bash", toolUseId: "tu-1")
+        let second = Message(type: .tool, content: "second", tool: "Bash", toolUseId: "tu-1")
+        state.appendMessage(first)
+        state.appendMessage(second)
+
+        let resultMsg = Message(type: .toolResult, content: "result", toolUseId: "tu-1")
+        state.mergeOrAppendToolResult(resultMsg)
+        // Should merge into the LAST match (index 1)
+        #expect(state.messages.count == 2)
+        #expect(state.messages[0].resultContent == nil)
+        #expect(state.messages[1].resultContent == "result")
+    }
+
+    @MainActor
+    @Test("mergeOrAppendToolResult sets resultIsError")
+    func mergeToolResultSetsError() {
+        let state = AppState()
+        let toolMsg = Message(type: .tool, content: nil, tool: "Bash", toolUseId: "tu-1")
+        state.appendMessage(toolMsg)
+
+        let resultMsg = Message(type: .toolResult, content: "error output", toolUseId: "tu-1", resultIsError: true)
+        state.mergeOrAppendToolResult(resultMsg)
+        #expect(state.messages[0].resultIsError == true)
+        #expect(state.messages[0].resultContent == "error output")
+    }
+
+    // MARK: - Filtering
+
+    @MainActor
+    @Test("appendMessage filters '(no content)' messages")
+    func appendMessageFiltersNoContent() {
+        let state = AppState()
+        state.appendMessage(Message(type: .assistant, content: "(no content)"))
+        #expect(state.messages.isEmpty)
+    }
+
+    @MainActor
+    @Test("appendMessage filters '(no content)' with whitespace")
+    func appendMessageFiltersNoContentWhitespace() {
+        let state = AppState()
+        state.appendMessage(Message(type: .assistant, content: "  (no content)  "))
+        #expect(state.messages.isEmpty)
+    }
+
+    // MARK: - Dedup Expiration
+
+    @MainActor
+    @Test("dedup expires after window")
+    func dedupExpires() {
+        let state = AppState()
+        // Manually insert an expired entry
+        let key = AppState.normalizeForDedup("old message")
+        state.recentUserMessages[key] = Date().addingTimeInterval(-(AppState.dedupWindow + 1))
+
+        // Tracking a new message triggers cleanup
+        state.trackSentMessage("new message")
+
+        // The old entry should be cleaned up
+        #expect(state.shouldDedupeMessage("old message") == false)
+        // The new entry should still be valid
+        #expect(state.shouldDedupeMessage("new message") == true)
+    }
+
+    // MARK: - Constants
+
     @MainActor
     @Test("maxMessages constant is 500")
     func maxMessagesConstant() {

@@ -300,6 +300,39 @@ struct AppCoordinatorTests {
         #expect(state.contextTokensUsed == 0)
     }
 
+    @MainActor
+    @Test("tokenUsage crossing 90% fires warning toast")
+    func tokenUsageCrossing90() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Set below 90% first
+        state.contextTokensUsed = 170_000  // 85%
+        state.currentToast = nil
+        // Now push above 90%
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 185_000, output: 100))
+        #expect(state.contextTokensUsed == 185_000)
+        #expect(state.currentToast != nil)
+        #expect(state.currentToast?.message.contains("compact") == true)
+        #expect(state.currentToast?.style == .warning)
+    }
+
+    @MainActor
+    @Test("tokenUsage already above 90% does not re-fire toast")
+    func tokenUsageAlreadyAbove90() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        // Already above 90%
+        state.contextTokensUsed = 185_000
+        state.currentToast = nil
+        // Update again still above 90%
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 190_000, output: 100))
+        #expect(state.contextTokensUsed == 190_000)
+        // Toast should NOT fire (already was above 90%)
+        // The only toast would be from the message append, not the threshold
+        // Check that no warning toast was set
+        #expect(state.currentToast == nil)
+    }
+
     // MARK: - Tasks
 
     @MainActor
