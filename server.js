@@ -400,6 +400,9 @@ async function watchSession(sessionId) {
           if (lastNewlineIndex === -1) break; // No complete lines yet
 
           const completeContent = newContent.substring(0, lastNewlineIndex);
+          // Calculate byte length of consumed content (including the newline)
+          // so lastPosition stays aligned with the file's byte offset
+          const consumedBytes = Buffer.byteLength(completeContent + '\n', 'utf8');
           const lines = completeContent.split('\n').filter(line => line.trim());
 
           let linesProcessed = false;
@@ -477,7 +480,7 @@ async function watchSession(sessionId) {
             }
           }
 
-          lastPosition += lastNewlineIndex + 1;
+          lastPosition += consumedBytes;
 
           if (linesProcessed) {
             const newStatus = await getSessionStatus(session.logFile);
