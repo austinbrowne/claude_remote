@@ -1,40 +1,73 @@
 import SwiftUI
 
-/// Renders the current prompt card (permission or question)
+/// Renders the prompt queue as a stacked card list.
+/// Queue head is actionable; non-head items show as pending with disabled buttons.
 struct PromptCardView: View {
     @Environment(AppCoordinator.self) private var coordinator
 
+    /// Maximum number of fully-rendered cards before showing "+N more"
+    private static let maxVisible = 3
+
+    private var queue: [PromptItem] { coordinator.promptService.promptQueue }
+
     var body: some View {
-        if let prompt = coordinator.promptService.currentPrompt {
+        if !queue.isEmpty {
             VStack(spacing: 0) {
                 Divider()
-                cardContent(for: prompt)
-                    .padding(12)
-                    .background(.regularMaterial)
+                VStack(spacing: 8) {
+                    ForEach(Array(queue.prefix(Self.maxVisible).enumerated()), id: \.element.id) { index, prompt in
+                        cardContent(for: prompt, isHead: index == 0)
+                    }
+                    if queue.count > Self.maxVisible {
+                        overflowIndicator(remaining: queue.count - Self.maxVisible)
+                    }
+                }
+                .padding(12)
+                .background(.regularMaterial)
             }
         }
     }
 
     @ViewBuilder
-    private func cardContent(for prompt: PromptItem) -> some View {
-        switch prompt.kind {
-        case .permission(let tool, let command, let isDestructive):
-            PermissionCardContent(
-                tool: tool,
-                command: command,
-                isDestructive: isDestructive,
-                isStale: prompt.isStale,
-                onRespond: { coordinator.promptService.respondPermission($0) }
-            )
+    private func cardContent(for prompt: PromptItem, isHead: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let desc = prompt.agentDescription {
+                Text(desc)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .padding(.bottom, 4)
+            }
 
-        case .question(let questions):
-            QuestionCardContent(
-                questions: questions,
-                isStale: prompt.isStale,
-                onRespond: { coordinator.promptService.respond(text: $0) },
-                onRespondMulti: { coordinator.promptService.respondMultiSelect($0) }
-            )
+            switch prompt.kind {
+            case .permission(let tool, let command, let isDestructive):
+                PermissionCardContent(
+                    tool: tool,
+                    command: command,
+                    isDestructive: isDestructive,
+                    isStale: prompt.isStale,
+                    isHead: isHead,
+                    onRespond: { coordinator.promptService.respondPermission($0) }
+                )
+
+            case .question(let questions):
+                QuestionCardContent(
+                    questions: questions,
+                    isStale: prompt.isStale,
+                    isHead: isHead,
+                    onRespond: { coordinator.promptService.respond(text: $0) },
+                    onRespondMulti: { coordinator.promptService.respondMultiSelect($0) }
+                )
+            }
         }
+        .opacity(isHead ? 1.0 : 0.6)
+    }
+
+    private func overflowIndicator(remaining: Int) -> some View {
+        Text("+\(remaining) more pending")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
     }
 }
 
@@ -53,6 +86,19 @@ private struct StaleBadge: View {
     }
 }
 
+private struct PendingBadge: View {
+    var body: some View {
+        Text("Pending")
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.secondary.opacity(0.2))
+            .foregroundStyle(.secondary)
+            .clipShape(Capsule())
+    }
+}
+
 // MARK: - Permission Card
 
 private struct PermissionCardContent: View {
@@ -60,6 +106,7 @@ private struct PermissionCardContent: View {
     let command: String?
     let isDestructive: Bool
     let isStale: Bool
+    let isHead: Bool
     let onRespond: (PermissionChoice) -> Void
 
     var body: some View {
@@ -68,7 +115,9 @@ private struct PermissionCardContent: View {
                 Text("Allow \(tool ?? "Tool")?")
                     .font(.headline)
                 Spacer()
-                if isStale {
+                if !isHead {
+                    PendingBadge()
+                } else if isStale {
                     StaleBadge()
                 }
             }
@@ -76,38 +125,40 @@ private struct PermissionCardContent: View {
             if let command, !command.isEmpty {
                 Text(command)
                     .font(.system(.caption, design: .monospaced))
-                    .lineLimit(3)
+                    .lineLimit(isHead ? 3 : 1)
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.gray.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
-            HStack(spacing: 10) {
-                Button {
-                    onRespond(.deny)
-                } label: {
-                    Text("Deny")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(isDestructive ? .red : nil)
+            if isHead {
+                HStack(spacing: 10) {
+                    Button {
+                        onRespond(.deny)
+                    } label: {
+                        Text("Deny")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(isDestructive ? .red : nil)
 
-                Button {
-                    onRespond(.allow)
-                } label: {
-                    Text("Allow")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
+                    Button {
+                        onRespond(.allow)
+                    } label: {
+                        Text("Allow")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
 
-                Button {
-                    onRespond(.allowAlways)
-                } label: {
-                    Text("Always")
-                        .frame(maxWidth: .infinity)
+                    Button {
+                        onRespond(.allowAlways)
+                    } label: {
+                        Text("Always")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
         }
     }
@@ -118,6 +169,7 @@ private struct PermissionCardContent: View {
 private struct QuestionCardContent: View {
     let questions: [QuestionData]
     let isStale: Bool
+    let isHead: Bool
     let onRespond: (String) -> Void
     let onRespondMulti: ([String]) -> Void
 
@@ -126,6 +178,7 @@ private struct QuestionCardContent: View {
             SingleQuestionView(
                 question: question,
                 isStale: isStale,
+                isHead: isHead,
                 onSubmit: onRespond,
                 onSubmitMulti: onRespondMulti
             )
@@ -136,6 +189,7 @@ private struct QuestionCardContent: View {
 private struct SingleQuestionView: View {
     let question: QuestionData
     let isStale: Bool
+    let isHead: Bool
     let onSubmit: (String) -> Void
     let onSubmitMulti: ([String]) -> Void
 
@@ -157,7 +211,9 @@ private struct SingleQuestionView: View {
                         .font(.headline)
                 }
                 Spacer()
-                if isStale {
+                if !isHead {
+                    PendingBadge()
+                } else if isStale {
                     StaleBadge()
                 }
             }
@@ -273,7 +329,7 @@ private struct SingleQuestionView: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!canSubmit)
+        .disabled(!canSubmit || !isHead)
     }
 
     private var canSubmit: Bool {

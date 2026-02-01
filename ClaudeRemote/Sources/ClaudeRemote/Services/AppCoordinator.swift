@@ -74,6 +74,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         }
         webSocket?.setLastWatchedSession(sessionId)
         webSocket?.send(.watchSession(sessionId: sessionId))
+        promptService.clearQueue()
         promptService.sessionId = sessionId
     }
 
@@ -346,8 +347,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.updateSubagentMessage(at: msgIndex, status: "running", tool: nil, agentId: agentId)
             }
 
-        case .subagentOutput:
-            break  // Suppressed — activity shown in inline card + badge detail sheet
+        case .subagentOutput(let agentId, _, let data):
+            // Route subagent permission_request and ask_user_question to the prompt queue
+            if let data, (data.type == "permission_request" || data.type == "ask_user_question") {
+                let desc = state.activeSubagents[agentId]?.description
+                promptService.handleClaudeOutput(data, agentDescription: desc)
+            }
+            // Other subagent output suppressed — activity shown in inline card + badge detail sheet
 
         case .subagentTool(let agentId, let tool, _):
             state.activeSubagents[agentId]?.currentTool = tool

@@ -115,8 +115,6 @@ public final class AppState {
     // MARK: - Pending State
     /// Recent user messages for deduplication (normalized content -> timestamp)
     public var recentUserMessages: [String: Date] = [:]
-    /// Queued prompt message during session switching
-    public var pendingPromptMessage: ServerMessage?
 
     // MARK: - Subagent Correlation
     /// Pending subagent_starting messages awaiting agentId correlation (FIFO).

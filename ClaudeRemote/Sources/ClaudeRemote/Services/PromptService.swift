@@ -20,40 +20,60 @@ public struct PromptItem: Identifiable, Sendable, Equatable {
     public let kind: PromptKind
     public let arrivedAt: Date
     public var isStale: Bool
+    /// Correlation ID for matching tool_result dismissals to the correct queue item
+    public let toolUseId: String?
+    /// Human-readable label for subagent permissions (e.g. "Security review of iOS app")
+    public let agentDescription: String?
+    /// Monotonic arrival order for FIFO sorting (0 = unordered, appended at end)
+    let arrivalOrder: Int
 
     public init(
         kind: PromptKind,
         arrivedAt: Date = Date(),
-        isStale: Bool = false
+        isStale: Bool = false,
+        toolUseId: String? = nil,
+        agentDescription: String? = nil,
+        arrivalOrder: Int = 0
     ) {
         self.id = UUID()
         self.kind = kind
         self.arrivedAt = arrivedAt
         self.isStale = isStale
+        self.toolUseId = toolUseId
+        self.agentDescription = agentDescription
+        self.arrivalOrder = arrivalOrder
     }
 }
 
 /// Manages prompt queue, delay-suppress, staleness, auto-dismiss, and history recovery.
 ///
-/// Ported from the web client's `prompts.js` patterns.
+/// Supports multiple concurrent permissions via a FIFO queue. The queue head
+/// (`currentPrompt`) is the actionable item; subsequent items are visible but
+/// have disabled buttons until they become the head.
 @Observable
 @MainActor
 public final class PromptService {
     // MARK: - Public State
 
-    /// The active prompt being displayed (nil when no prompt)
-    public private(set) var currentPrompt: PromptItem?
+    /// All pending prompts in FIFO order. The head (first) is the active prompt.
+    public private(set) var promptQueue: [PromptItem] = []
+
+    /// The active prompt being displayed — queue head (nil when queue is empty).
+    public var currentPrompt: PromptItem? { promptQueue.first }
 
     // MARK: - Internal State
 
-    /// Number of messages received since the current prompt was shown
+    /// Number of messages received since any prompt was shown
     private var messagesSincePrompt = 0
 
-    /// Pending permission waiting for the 500ms delay to elapse
-    private var pendingPermission: PromptItem?
+    /// Monotonic counter for preserving FIFO order among pending permissions
+    private var arrivalCounter: Int = 0
 
-    /// Timer task for the 500ms permission delay
-    private var delayTask: Task<Void, Never>?
+    /// Permissions waiting for their individual 500ms delays to elapse (keyed by pendingKey)
+    private var pendingPermissions: [String: (item: PromptItem, order: Int)] = [:]
+
+    /// Independent 500ms delay tasks per pending permission (keyed by pendingKey)
+    private var delayTasks: [String: Task<Void, Never>] = [:]
 
     /// Task for multi-select sequential injection
     private var multiSelectTask: Task<Void, Never>?
@@ -76,20 +96,19 @@ public final class PromptService {
     // MARK: - Public API
 
     /// Handle a claude_output message from the server
-    public func handleClaudeOutput(_ data: ClaudeOutputData) {
+    public func handleClaudeOutput(_ data: ClaudeOutputData, agentDescription: String? = nil) {
         switch data.type {
         case "permission_request":
-            handlePermissionRequest(data)
+            handlePermissionRequest(data, agentDescription: agentDescription)
 
         case "ask_user_question":
-            handleQuestion(data)
+            handleQuestion(data, agentDescription: agentDescription)
 
         case "tool_result":
-            // Cancel pending permission if tool_result arrives within 500ms
-            cancelPendingPermission()
-            // Auto-dismiss current permission prompt
-            if case .permission = currentPrompt?.kind {
-                dismissPrompt()
+            // Cancel pending permission matching this tool_result's toolUseId,
+            // or dismiss from queue if already enqueued (but not both)
+            if !cancelPendingPermission(toolUseId: data.toolUseId) {
+                dismissPermission(toolUseId: data.toolUseId)
             }
             incrementMessageCounter()
 
@@ -104,70 +123,90 @@ public final class PromptService {
     /// Handle a session_status change
     public func handleSessionStatus(_ status: SessionStatus) {
         if status == .processing {
-            // Claude moved on — dismiss any active prompt
-            dismissPrompt()
-            cancelPendingPermission()
+            // Claude moved on — dismiss all prompts and pending permissions
+            clearQueue()
         }
     }
 
-    /// Recover a prompt from history (called after loading history messages)
+    /// Recover prompts from history (called after loading history messages).
+    /// Finds ALL unmatched permission_request/ask_user_question entries.
     public func recoverFromHistory(_ messages: [Message], sessionStatus: SessionStatus) {
         guard sessionStatus == .waiting else { return }
 
-        // Scan backwards for the last permission_request or ask_user_question
-        // that doesn't have a subsequent tool_result or user message
-        var foundPromptIndex: Int?
+        // Collect all prompt messages and track which have been answered
+        var answeredToolUseIds: Set<String> = []
+        var unansweredPrompts: [Message] = []
+
+        // Scan forward to find tool_results and user messages
+        for msg in messages {
+            if msg.type == .toolResult, let tuId = msg.toolUseId {
+                answeredToolUseIds.insert(tuId)
+            }
+        }
+
+        // Scan backwards to find unanswered prompts
+        // Stop at the first user message (everything before it was answered)
         for i in stride(from: messages.count - 1, through: 0, by: -1) {
             let msg = messages[i]
-            if msg.type == .toolResult || msg.type == .user {
-                // A response was already given — no recovery needed
+            if msg.type == .user {
                 break
             }
             if msg.type == .permissionRequest || msg.type == .askUserQuestion {
-                foundPromptIndex = i
-                break
+                if let tuId = msg.toolUseId, answeredToolUseIds.contains(tuId) {
+                    continue // Already answered
+                }
+                unansweredPrompts.insert(msg, at: 0) // Maintain order
             }
         }
 
-        guard let index = foundPromptIndex else { return }
-        let msg = messages[index]
-
-        if msg.type == .permissionRequest {
-            let prompt = PromptItem(
-                kind: .permission(
-                    tool: msg.tool,
-                    command: extractCommand(from: msg),
-                    isDestructive: msg.isDestructive
-                ),
-                arrivedAt: msg.timestamp,
-                isStale: true
-            )
-            showPrompt(prompt)
-        } else if msg.type == .askUserQuestion, let questions = msg.questions, !questions.isEmpty {
-            let prompt = PromptItem(
-                kind: .question(questions: questions),
-                arrivedAt: msg.timestamp,
-                isStale: true
-            )
-            showPrompt(prompt)
+        for msg in unansweredPrompts {
+            if msg.type == .permissionRequest {
+                let prompt = PromptItem(
+                    kind: .permission(
+                        tool: msg.tool,
+                        command: extractCommand(from: msg),
+                        isDestructive: msg.isDestructive
+                    ),
+                    arrivedAt: msg.timestamp,
+                    isStale: true,
+                    toolUseId: msg.toolUseId
+                )
+                enqueuePrompt(prompt)
+            } else if msg.type == .askUserQuestion, let questions = msg.questions, !questions.isEmpty {
+                let prompt = PromptItem(
+                    kind: .question(questions: questions),
+                    arrivedAt: msg.timestamp,
+                    isStale: true
+                )
+                enqueuePrompt(prompt)
+            }
         }
     }
 
-    /// Dismiss the current prompt
+    /// Dismiss the current (head) prompt
     public func dismiss() {
-        dismissPrompt()
+        dismissHead()
+        // Cancel multi-select even if queue was already empty
+        // (respondMultiSelect dismisses head before starting its task)
+        multiSelectTask?.cancel()
+        multiSelectTask = nil
     }
 
     /// Respond with a single text value (for "Other" freeform input or single-select)
     public func respond(text: String) {
         guard let sid = sessionId else { return }
         sendHandler?(.inject(command: text, sessionId: sid))
-        dismissPrompt()
+        dismissHead()
     }
 
-    /// Respond to a permission prompt
+    /// Respond to a permission prompt (always applies to queue head)
     public func respondPermission(_ choice: PermissionChoice) {
         guard let sid = sessionId else { return }
+        let respondedTool = currentPrompt.flatMap { prompt -> String? in
+            if case .permission(let tool, _, _) = prompt.kind { return tool }
+            return nil
+        }
+
         switch choice {
         case .allow:
             sendHandler?(.inject(command: "y", sessionId: sid))
@@ -176,14 +215,19 @@ public final class PromptService {
         case .deny:
             sendHandler?(.inject(command: "n", sessionId: sid))
         }
-        dismissPrompt()
+        dismissHead()
+
+        // "Allow Always" cascade: remove other permissions with the same tool
+        if choice == .allowAlways, let tool = respondedTool {
+            cascadeAlwaysAllow(tool: tool)
+        }
     }
 
     /// Respond with multiple selections (multi-select question)
     /// Injects each selection with 1000ms delay, then submits with empty string
     public func respondMultiSelect(_ selections: [String]) {
         guard let sid = sessionId else { return }
-        dismissPrompt()
+        dismissHead()
 
         multiSelectTask = Task { @MainActor [sendHandler] in
             for selection in selections {
@@ -197,65 +241,146 @@ public final class PromptService {
         }
     }
 
+    /// Clear the entire queue (used on session switch)
+    public func clearQueue() {
+        promptQueue.removeAll()
+        messagesSincePrompt = 0
+        cancelAllPendingPermissions()
+        multiSelectTask?.cancel()
+        multiSelectTask = nil
+    }
+
     // MARK: - Private
 
-    private func handlePermissionRequest(_ data: ClaudeOutputData) {
-        // Cancel any existing pending permission
-        cancelPendingPermission()
-
+    private func handlePermissionRequest(_ data: ClaudeOutputData, agentDescription: String?) {
         let command = data.content ?? data.input?["command"]?.stringValue
+        let pendingKey = data.toolUseId ?? UUID().uuidString
+        arrivalCounter += 1
+        let order = arrivalCounter
         let prompt = PromptItem(
             kind: .permission(
                 tool: data.tool,
                 command: command,
                 isDestructive: data.isDestructive ?? false
-            )
+            ),
+            toolUseId: data.toolUseId,
+            agentDescription: agentDescription,
+            arrivalOrder: order
         )
 
-        // Store as pending and start 500ms timer
-        pendingPermission = prompt
-        delayTask = Task { @MainActor [weak self] in
+        // Store as pending with arrival order and start independent 500ms timer
+        pendingPermissions[pendingKey] = (item: prompt, order: order)
+        delayTasks[pendingKey] = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let self else { return }
-            // Timer fired — show the permission card
-            if let pending = self.pendingPermission {
-                self.pendingPermission = nil
-                self.showPrompt(pending)
+            if let pending = self.pendingPermissions.removeValue(forKey: pendingKey) {
+                self.delayTasks.removeValue(forKey: pendingKey)
+                self.enqueuePrompt(pending.item)
             }
         }
     }
 
-    private func handleQuestion(_ data: ClaudeOutputData) {
+    private func handleQuestion(_ data: ClaudeOutputData, agentDescription: String?) {
         guard let questions = data.questions, !questions.isEmpty else { return }
         // Questions show immediately (no delay)
-        let prompt = PromptItem(kind: .question(questions: questions))
-        showPrompt(prompt)
+        let prompt = PromptItem(
+            kind: .question(questions: questions),
+            agentDescription: agentDescription
+        )
+        enqueuePrompt(prompt)
     }
 
-    private func cancelPendingPermission() {
-        delayTask?.cancel()
-        delayTask = nil
-        pendingPermission = nil
+    /// Cancel a pending permission (still in its 500ms delay). Returns true if found.
+    @discardableResult
+    private func cancelPendingPermission(toolUseId: String?) -> Bool {
+        if let toolUseId {
+            // Cancel the specific pending permission matching this toolUseId
+            for (key, pending) in pendingPermissions where pending.item.toolUseId == toolUseId {
+                delayTasks[key]?.cancel()
+                delayTasks.removeValue(forKey: key)
+                pendingPermissions.removeValue(forKey: key)
+                return true
+            }
+        }
+        // Fallback: cancel the oldest pending permission (by arrival order)
+        if let oldest = pendingPermissions.min(by: { $0.value.order < $1.value.order })?.key {
+            delayTasks[oldest]?.cancel()
+            delayTasks.removeValue(forKey: oldest)
+            pendingPermissions.removeValue(forKey: oldest)
+            return true
+        }
+        return false
     }
 
-    private func showPrompt(_ prompt: PromptItem) {
-        currentPrompt = prompt
+    private func cancelAllPendingPermissions() {
+        for (_, task) in delayTasks { task.cancel() }
+        delayTasks.removeAll()
+        pendingPermissions.removeAll()
+    }
+
+    /// Enqueue a prompt. Items with arrivalOrder > 0 are inserted in FIFO order
+    /// to handle 500ms delay tasks that may fire out of scheduling order.
+    /// Items with arrivalOrder == 0 (questions, history recovery) are appended at the end.
+    private func enqueuePrompt(_ prompt: PromptItem) {
+        if prompt.arrivalOrder > 0 {
+            // Sorted insertion: find first item with a higher arrivalOrder
+            let insertAt = promptQueue.firstIndex(where: { $0.arrivalOrder > prompt.arrivalOrder })
+                ?? promptQueue.count
+            promptQueue.insert(prompt, at: insertAt)
+        } else {
+            promptQueue.append(prompt)
+        }
+        if promptQueue.count == 1 {
+            messagesSincePrompt = 0
+        }
+    }
+
+    private func dismissHead() {
+        guard !promptQueue.isEmpty else { return }
+        promptQueue.removeFirst()
         messagesSincePrompt = 0
-    }
-
-    private func dismissPrompt() {
-        currentPrompt = nil
-        messagesSincePrompt = 0
-        cancelPendingPermission()
         multiSelectTask?.cancel()
         multiSelectTask = nil
     }
 
+    /// Dismiss a specific queued permission matching a tool_result's toolUseId
+    private func dismissPermission(toolUseId: String?) {
+        if let toolUseId {
+            if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
+                promptQueue.remove(at: idx)
+                return
+            }
+        }
+        // Fallback: dismiss the head if it's a permission
+        if case .permission = promptQueue.first?.kind {
+            dismissHead()
+        }
+    }
+
+    /// After "Allow Always", proactively remove other permissions for the same tool
+    private func cascadeAlwaysAllow(tool: String) {
+        // Cancel pending permissions for the same tool
+        for (key, pending) in pendingPermissions {
+            if case .permission(let t, _, _) = pending.item.kind, t == tool {
+                delayTasks[key]?.cancel()
+                delayTasks.removeValue(forKey: key)
+                pendingPermissions.removeValue(forKey: key)
+            }
+        }
+        // Remove queued permissions for the same tool
+        promptQueue.removeAll { item in
+            if case .permission(let t, _, _) = item.kind { return t == tool }
+            return false
+        }
+    }
+
     private func incrementMessageCounter() {
-        guard currentPrompt != nil else { return }
+        guard !promptQueue.isEmpty else { return }
         messagesSincePrompt += 1
-        if messagesSincePrompt >= 2, currentPrompt?.isStale == false {
-            currentPrompt?.isStale = true
+        if messagesSincePrompt >= 2 {
+            for i in promptQueue.indices where !promptQueue[i].isStale {
+                promptQueue[i].isStale = true
+            }
         }
     }
 

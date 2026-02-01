@@ -130,13 +130,13 @@ struct MainView: View {
                     activityBar(activity)
                         .transition(.opacity)
                 }
-                if coordinator.promptService.currentPrompt != nil {
+                if !coordinator.promptService.promptQueue.isEmpty {
                     PromptCardView()
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 InputBarView()
             }
-            .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.currentPrompt != nil)
+            .animation(.easeInOut(duration: 0.25), value: coordinator.promptService.promptQueue.count)
             .animation(.easeInOut(duration: 0.2), value: state.currentActivity != nil)
         }
         .navigationTitle(currentSessionName)
