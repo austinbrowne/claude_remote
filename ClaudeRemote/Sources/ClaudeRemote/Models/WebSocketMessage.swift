@@ -12,7 +12,7 @@ public enum ServerMessage: Sendable {
     case claudeOutput(sessionId: String, data: ClaudeOutputData)
     case sessionStatus(sessionId: String, status: String, lastActive: String?)
     case statusUpdate(status: String)
-    case tokenUsage(input: Int?, output: Int?)
+    case tokenUsage(sessionId: String?, input: Int?, output: Int?)
     case taskCreate(id: String?, subject: String, description: String?, activeForm: String?, status: String?)
     case taskUpdate(taskId: String, status: String, subject: String?)
     case taskList(tasks: [TaskItem])
@@ -25,6 +25,7 @@ public enum ServerMessage: Sendable {
     case injectResult(success: Bool, error: String?)
     case escapeResult(success: Bool, error: String?)
     case modeToggleResult(success: Bool, error: String?)
+    case modeChange(sessionId: String?, mode: String)
     case error(code: String, message: String, details: [String: AnyCodableValue]?)
     case pong(timestamp: Int)
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
@@ -43,6 +44,13 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
     public let isDestructive: Bool?
     public let toolUseId: String?
     public let isError: Bool?
+
+    /// Whether this entry is a local CLI command (/compact, /help, etc.)
+    /// that should not be displayed in the message list.
+    public var isLocalCommand: Bool {
+        guard type == "user", let content else { return false }
+        return content.contains("<command-name>") || content.contains("<command-message>")
+    }
 
     public init(
         type: String,
@@ -208,8 +216,8 @@ extension ServerMessage: Decodable {
         case data
         // watching, session_status, claude_output, subagent_*
         case sessionId, session, status, lastActive
-        // token_usage
-        case input, output, usage
+        // token_usage, mode_change
+        case input, output, usage, mode
         // task_*
         case id, taskId, subject, description, activeForm, tasks
         // subagent
@@ -270,13 +278,16 @@ extension ServerMessage: Decodable {
             self = .sessionStatus(sessionId: sessionId, status: status, lastActive: lastActive)
 
         case "status_update":
-            let status = try container.decode(String.self, forKey: .status)
+            // Server sends status in 'content' field (from parseLogEntry) or 'status' field
+            let status = try (try? container.decode(String.self, forKey: .content))
+                ?? container.decode(String.self, forKey: .status)
             self = .statusUpdate(status: status)
 
         case "token_usage":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
             let input = try container.decodeIfPresent(Int.self, forKey: .input)
             let output = try container.decodeIfPresent(Int.self, forKey: .output)
-            self = .tokenUsage(input: input, output: output)
+            self = .tokenUsage(sessionId: sessionId, input: input, output: output)
 
         case "task_create":
             let id = try container.decodeIfPresent(String.self, forKey: .id)
@@ -344,6 +355,11 @@ extension ServerMessage: Decodable {
             let success = try container.decode(Bool.self, forKey: .success)
             let error = try container.decodeIfPresent(String.self, forKey: .error)
             self = .modeToggleResult(success: success, error: error)
+
+        case "mode_change":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let mode = try container.decode(String.self, forKey: .mode)
+            self = .modeChange(sessionId: sessionId, mode: mode)
 
         case "error":
             let code = try container.decode(String.self, forKey: .code)

@@ -180,17 +180,17 @@ struct InputBarView: View {
 
     private var modeIcon: String {
         switch state.sessionMode {
-        case .plan: "doc.text"
-        case .act: "bolt.fill"
         case .defaultMode: "arrow.triangle.swap"
+        case .acceptEdits: "pencil.circle"
+        case .plan: "doc.text"
         }
     }
 
     private var modeTint: Color {
         switch state.sessionMode {
-        case .plan: .orange
-        case .act: .green
         case .defaultMode: .secondary
+        case .acceptEdits: .green
+        case .plan: .orange
         }
     }
 

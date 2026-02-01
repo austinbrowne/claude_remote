@@ -233,8 +233,11 @@ async function discoverSessions() {
           // Read first 2KB to find cwd field
           const fh = await fsp.open(fullPath, 'r');
           const buffer = Buffer.alloc(2000);
-          await fh.read(buffer, 0, 2000, 0);
-          await fh.close();
+          try {
+            await fh.read(buffer, 0, 2000, 0);
+          } finally {
+            await fh.close();
+          }
 
           const content = buffer.toString('utf8');
           const cwdMatch = content.match(/"cwd":"([^"]+)"/);
@@ -331,16 +334,16 @@ async function discoverSessions() {
 }
 
 async function watchSession(sessionId) {
-  const sessions = await discoverSessions();
-  const session = sessions.find(s => s.id === sessionId);
-  
-  if (!session || !session.logFile) {
-    return null;
-  }
-  
-  // If already watching, return existing watcher
+  // If already watching, return existing watcher (avoid redundant discoverSessions call)
   if (activeSessions.has(sessionId)) {
     return activeSessions.get(sessionId).session;
+  }
+
+  const sessions = await discoverSessions();
+  const session = sessions.find(s => s.id === sessionId);
+
+  if (!session || !session.logFile) {
+    return null;
   }
   
   // Track file position to only read new content
@@ -379,8 +382,11 @@ async function watchSession(sessionId) {
         const bytesToRead = Math.min(stats.size - lastPosition, MAX_READ_SIZE);
         const fh = await fsp.open(filePath, 'r');
         const buffer = Buffer.alloc(bytesToRead);
-        await fh.read(buffer, 0, bytesToRead, lastPosition);
-        await fh.close();
+        try {
+          await fh.read(buffer, 0, bytesToRead, lastPosition);
+        } finally {
+          await fh.close();
+        }
 
         const newContent = buffer.toString('utf8');
 
@@ -394,6 +400,7 @@ async function watchSession(sessionId) {
         const completeContent = newContent.substring(0, lastNewlineIndex);
         const lines = completeContent.split('\n').filter(line => line.trim());
 
+        let linesProcessed = false;
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
@@ -408,15 +415,36 @@ async function watchSession(sessionId) {
 
             const parsed = parseLogEntry(entry);
             if (parsed) {
+              linesProcessed = true;
               // Handle single result or array of results
               const items = Array.isArray(parsed) ? parsed : [parsed];
               for (const item of items) {
-                console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
-                broadcastToClients({
-                  type: 'claude_output',
-                  sessionId: sessionId,
-                  data: item
-                });
+                if (item.type === 'token_usage') {
+                  broadcastToClients({
+                    type: 'token_usage',
+                    sessionId: sessionId,
+                    input: item.input,
+                    output: item.output
+                  });
+                } else if (item.type === 'mode_change') {
+                  const sd = activeSessions.get(sessionId);
+                  if (sd && sd.mode !== item.mode) {
+                    sd.mode = item.mode;
+                    console.log(`[Mode] Session ${sessionId.substring(0, 8)} → ${item.mode}`);
+                    broadcastToClients({
+                      type: 'mode_change',
+                      sessionId: sessionId,
+                      mode: item.mode
+                    });
+                  }
+                } else {
+                  console.log(`[Broadcast] ${item.type} to session ${sessionId.substring(0, 8)}`);
+                  broadcastToClients({
+                    type: 'claude_output',
+                    sessionId: sessionId,
+                    data: item
+                  });
+                }
               }
             }
           } catch (e) {
@@ -428,16 +456,18 @@ async function watchSession(sessionId) {
         // Only advance position to end of last complete line
         lastPosition += lastNewlineIndex + 1;
 
-        // Check and broadcast status changes
-        const newStatus = await getSessionStatus(filePath);
-        const sessionData = activeSessions.get(sessionId);
-        if (sessionData && newStatus !== sessionData.lastStatus) {
-          sessionData.lastStatus = newStatus;
-          broadcastToClients({
-            type: 'session_status',
-            sessionId: sessionId,
-            status: newStatus
-          });
+        // Check and broadcast status changes only when new lines were parsed
+        if (linesProcessed) {
+          const newStatus = await getSessionStatus(filePath);
+          const sessionData = activeSessions.get(sessionId);
+          if (sessionData && newStatus !== sessionData.lastStatus) {
+            sessionData.lastStatus = newStatus;
+            broadcastToClients({
+              type: 'session_status',
+              sessionId: sessionId,
+              status: newStatus
+            });
+          }
         }
 
         // If more data remains, schedule another read
@@ -471,18 +501,14 @@ async function watchSession(sessionId) {
   
   const initialStatus = await getSessionStatus(session.logFile);
 
-  // Fallback polling interval - check file every 2 seconds in case watcher misses events
-  const pollInterval = setInterval(() => {
-    watcher.emit('change', session.logFile);
-  }, 2000);
-
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
-    pollInterval,
+    pollInterval: null,
     session,
     lastPosition,
     lastStatus: initialStatus,
+    mode: 'default',             // Current permission mode (updated from JSONL)
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
@@ -666,8 +692,11 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
         const bytesToRead = Math.min(stats.size - position, MAX_READ_SIZE);
         const fh = await fsp.open(filePath, 'r');
         const buffer = Buffer.alloc(bytesToRead);
-        await fh.read(buffer, 0, bytesToRead, position);
-        await fh.close();
+        try {
+          await fh.read(buffer, 0, bytesToRead, position);
+        } finally {
+          await fh.close();
+        }
 
         const newContent = buffer.toString('utf8');
         const lastNewlineIndex = newContent.lastIndexOf('\n');
@@ -894,6 +923,12 @@ function parseLogEntry(entry) {
               subject: block.input?.subject
             });
           }
+          else if (block.name === 'EnterPlanMode') {
+            results.push({ type: 'mode_change', mode: 'plan', timestamp });
+          }
+          else if (block.name === 'ExitPlanMode') {
+            results.push({ type: 'mode_change', mode: 'default', timestamp });
+          }
           else if (block.name === 'Task') {
             // Subagent being spawned - track description for correlation
             const agentDescription = block.input?.description || 'Subagent';
@@ -999,6 +1034,11 @@ function parseLogEntry(entry) {
         }
       }
     }
+
+    // Extract permissionMode from user entries (present on human-typed messages)
+    if (entry.permissionMode) {
+      results.push({ type: 'mode_change', mode: entry.permissionMode, timestamp });
+    }
   }
 
   // Return first result, or null if none
@@ -1019,8 +1059,11 @@ async function getSessionStatus(logFile) {
     const fh = await fsp.open(logFile, 'r');
     const size = Math.min(stats.size, 10000);
     const buffer = Buffer.alloc(size);
-    await fh.read(buffer, 0, size, stats.size - size);
-    await fh.close();
+    try {
+      await fh.read(buffer, 0, size, stats.size - size);
+    } finally {
+      await fh.close();
+    }
 
     const lines = buffer.toString('utf8').split('\n').filter(l => l.trim());
     if (lines.length === 0) return 'idle';
@@ -1105,10 +1148,6 @@ function maybeUnwatchSession(sessionId, excludeWs) {
 // ============================================
 
 wss.on('connection', (ws, req) => {
-  // Support both URL-based auth (legacy) and message-based auth (preferred)
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const urlToken = url.searchParams.get('token');
-
   const clientId = Date.now().toString();
   let authenticated = false;
   let authFailures = 0;
@@ -1127,12 +1166,6 @@ wss.on('connection', (ws, req) => {
       return true;
     }
   };
-
-  // If token provided in URL (legacy), authenticate immediately
-  if (urlToken && secureCompare(urlToken, AUTH_TOKEN)) {
-    authenticated = true;
-    initializeClient();
-  }
 
   function initializeClient() {
     clients.set(ws, {
@@ -1225,26 +1258,40 @@ wss.on('connection', (ws, req) => {
 async function handleClientMessage(ws, msg) {
   const clientData = clients.get(ws);
 
+  // Validate sessionId format when present
+  if (msg.sessionId && typeof msg.sessionId === 'string') {
+    // Session IDs are either UUIDs (from JSONL files) or tty-pid format
+    if (!/^[a-f0-9-]+$/.test(msg.sessionId) || msg.sessionId.length > 100) {
+      sendError(ws, 'INVALID_SESSION_ID', 'Invalid session ID format');
+      return;
+    }
+  }
+
   switch (msg.action) {
-    case 'watch_session':
+    case 'watch_session': {
       const session = await watchSession(msg.sessionId);
       if (session) {
         clientData.watchingSessions.add(msg.sessionId);
         // Pause broadcasting to this client until history is sent
         clientData.pauseBroadcast = true;
-        ws.send(JSON.stringify({
-          type: 'watching',
-          sessionId: msg.sessionId,
-          session: session
-        }));
-        await sendRecentHistory(ws, msg.sessionId);
-        await sendActiveSubagents(ws, msg.sessionId);
-        // Resume broadcasting — live events will now flow after history
-        clientData.pauseBroadcast = false;
+        try {
+          const sessionData = activeSessions.get(msg.sessionId);
+          ws.send(JSON.stringify({
+            type: 'watching',
+            sessionId: msg.sessionId,
+            session: { ...session, mode: sessionData?.mode || 'default' }
+          }));
+          await sendRecentHistory(ws, msg.sessionId);
+          await sendActiveSubagents(ws, msg.sessionId);
+        } finally {
+          // Resume broadcasting — live events will now flow after history
+          clientData.pauseBroadcast = false;
+        }
       } else {
         sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
       }
       break;
+    }
       
     case 'unwatch_session':
       clientData.watchingSessions.delete(msg.sessionId);
@@ -1413,10 +1460,16 @@ async function sendRecentHistory(ws, sessionId) {
     const lines = content.split('\n').filter(line => line.trim());
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
     const history = [];
+    let lastMode = null;
 
     for (const line of recentLines) {
       try {
         const entry = JSON.parse(line);
+
+        // Track the last permissionMode from user entries for initial mode state
+        if (entry.type === 'user' && entry.permissionMode) {
+          lastMode = entry.permissionMode;
+        }
 
         // parseLogEntry already skips Task results (via agentId check),
         // but skip here too for efficiency
@@ -1427,15 +1480,26 @@ async function sendRecentHistory(ws, sessionId) {
         const parsed = parseLogEntry(entry);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
-          history.push(...items);
+          history.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
         }
       } catch (e) {
         // Skip invalid JSON lines in history (expected for partial writes)
       }
     }
 
+    // Set initial mode from history and notify the client
+    // sessionData already declared at top of function
+    if (lastMode && sessionData) {
+      sessionData.mode = lastMode;
+      console.log(`[Mode] Session ${sessionId.substring(0, 8)} initial mode from history: ${lastMode}`);
+    }
+
     console.log(`[HISTORY] Sending ${history.length} items for session ${sessionId.substring(0, 8)}`);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: history }));
+
+    // Send current mode after history so client knows the session's mode
+    const currentMode = sessionData?.mode || 'default';
+    ws.send(JSON.stringify({ type: 'mode_change', sessionId, mode: currentMode }));
   } catch (e) {
     console.error('Error reading history:', e);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: [], error: 'Failed to read history' }));
@@ -1545,9 +1609,16 @@ function injectCommandToTty(command, tty) {
     return Promise.reject(new Error('Rate limit exceeded: max 10 commands per minute'));
   }
 
+  // Validate TTY format (e.g., "ttys001") to prevent path traversal
+  if (!/^ttys\d+$/.test(tty)) {
+    return Promise.reject(new Error('Invalid TTY format'));
+  }
+
   return new Promise((resolve, reject) => {
+    // Strip null bytes and control characters (except \t\n\r which are escaped below)
+    const sanitized = command.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
     // Escape the command for AppleScript string (prevent injection)
-    const escaped = command
+    const escaped = sanitized
       .replace(/\\/g, '\\\\')
       .replace(/"/g, '\\"')
       .replace(/\r/g, '\\r')
@@ -1860,12 +1931,11 @@ async function discoverCommands() {
 function shutdown() {
   console.log('\nShutting down...');
 
-  // Close all file watchers
-  activeSessions.forEach((data, sessionId) => {
-    data.watcher.close();
-    data.logsDirWatcher?.close();
-  });
-  activeSessions.clear();
+  // Close all sessions cleanly (watchers, subagents, poll intervals, timeouts)
+  const sessionIds = Array.from(activeSessions.keys());
+  for (const sessionId of sessionIds) {
+    unwatchSession(sessionId);
+  }
 
   // Notify and close all WebSocket clients
   clients.forEach((data, ws) => {

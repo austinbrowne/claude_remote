@@ -125,6 +125,7 @@ struct AppCoordinatorTests {
     @Test("claude_output appends assistant message")
     func claudeOutputAssistant() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "Hello world")
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
@@ -137,6 +138,7 @@ struct AppCoordinatorTests {
     @Test("claude_output filters empty assistant messages")
     func claudeOutputFiltersEmpty() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "")
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
@@ -147,6 +149,7 @@ struct AppCoordinatorTests {
     @Test("claude_output filters nil-content assistant messages")
     func claudeOutputFiltersNil() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: nil)
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
@@ -157,6 +160,7 @@ struct AppCoordinatorTests {
     @Test("claude_output tool message is appended")
     func claudeOutputTool() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(
             type: "tool",
@@ -174,6 +178,7 @@ struct AppCoordinatorTests {
     @Test("claude_output deduplicates user messages")
     func claudeOutputDedup() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         state.trackSentMessage("my command")
         let data = ClaudeOutputData(type: "user", content: "my command")
@@ -186,6 +191,7 @@ struct AppCoordinatorTests {
     @Test("claude_output does not dedup untracked user messages")
     func claudeOutputNoDedup() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "user", content: "from elsewhere")
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
@@ -196,10 +202,22 @@ struct AppCoordinatorTests {
     @Test("claude_output status_update updates sessionStatus")
     func claudeOutputStatusUpdate() {
         let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "status_update", content: "Processing", status: "processing")
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
         #expect(state.sessionStatus == .processing)
+    }
+
+    @MainActor
+    @Test("claude_output ignores messages from different session")
+    func claudeOutputIgnoresDifferentSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "sess-1")
+        let coordinator = AppCoordinator(state: state)
+        let data = ClaudeOutputData(type: "assistant", content: "From other session")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "sess-2", data: data))
+        #expect(state.messages.isEmpty)
     }
 
     // MARK: - Session Status
@@ -238,7 +256,7 @@ struct AppCoordinatorTests {
     func tokenUsage() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(input: 1500, output: 200))
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 1500, output: 200))
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .tokenUsage)
         #expect(state.messages[0].content == "1.5k in / 200 out")
@@ -249,7 +267,7 @@ struct AppCoordinatorTests {
     func tokenUsageMillions() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(input: 2_500_000, output: nil))
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 2_500_000, output: nil))
         #expect(state.messages[0].content == "2.5M in / 0 out")
     }
 
@@ -258,8 +276,28 @@ struct AppCoordinatorTests {
     func tokenUsageNil() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(input: nil, output: nil))
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: nil, output: nil))
         #expect(state.messages[0].content == "0 in / 0 out")
+    }
+
+    @MainActor
+    @Test("tokenUsage updates contextTokensUsed")
+    func tokenUsageUpdatesContext() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 100_000, output: 500))
+        #expect(state.contextTokensUsed == 100_000)
+        #expect(state.contextPercentage == 0.5)
+    }
+
+    @MainActor
+    @Test("tokenUsage ignores messages from different session")
+    func tokenUsageIgnoresDifferentSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "sess-1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: "sess-2", input: 100_000, output: 500))
+        #expect(state.contextTokensUsed == 0)
     }
 
     // MARK: - Tasks
@@ -352,6 +390,78 @@ struct AppCoordinatorTests {
         state.activeSubagents["a1"] = SubagentInfo(description: "test", agentType: "general")
         coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
         #expect(state.activeSubagents["a1"]?.status == "completed")
+    }
+
+    // MARK: - Mode Change
+
+    @MainActor
+    @Test("modeChange updates sessionMode")
+    func modeChangeUpdatesMode() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        #expect(state.sessionMode == .defaultMode)
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "plan"))
+        #expect(state.sessionMode == .plan)
+    }
+
+    @MainActor
+    @Test("modeChange to acceptEdits")
+    func modeChangeAcceptEdits() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "acceptEdits"))
+        #expect(state.sessionMode == .acceptEdits)
+        #expect(state.sessionMode.label == "Accept Edits")
+    }
+
+    @MainActor
+    @Test("modeChange ignores different session")
+    func modeChangeIgnoresDifferentSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "sess-1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-2", mode: "plan"))
+        #expect(state.sessionMode == .defaultMode)
+    }
+
+    @MainActor
+    @Test("modeChange accepts matching session")
+    func modeChangeMatchingSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "sess-1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-1", mode: "plan"))
+        #expect(state.sessionMode == .plan)
+    }
+
+    @MainActor
+    @Test("modeChange ignores unknown mode string")
+    func modeChangeUnknownMode() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "nonexistent"))
+        #expect(state.sessionMode == .defaultMode)
+    }
+
+    @MainActor
+    @Test("modeToggleResult does not advance mode optimistically")
+    func modeToggleResultNoOptimistic() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        #expect(state.sessionMode == .defaultMode)
+        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: true, error: nil))
+        // Mode should NOT change — it waits for server mode_change
+        #expect(state.sessionMode == .defaultMode)
+    }
+
+    @MainActor
+    @Test("modeToggleResult failure shows toast")
+    func modeToggleResultFailure() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: false, error: "TTY not found"))
+        #expect(state.currentToast?.message == "TTY not found")
+        #expect(state.currentToast?.style == .warning)
     }
 
     // MARK: - Error

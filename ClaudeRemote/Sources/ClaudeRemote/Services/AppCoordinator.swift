@@ -178,6 +178,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             for entry in data {
                 // Skip spinner status_updates from history — they're transient noise
                 if entry.type == "status_update" { continue }
+                // Skip local CLI commands (/compact, /help, etc.)
+                if entry.isLocalCommand { continue }
                 guard let msg = messageFromClaudeOutput(entry) else { continue }
                 if msg.type == .toolResult {
                     state.mergeOrAppendToolResult(msg)
@@ -187,7 +189,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             promptService.recoverFromHistory(state.messages, sessionStatus: state.sessionStatus)
 
-        case .claudeOutput(_, let data):
+        case .claudeOutput(let sessionId, let data):
+            // Ignore output from a different session (prevents cross-session message leaks)
+            if sessionId != state.currentSessionId { break }
+            // Skip local CLI commands (/compact, /help, etc.)
+            if data.isLocalCommand { return }
             // Route spinner status_updates to the persistent activity indicator
             if data.type == "status_update" {
                 state.currentActivity = data.content
@@ -242,7 +248,18 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
             #endif
 
-        case .tokenUsage(let input, let output):
+        case .tokenUsage(let sessionId, let input, let output):
+            // Ignore token_usage from a different session (prevents cross-session contamination)
+            if let sessionId, sessionId != state.currentSessionId { break }
+
+            let oldPct = state.contextPercentage
+            if let input { state.contextTokensUsed = input }
+            let newPct = state.contextPercentage
+
+            if oldPct < 0.9 && newPct >= 0.9 {
+                state.showToast("Context nearly full — consider /compact", icon: "exclamationmark.triangle.fill", style: .warning)
+            }
+
             let msg = Message(
                 type: .tokenUsage,
                 content: formatTokenCount(input ?? 0, output ?? 0)
@@ -297,10 +314,18 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentStop(let agentId):
             state.activeSubagents[agentId]?.status = "completed"
 
-        case .modeToggleResult(let success, _):
-            if success {
-                state.sessionMode = state.sessionMode.next
+        case .modeChange(let sessionId, let mode):
+            // Ignore mode changes from a different session
+            if let sessionId, sessionId != state.currentSessionId { break }
+            if let newMode = SessionMode(rawValue: mode) {
+                state.sessionMode = newMode
             }
+
+        case .modeToggleResult(let success, let error):
+            if !success {
+                state.showToast(error ?? "Mode toggle failed", icon: "exclamationmark.triangle", style: .warning)
+            }
+            // Actual mode update comes from server's mode_change broadcast
 
         case .injectResult, .escapeResult:
             break
@@ -379,7 +404,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .claudeOutput(_, let data): return "claude_output type=\(data.type) len=\(data.content?.count ?? 0)"
         case .sessionStatus(_, let status, _): return "session_status status=\(status)"
         case .statusUpdate(let status): return "status_update status=\(status)"
-        case .tokenUsage(let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
+        case .tokenUsage(_, let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
         case .taskCreate(let id, _, _, _, _): return "task_create id=\(id ?? "nil")"
         case .taskUpdate(let id, let status, _): return "task_update id=\(id) status=\(status)"
         case .taskList(let tasks): return "task_list count=\(tasks.count)"
@@ -391,6 +416,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentStop(let id): return "subagent_stop id=\(id)"
         case .injectResult(let success, _): return "inject_result success=\(success)"
         case .escapeResult(let success, _): return "escape_result success=\(success)"
+        case .modeChange(_, let mode): return "mode_change mode=\(mode)"
         case .modeToggleResult(let success, _): return "mode_toggle_result success=\(success)"
         case .error(let code, let msg, _): return "error code=\(code) msg=\(msg)"
         case .pong(let ts): return "pong ts=\(ts)"

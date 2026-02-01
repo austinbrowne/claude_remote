@@ -8,26 +8,17 @@ public enum SessionSwitchState: Sendable {
     case active
 }
 
-/// Claude Code session mode (cycles: plan → act → default)
-public enum SessionMode: Sendable {
-    case plan
-    case act
-    case defaultMode
+/// Claude Code session mode (server-driven, synced from JSONL permissionMode)
+public enum SessionMode: String, Sendable {
+    case defaultMode = "default"
+    case acceptEdits = "acceptEdits"
+    case plan = "plan"
 
     public var label: String {
         switch self {
-        case .plan: "Plan"
-        case .act: "Act"
         case .defaultMode: "Default"
-        }
-    }
-
-    /// Next mode in the cycle
-    public var next: SessionMode {
-        switch self {
-        case .plan: .act
-        case .act: .defaultMode
-        case .defaultMode: .plan
+        case .acceptEdits: "Accept Edits"
+        case .plan: "Plan"
         }
     }
 }
@@ -102,6 +93,15 @@ public final class AppState {
     public var sessionMode: SessionMode = .defaultMode
     /// Current spinner/activity text (e.g. "Thinking..."), nil when idle
     public var currentActivity: String?
+
+    // MARK: - Context Window
+    public var contextTokensUsed: Int = 0
+    public static let defaultContextWindowSize = 200_000
+
+    public var contextPercentage: Double {
+        guard contextTokensUsed > 0 else { return 0 }
+        return min(Double(contextTokensUsed) / Double(Self.defaultContextWindowSize), 1.0)
+    }
 
     // MARK: - Settings
     public var ttsEnabled = false
@@ -201,6 +201,7 @@ public final class AppState {
         messages.removeAll()
         tasks.removeAll()
         activeSubagents.removeAll()
+        contextTokensUsed = 0
         sessionStatus = .idle
         sessionMode = .defaultMode
         currentActivity = nil

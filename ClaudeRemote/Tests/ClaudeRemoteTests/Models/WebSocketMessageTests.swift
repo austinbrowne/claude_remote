@@ -365,12 +365,27 @@ struct ServerMessageDecodingTests {
         let msg = try decode("""
         {"type": "token_usage", "input": 1500, "output": 300}
         """)
-        guard case .tokenUsage(let input, let output) = msg else {
+        guard case .tokenUsage(let sessionId, let input, let output) = msg else {
             Issue.record("Expected tokenUsage")
             return
         }
+        #expect(sessionId == nil)
         #expect(input == 1500)
         #expect(output == 300)
+    }
+
+    @Test("Decode token_usage with sessionId")
+    func tokenUsageWithSessionId() throws {
+        let msg = try decode("""
+        {"type": "token_usage", "sessionId": "sess-1", "input": 150000, "output": 5000}
+        """)
+        guard case .tokenUsage(let sessionId, let input, let output) = msg else {
+            Issue.record("Expected tokenUsage")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(input == 150000)
+        #expect(output == 5000)
     }
 
     // MARK: - task_create
@@ -586,6 +601,34 @@ struct ServerMessageDecodingTests {
             return
         }
         #expect(success == true)
+    }
+
+    // MARK: - mode_change
+
+    @Test("Decode mode_change")
+    func modeChange() throws {
+        let msg = try decode("""
+        {"type": "mode_change", "sessionId": "sess-1", "mode": "plan"}
+        """)
+        guard case .modeChange(let sessionId, let mode) = msg else {
+            Issue.record("Expected modeChange")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(mode == "plan")
+    }
+
+    @Test("Decode mode_change without sessionId")
+    func modeChangeNoSessionId() throws {
+        let msg = try decode("""
+        {"type": "mode_change", "mode": "acceptEdits"}
+        """)
+        guard case .modeChange(let sessionId, let mode) = msg else {
+            Issue.record("Expected modeChange")
+            return
+        }
+        #expect(sessionId == nil)
+        #expect(mode == "acceptEdits")
     }
 
     // MARK: - error
@@ -826,5 +869,45 @@ struct SupportTypeTests {
         let task = try JSONDecoder().decode(TaskItem.self, from: json)
         #expect(task.id == nil)
         #expect(task.subject == nil)
+    }
+}
+
+@Suite("ClaudeOutputData.isLocalCommand")
+struct IsLocalCommandTests {
+
+    @Test("Detects command-name tag")
+    func commandNameTag() {
+        let data = ClaudeOutputData(type: "user", content: "<command-name>/compact</command-name>")
+        #expect(data.isLocalCommand == true)
+    }
+
+    @Test("Detects command-message tag")
+    func commandMessageTag() {
+        let data = ClaudeOutputData(type: "user", content: "<command-message>compact</command-message>")
+        #expect(data.isLocalCommand == true)
+    }
+
+    @Test("Detects mixed command tags")
+    func mixedCommandTags() {
+        let data = ClaudeOutputData(type: "user", content: "<command-name>/help</command-name><command-message>help</command-message>")
+        #expect(data.isLocalCommand == true)
+    }
+
+    @Test("Normal user message is not a command")
+    func normalUserMessage() {
+        let data = ClaudeOutputData(type: "user", content: "Hello, how are you?")
+        #expect(data.isLocalCommand == false)
+    }
+
+    @Test("Assistant message with command tags is not a command")
+    func assistantWithTags() {
+        let data = ClaudeOutputData(type: "assistant", content: "The <command-name> tag is used for...")
+        #expect(data.isLocalCommand == false)
+    }
+
+    @Test("User message with nil content is not a command")
+    func nilContent() {
+        let data = ClaudeOutputData(type: "user", content: nil)
+        #expect(data.isLocalCommand == false)
     }
 }

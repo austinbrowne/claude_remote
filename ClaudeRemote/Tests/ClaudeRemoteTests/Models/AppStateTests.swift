@@ -133,6 +133,42 @@ struct AppStateTests {
         #expect(state.currentSessionId == "sess-1")
     }
 
+    // MARK: - Context Window
+
+    @MainActor
+    @Test("contextPercentage returns 0 when no tokens used")
+    func contextPercentageZero() {
+        let state = AppState()
+        #expect(state.contextPercentage == 0)
+    }
+
+    @MainActor
+    @Test("contextPercentage returns correct ratio")
+    func contextPercentageRatio() {
+        let state = AppState()
+        state.contextTokensUsed = 100_000
+        #expect(state.contextPercentage == 0.5)
+    }
+
+    @MainActor
+    @Test("contextPercentage caps at 1.0")
+    func contextPercentageCapped() {
+        let state = AppState()
+        state.contextTokensUsed = 300_000
+        #expect(state.contextPercentage == 1.0)
+    }
+
+    @MainActor
+    @Test("beginSessionSwitch resets contextTokensUsed")
+    func sessionSwitchResetsContext() {
+        let state = AppState()
+        state.contextTokensUsed = 150_000
+        #expect(state.contextPercentage > 0)
+        state.beginSessionSwitch(to: "sess-2")
+        #expect(state.contextTokensUsed == 0)
+        #expect(state.contextPercentage == 0)
+    }
+
     @MainActor
     @Test("maxMessages constant is 500")
     func maxMessagesConstant() {

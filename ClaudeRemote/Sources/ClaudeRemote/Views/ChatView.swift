@@ -43,7 +43,14 @@ struct ChatView: View {
                             showNewMessageIndicator = false
                         }
                         .onDisappear {
-                            isNearBottom = false
+                            // Don't mark as scrolled-away while a debounced scroll is
+                            // pending — the layout shift from new messages temporarily
+                            // pushes the anchor off-screen, but the pending scroll will
+                            // bring it back. Without this guard, rapid message bursts
+                            // permanently break auto-scroll.
+                            if scrollDebounceTask == nil {
+                                isNearBottom = false
+                            }
                         }
                 }
                 .defaultScrollAnchor(.bottom)
@@ -62,6 +69,7 @@ struct ChatView: View {
                             try? await Task.sleep(for: .milliseconds(50))
                             guard !Task.isCancelled else { return }
                             proxy.scrollTo("bottom", anchor: .bottom)
+                            scrollDebounceTask = nil
                         }
                         return
                     }
@@ -74,6 +82,7 @@ struct ChatView: View {
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("bottom", anchor: .bottom)
                             }
+                            scrollDebounceTask = nil
                         }
                     } else {
                         showNewMessageIndicator = true

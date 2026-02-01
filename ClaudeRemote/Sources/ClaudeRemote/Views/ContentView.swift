@@ -111,6 +111,8 @@ struct MainView: View {
                 disconnectedBanner
             }
 
+            contextBar
+
             ChatView()
                 .gesture(
                     DragGesture(minimumDistance: 50)
@@ -273,6 +275,44 @@ struct MainView: View {
         .padding(.vertical, 8)
         .background(.red.opacity(0.1))
         .foregroundStyle(.red)
+    }
+
+    @ViewBuilder
+    private var contextBar: some View {
+        let pct = state.contextPercentage
+        if pct >= 0.5 {
+            VStack(spacing: 0) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(Color.secondary.opacity(0.15))
+                        Rectangle()
+                            .fill(contextBarColor(pct))
+                            .frame(width: geo.size.width * pct)
+                            .animation(.easeInOut(duration: 0.3), value: pct)
+                    }
+                }
+                .frame(height: 3)
+
+                HStack {
+                    Text("Context: \(Int(pct * 100))%")
+                        .font(.caption2)
+                        .foregroundStyle(contextBarColor(pct))
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 2)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Context window \(Int(pct * 100)) percent used")
+        }
+    }
+
+    private func contextBarColor(_ pct: Double) -> Color {
+        switch pct {
+        case ..<0.7: .green
+        case 0.7..<0.9: .orange
+        default: .red
+        }
     }
 
     private func switchSession(forward: Bool) {
