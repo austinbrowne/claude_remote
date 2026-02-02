@@ -553,7 +553,7 @@ async function watchSession(sessionId) {
 
   // Poll /tmp/claude-ctx-{sessionId} for context percentage updates
   const CONTEXT_POLL_MS = 10000;
-  const ctxFile = path.join(os.tmpdir(), `claude-ctx-${sessionId}`);
+  const ctxFile = `/tmp/claude-ctx-${sessionId}`;
   const contextPollInterval = setInterval(async () => {
     try {
       const content = await fsp.readFile(ctxFile, 'utf8');
@@ -1607,7 +1607,7 @@ async function sendRecentHistory(ws, sessionId) {
 
     // Read context percentage from statusline file (replaces JSONL token scanning)
     try {
-      const ctxFile = path.join(os.tmpdir(), `claude-ctx-${sessionId}`);
+      const ctxFile = `/tmp/claude-ctx-${sessionId}`;
       const ctxContent = await fsp.readFile(ctxFile, 'utf8');
       const pct = parseInt(ctxContent.trim(), 10);
       if (!isNaN(pct) && sessionData) {
