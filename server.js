@@ -747,6 +747,8 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
         const completeContent = newContent.substring(0, lastNewlineIndex);
         const lines = completeContent.split('\n').filter(l => l.trim());
 
+        // Parse all lines first, then filter auto-approved permissions
+        const allItems = [];
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
@@ -754,56 +756,71 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
             if (parsed) {
               const items = Array.isArray(parsed) ? parsed : [parsed];
               for (const item of items) {
-                // Add subagent context to the item
                 item.subagentId = agentId;
-                console.log(`[Subagent ${agentId}] ${item.type}`);
-                broadcastToClients({
-                  type: 'subagent_output',
-                  sessionId,
-                  agentId,
-                  data: item
-                });
-
-                // Emit specific events for tool usage and token tracking
-                if (item.type === 'tool' || item.type === 'permission_request') {
-                  // Update stored subagent info
-                  const info = sessionData.subagentInfo.get(agentId);
-                  if (info) {
-                    info.currentTool = item.tool;
-                  }
-                  // Throttle subagent_tool to max 1 per 500ms per agent
-                  const now = Date.now();
-                  const lastSent = subagentToolThrottles.get(agentId) || 0;
-                  if (now - lastSent >= SUBAGENT_TOOL_THROTTLE_MS) {
-                    subagentToolThrottles.set(agentId, now);
-                    broadcastToClients({
-                      type: 'subagent_tool',
-                      sessionId,
-                      agentId,
-                      tool: item.tool,
-                      input: item.input
-                    });
-                  }
-                }
-                if (item.type === 'token_usage') {
-                  // Update stored subagent info
-                  const info = sessionData.subagentInfo.get(agentId);
-                  if (info) {
-                    info.inputTokens = (info.inputTokens || 0) + (item.input || 0);
-                    info.outputTokens = (info.outputTokens || 0) + (item.output || 0);
-                  }
-                  broadcastToClients({
-                    type: 'subagent_tokens',
-                    sessionId,
-                    agentId,
-                    input: item.input,
-                    output: item.output
-                  });
-                }
+                allItems.push(item);
               }
             }
           } catch (e) {
             // Skip invalid JSON
+          }
+        }
+
+        // Suppress permission_requests that have a matching tool_result in the
+        // same batch — these were auto-approved (Always Allow) and need no user input
+        const resolvedToolUseIds = new Set(
+          allItems
+            .filter(i => i.type === 'tool_result' && i.toolUseId)
+            .map(i => i.toolUseId)
+        );
+
+        for (const item of allItems) {
+          if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
+            continue; // Auto-approved, skip
+          }
+
+          console.log(`[Subagent ${agentId}] ${item.type}`);
+          broadcastToClients({
+            type: 'subagent_output',
+            sessionId,
+            agentId,
+            data: item
+          });
+
+          // Emit specific events for tool usage and token tracking
+          if (item.type === 'tool' || item.type === 'permission_request') {
+            // Update stored subagent info
+            const info = sessionData.subagentInfo.get(agentId);
+            if (info) {
+              info.currentTool = item.tool;
+            }
+            // Throttle subagent_tool to max 1 per 500ms per agent
+            const now = Date.now();
+            const lastSent = subagentToolThrottles.get(agentId) || 0;
+            if (now - lastSent >= SUBAGENT_TOOL_THROTTLE_MS) {
+              subagentToolThrottles.set(agentId, now);
+              broadcastToClients({
+                type: 'subagent_tool',
+                sessionId,
+                agentId,
+                tool: item.tool,
+                input: item.input
+              });
+            }
+          }
+          if (item.type === 'token_usage') {
+            // Update stored subagent info
+            const info = sessionData.subagentInfo.get(agentId);
+            if (info) {
+              info.inputTokens = (info.inputTokens || 0) + (item.input || 0);
+              info.outputTokens = (info.outputTokens || 0) + (item.output || 0);
+            }
+            broadcastToClients({
+              type: 'subagent_tokens',
+              sessionId,
+              agentId,
+              input: item.input,
+              output: item.output
+            });
           }
         }
 
