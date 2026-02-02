@@ -657,8 +657,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         SettingsStore.saveTriggerEnabled(enabled)
 
         if enabled {
-            try? speechService.configureAudioSession(forBackground: true)
-            try? speechService.startTriggerListening()
+            do {
+                try speechService.configureAudioSession(forBackground: true)
+                try speechService.startTriggerListening()
+            } catch {
+                // Revert — prevents boot-loop if audio hardware isn't available
+                print("[Trigger] Failed to start: \(error)")
+                state.triggerEnabled = false
+                SettingsStore.saveTriggerEnabled(false)
+                state.showToast("Trigger word unavailable", icon: "mic.slash", style: .warning)
+            }
         } else {
             speechService.stopTriggerListening()
             try? speechService.configureAudioSession(forBackground: false)

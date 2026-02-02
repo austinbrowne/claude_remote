@@ -3,6 +3,11 @@ import Speech
 import AVFoundation
 import Observation
 
+/// Errors from speech recognition setup
+public enum SpeechError: Error {
+    case invalidAudioFormat
+}
+
 /// Trigger word detection state machine
 public enum TriggerState: Sendable, Equatable {
     case idle
@@ -173,7 +178,7 @@ public final class SpeechService {
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = false
-        beginRecognition()
+        try beginRecognition()
     }
 
     /// Stop listening for speech input (manual mic mode)
@@ -228,7 +233,7 @@ public final class SpeechService {
         capturedCommand = ""
         lastTranscriptLength = 0
         triggerState = .listening
-        beginRecognition()
+        try beginRecognition()
     }
 
     /// Stop trigger word listening
@@ -267,7 +272,7 @@ public final class SpeechService {
     // MARK: - Recognition Core
 
     /// Start a new recognition session. Used by both manual and trigger modes.
-    private func beginRecognition() {
+    private func beginRecognition() throws {
         let gen = recognitionGeneration
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -279,6 +284,22 @@ public final class SpeechService {
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+        // Guard against invalid format — happens when audio session isn't ready,
+        // no input route exists, or hardware isn't initialized yet.
+        // installTap crashes with a CoreAudio assertion if sampleRate is 0.
+        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+            print("[Speech] Invalid audio format: sampleRate=\(recordingFormat.sampleRate) channels=\(recordingFormat.channelCount)")
+            teardownRecognition()
+            if isInTriggerMode {
+                triggerState = .idle
+                isInTriggerMode = false
+            } else {
+                isListening = false
+            }
+            throw SpeechError.invalidAudioFormat
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak request] buffer, _ in
             request?.append(buffer)
         }
@@ -287,6 +308,7 @@ public final class SpeechService {
         do {
             try audioEngine.start()
         } catch {
+            print("[Speech] Audio engine failed to start: \(error)")
             teardownRecognition()
             if isInTriggerMode {
                 triggerState = .idle
@@ -294,7 +316,7 @@ public final class SpeechService {
             } else {
                 isListening = false
             }
-            return
+            throw error
         }
 
         if !isInTriggerMode {
@@ -345,7 +367,7 @@ public final class SpeechService {
         restartTask = nil
         recognitionGeneration += 1
         teardownRecognition()
-        beginRecognition()
+        try? beginRecognition()
     }
 
     /// Seamless restart for trigger recognition
@@ -358,7 +380,7 @@ public final class SpeechService {
         // If we were capturing, the command continues in the new window
         // capturedCommand and triggerState are preserved
         guard triggerState == .listening || triggerState == .capturing else { return }
-        beginRecognition()
+        try? beginRecognition()
     }
 
     /// Tears down audio engine and recognition without changing state.

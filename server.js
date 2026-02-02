@@ -454,6 +454,9 @@ async function watchSession(sessionId) {
 
           for (const item of filteredItems) {
             if (item.type === 'token_usage') {
+              // Store latest input_tokens as context usage (each API call includes full conversation)
+              const sd = activeSessions.get(sessionId);
+              if (sd && item.input) sd.contextTokensUsed = item.input;
               broadcastToClients({
                 type: 'token_usage',
                 sessionId: sessionId,
@@ -550,6 +553,7 @@ async function watchSession(sessionId) {
     lastPosition,
     lastStatus: initialStatus,
     mode: 'default',             // Current permission mode (updated from JSONL)
+    contextTokensUsed: 0,        // Latest input_tokens from main session (= context window usage)
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
@@ -1040,13 +1044,16 @@ function parseLogEntry(entry) {
     }
 
     // Extract token usage from assistant messages
+    // Total context = input_tokens + cached tokens (cache is still part of the context window)
     if (entry.message?.usage) {
+      const u = entry.message.usage;
+      const totalInput = (u.input_tokens || 0)
+        + (u.cache_read_input_tokens || 0)
+        + (u.cache_creation_input_tokens || 0);
       results.push({
         type: 'token_usage',
-        input: entry.message.usage.input_tokens || 0,
-        output: entry.message.usage.output_tokens || 0,
-        cacheRead: entry.message.usage.cache_read_input_tokens || 0,
-        cacheWrite: entry.message.usage.cache_creation_input_tokens || 0,
+        input: totalInput,
+        output: u.output_tokens || 0,
         timestamp
       });
     }
@@ -1380,6 +1387,15 @@ async function handleClientMessage(ws, msg) {
           }));
           await sendRecentHistory(ws, msg.sessionId);
           await sendActiveSubagents(ws, msg.sessionId);
+          // Send accumulated context usage so the ring starts at the right value
+          if (sessionData?.contextTokensUsed > 0) {
+            ws.send(JSON.stringify({
+              type: 'token_usage',
+              sessionId: msg.sessionId,
+              input: sessionData.contextTokensUsed,
+              output: 0
+            }));
+          }
         } finally {
           // Resume broadcasting — live events will now flow after history
           clientData.pauseBroadcast = false;
@@ -1587,6 +1603,25 @@ async function sendRecentHistory(ws, sessionId) {
     }
 
     const lines = content.split('\n').filter(line => line.trim());
+
+    // Scan ALL lines for the last token_usage (context window = latest total input tokens).
+    // Must scan all lines because recent history may be tool calls with no assistant message.
+    let lastContextTokens = 0;
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.message?.usage) {
+          const u = entry.message.usage;
+          lastContextTokens = (u.input_tokens || 0)
+            + (u.cache_read_input_tokens || 0)
+            + (u.cache_creation_input_tokens || 0);
+        }
+      } catch (e) {}
+    }
+    if (lastContextTokens > 0 && sessionData) {
+      sessionData.contextTokensUsed = lastContextTokens;
+    }
+
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
     const allItems = [];
     let lastMode = null;
