@@ -138,36 +138,35 @@ struct AppStateTests {
     // MARK: - Context Window
 
     @MainActor
-    @Test("contextPercentage returns 0 when no tokens used")
+    @Test("contextPercentage defaults to 0")
     func contextPercentageZero() {
         let state = AppState()
         #expect(state.contextPercentage == 0)
     }
 
     @MainActor
-    @Test("contextPercentage returns correct ratio")
-    func contextPercentageRatio() {
+    @Test("contextPercentage stores directly")
+    func contextPercentageStored() {
         let state = AppState()
-        state.contextTokensUsed = 100_000
-        #expect(state.contextPercentage == 0.5)
+        state.contextPercentage = 0.42
+        #expect(state.contextPercentage == 0.42)
     }
 
     @MainActor
-    @Test("contextPercentage caps at 1.0")
-    func contextPercentageCapped() {
+    @Test("contextPercentage can be set to 1.0")
+    func contextPercentageFull() {
         let state = AppState()
-        state.contextTokensUsed = 300_000
+        state.contextPercentage = 1.0
         #expect(state.contextPercentage == 1.0)
     }
 
     @MainActor
-    @Test("beginSessionSwitch resets contextTokensUsed")
+    @Test("beginSessionSwitch resets contextPercentage")
     func sessionSwitchResetsContext() {
         let state = AppState()
-        state.contextTokensUsed = 150_000
+        state.contextPercentage = 0.75
         #expect(state.contextPercentage > 0)
         state.beginSessionSwitch(to: "sess-2")
-        #expect(state.contextTokensUsed == 0)
         #expect(state.contextPercentage == 0)
     }
 

@@ -33,7 +33,7 @@ struct ContextRingView: View {
                 .frame(width: 22, height: 22)
             }
             .popover(isPresented: $showPopover) {
-                ContextDetailPopover(pct: pct, tokensUsed: state.contextTokensUsed)
+                ContextDetailPopover(pct: pct)
             }
         }
     }
@@ -42,7 +42,6 @@ struct ContextRingView: View {
 /// Popover showing context usage details
 private struct ContextDetailPopover: View {
     let pct: Double
-    let tokensUsed: Int
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -50,7 +49,7 @@ private struct ContextDetailPopover: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            Text("~\(formatTokens(tokensUsed)) / 200k tokens")
+            Text("\(Int(pct * 100))% used")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -63,17 +62,5 @@ private struct ContextDetailPopover: View {
         .padding(12)
         .frame(width: 200, alignment: .leading)
         .presentationCompactAdaptation(.popover)
-    }
-
-    private func formatTokens(_ count: Int) -> String {
-        if count >= 1_000_000 {
-            let m = Double(count) / 1_000_000
-            return String(format: "%.1fM", m)
-        } else if count >= 1_000 {
-            let k = Double(count) / 1_000
-            return k == k.rounded() ? "\(Int(k))k" : String(format: "%.1fk", k)
-        } else {
-            return "\(count)"
-        }
     }
 }

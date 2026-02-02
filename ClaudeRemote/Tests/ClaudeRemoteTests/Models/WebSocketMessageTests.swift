@@ -388,6 +388,34 @@ struct ServerMessageDecodingTests {
         #expect(output == 5000)
     }
 
+    // MARK: - context_percentage
+
+    @Test("Decode context_percentage")
+    func contextPercentage() throws {
+        let msg = try decode("""
+        {"type": "context_percentage", "sessionId": "sess-1", "percentage": 42}
+        """)
+        guard case .contextPercentage(let sessionId, let percentage) = msg else {
+            Issue.record("Expected contextPercentage")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(percentage == 42)
+    }
+
+    @Test("Decode context_percentage without sessionId")
+    func contextPercentageNoSessionId() throws {
+        let msg = try decode("""
+        {"type": "context_percentage", "percentage": 85}
+        """)
+        guard case .contextPercentage(let sessionId, let percentage) = msg else {
+            Issue.record("Expected contextPercentage")
+            return
+        }
+        #expect(sessionId == nil)
+        #expect(percentage == 85)
+    }
+
     // MARK: - task_create
 
     @Test("Decode task_create")

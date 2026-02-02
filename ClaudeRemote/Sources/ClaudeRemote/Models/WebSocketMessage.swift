@@ -13,6 +13,7 @@ public enum ServerMessage: Sendable {
     case sessionStatus(sessionId: String, status: String, lastActive: String?)
     case statusUpdate(status: String)
     case tokenUsage(sessionId: String?, input: Int?, output: Int?)
+    case contextPercentage(sessionId: String?, percentage: Int?)
     case taskCreate(id: String?, subject: String, description: String?, activeForm: String?, status: String?)
     case taskUpdate(taskId: String, status: String, subject: String?, activeForm: String?, description: String?)
     case taskList(tasks: [TaskItem])
@@ -219,8 +220,8 @@ extension ServerMessage: Decodable {
         case data
         // watching, session_status, claude_output, subagent_*
         case sessionId, session, status, lastActive
-        // token_usage, mode_change
-        case input, output, usage, mode
+        // token_usage, mode_change, context_percentage
+        case input, output, usage, mode, percentage
         // task_*
         case id, taskId, subject, description, activeForm, tasks
         // subagent
@@ -291,6 +292,11 @@ extension ServerMessage: Decodable {
             let input = try container.decodeIfPresent(Int.self, forKey: .input)
             let output = try container.decodeIfPresent(Int.self, forKey: .output)
             self = .tokenUsage(sessionId: sessionId, input: input, output: output)
+
+        case "context_percentage":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let percentage = try container.decodeIfPresent(Int.self, forKey: .percentage)
+            self = .contextPercentage(sessionId: sessionId, percentage: percentage)
 
         case "task_create":
             let id = try container.decodeIfPresent(String.self, forKey: .id)

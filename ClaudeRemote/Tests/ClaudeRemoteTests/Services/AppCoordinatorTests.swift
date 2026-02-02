@@ -249,68 +249,75 @@ struct AppCoordinatorTests {
         #expect(state.sessionStatus == .unknown)
     }
 
-    // MARK: - Token Usage
+    // MARK: - Context Percentage
 
     @MainActor
-    @Test("tokenUsage does not append message to chat")
-    func tokenUsageNoMessage() {
+    @Test("contextPercentage does not append message to chat")
+    func contextPercentageNoMessage() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 1500, output: 200))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 42))
         #expect(state.messages.isEmpty)
     }
 
     @MainActor
-    @Test("tokenUsage updates contextTokensUsed")
-    func tokenUsageUpdatesContext() {
+    @Test("contextPercentage updates state.contextPercentage")
+    func contextPercentageUpdatesState() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 100_000, output: 500))
-        #expect(state.contextTokensUsed == 100_000)
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 50))
         #expect(state.contextPercentage == 0.5)
     }
 
     @MainActor
-    @Test("tokenUsage ignores messages from different session")
-    func tokenUsageIgnoresDifferentSession() {
+    @Test("contextPercentage ignores messages from different session")
+    func contextPercentageIgnoresDifferentSession() {
         let state = AppState()
         state.confirmSessionSwitch(sessionId: "sess-1")
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: "sess-2", input: 100_000, output: 500))
-        #expect(state.contextTokensUsed == 0)
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: "sess-2", percentage: 50))
+        #expect(state.contextPercentage == 0)
     }
 
     @MainActor
-    @Test("tokenUsage crossing 90% fires warning toast")
-    func tokenUsageCrossing90() {
+    @Test("contextPercentage crossing 90% fires warning toast")
+    func contextPercentageCrossing90() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // Set below 90% first
-        state.contextTokensUsed = 170_000  // 85%
+        state.contextPercentage = 0.85
         state.currentToast = nil
         // Now push above 90%
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 185_000, output: 100))
-        #expect(state.contextTokensUsed == 185_000)
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 92))
+        #expect(state.contextPercentage == 0.92)
         #expect(state.currentToast != nil)
         #expect(state.currentToast?.message.contains("compact") == true)
         #expect(state.currentToast?.style == .warning)
     }
 
     @MainActor
-    @Test("tokenUsage already above 90% does not re-fire toast")
-    func tokenUsageAlreadyAbove90() {
+    @Test("contextPercentage already above 90% does not re-fire toast")
+    func contextPercentageAlreadyAbove90() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // Already above 90%
-        state.contextTokensUsed = 185_000
+        state.contextPercentage = 0.92
         state.currentToast = nil
         // Update again still above 90%
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 190_000, output: 100))
-        #expect(state.contextTokensUsed == 190_000)
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 95))
+        #expect(state.contextPercentage == 0.95)
         // Toast should NOT fire (already was above 90%)
-        // The only toast would be from the message append, not the threshold
-        // Check that no warning toast was set
         #expect(state.currentToast == nil)
+    }
+
+    @MainActor
+    @Test("legacy tokenUsage is ignored (no-op)")
+    func legacyTokenUsageIgnored() {
+        let state = AppState()
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 100_000, output: 500))
+        #expect(state.contextPercentage == 0)
+        #expect(state.messages.isEmpty)
     }
 
     // MARK: - Tasks

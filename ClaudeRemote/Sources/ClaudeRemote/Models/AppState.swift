@@ -97,13 +97,7 @@ public final class AppState {
     public var currentActivity: String?
 
     // MARK: - Context Window
-    public var contextTokensUsed: Int = 0
-    public static let defaultContextWindowSize = 200_000
-
-    public var contextPercentage: Double {
-        guard contextTokensUsed > 0 else { return 0 }
-        return min(Double(contextTokensUsed) / Double(Self.defaultContextWindowSize), 1.0)
-    }
+    public var contextPercentage: Double = 0
 
     // MARK: - Settings
     public var ttsEnabled = false
@@ -224,7 +218,7 @@ public final class AppState {
         activeSubagents.removeAll()
         pendingSubagentMessages.removeAll()
         subagentMessageMap.removeAll()
-        contextTokensUsed = 0
+        contextPercentage = 0
         sessionStatus = .idle
         sessionMode = .defaultMode
         currentActivity = nil

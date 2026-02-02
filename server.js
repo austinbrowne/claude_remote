@@ -453,17 +453,7 @@ async function watchSession(sessionId) {
           });
 
           for (const item of filteredItems) {
-            if (item.type === 'token_usage') {
-              // Store latest input_tokens as context usage (each API call includes full conversation)
-              const sd = activeSessions.get(sessionId);
-              if (sd && item.input) sd.contextTokensUsed = item.input;
-              broadcastToClients({
-                type: 'token_usage',
-                sessionId: sessionId,
-                input: item.input,
-                output: item.output
-              });
-            } else if (item.type === 'mode_change') {
+            if (item.type === 'mode_change') {
               const sd = activeSessions.get(sessionId);
               if (sd && sd.mode !== item.mode) {
                 sd.mode = item.mode;
@@ -553,12 +543,37 @@ async function watchSession(sessionId) {
     lastPosition,
     lastStatus: initialStatus,
     mode: 'default',             // Current permission mode (updated from JSONL)
-    contextTokensUsed: 0,        // Latest input_tokens from main session (= context window usage)
+    contextPercentage: 0,        // Latest context % from statusline file
+    contextPollInterval: null,   // Interval handle for /tmp/claude-ctx-* polling
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
     subagentInfo: new Map()       // Track subagent metadata for sync to new clients
   });
+
+  // Poll /tmp/claude-ctx-{sessionId} for context percentage updates
+  const CONTEXT_POLL_MS = 10000;
+  const ctxFile = path.join(os.tmpdir(), `claude-ctx-${sessionId}`);
+  const contextPollInterval = setInterval(async () => {
+    try {
+      const content = await fsp.readFile(ctxFile, 'utf8');
+      const pct = parseInt(content.trim(), 10);
+      if (isNaN(pct)) return;
+      const clamped = Math.max(0, Math.min(pct, 100));
+      const sd = activeSessions.get(sessionId);
+      if (sd && clamped !== sd.contextPercentage) {
+        sd.contextPercentage = clamped;
+        broadcastToClients({
+          type: 'context_percentage',
+          sessionId: sessionId,
+          percentage: clamped
+        });
+      }
+    } catch (e) {
+      // File doesn't exist yet — that's fine
+    }
+  }, CONTEXT_POLL_MS);
+  activeSessions.get(sessionId).contextPollInterval = contextPollInterval;
 
   // Watch for subagents in {sessionDir}/subagents/
   const subagentsDir = path.join(logsDir, sessionId, 'subagents');
@@ -577,6 +592,7 @@ function unwatchSession(sessionId) {
     sessionData.subagentsDirWatcher?.close();
     sessionData.subagentsParentWatcher?.close();
     if (sessionData.pollInterval) clearInterval(sessionData.pollInterval);
+    if (sessionData.contextPollInterval) clearInterval(sessionData.contextPollInterval);
 
     // Clean up subagent watchers
     sessionData.subagentWatchers?.forEach((watcher, agentId) => {
@@ -1043,20 +1059,6 @@ function parseLogEntry(entry) {
       });
     }
 
-    // Extract token usage from assistant messages
-    // Total context = input_tokens + cached tokens (cache is still part of the context window)
-    if (entry.message?.usage) {
-      const u = entry.message.usage;
-      const totalInput = (u.input_tokens || 0)
-        + (u.cache_read_input_tokens || 0)
-        + (u.cache_creation_input_tokens || 0);
-      results.push({
-        type: 'token_usage',
-        input: totalInput,
-        output: u.output_tokens || 0,
-        timestamp
-      });
-    }
   }
 
   // User messages - could be human input or tool results
@@ -1387,13 +1389,12 @@ async function handleClientMessage(ws, msg) {
           }));
           await sendRecentHistory(ws, msg.sessionId);
           await sendActiveSubagents(ws, msg.sessionId);
-          // Send accumulated context usage so the ring starts at the right value
-          if (sessionData?.contextTokensUsed > 0) {
+          // Send current context percentage so the ring starts at the right value
+          if (sessionData?.contextPercentage > 0) {
             ws.send(JSON.stringify({
-              type: 'token_usage',
+              type: 'context_percentage',
               sessionId: msg.sessionId,
-              input: sessionData.contextTokensUsed,
-              output: 0
+              percentage: sessionData.contextPercentage
             }));
           }
         } finally {
@@ -1604,22 +1605,16 @@ async function sendRecentHistory(ws, sessionId) {
 
     const lines = content.split('\n').filter(line => line.trim());
 
-    // Scan ALL lines for the last token_usage (context window = latest total input tokens).
-    // Must scan all lines because recent history may be tool calls with no assistant message.
-    let lastContextTokens = 0;
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line);
-        if (entry.message?.usage) {
-          const u = entry.message.usage;
-          lastContextTokens = (u.input_tokens || 0)
-            + (u.cache_read_input_tokens || 0)
-            + (u.cache_creation_input_tokens || 0);
-        }
-      } catch (e) {}
-    }
-    if (lastContextTokens > 0 && sessionData) {
-      sessionData.contextTokensUsed = lastContextTokens;
+    // Read context percentage from statusline file (replaces JSONL token scanning)
+    try {
+      const ctxFile = path.join(os.tmpdir(), `claude-ctx-${sessionId}`);
+      const ctxContent = await fsp.readFile(ctxFile, 'utf8');
+      const pct = parseInt(ctxContent.trim(), 10);
+      if (!isNaN(pct) && sessionData) {
+        sessionData.contextPercentage = Math.max(0, Math.min(pct, 100));
+      }
+    } catch (e) {
+      // File may not exist yet — context percentage stays at 0
     }
 
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);

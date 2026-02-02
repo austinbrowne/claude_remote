@@ -330,12 +330,17 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             #endif
 
-        case .tokenUsage(let sessionId, let input, _):
-            // Ignore token_usage from a different session (prevents cross-session contamination)
+        case .tokenUsage:
+            break // Legacy — context is now tracked via context_percentage
+
+        case .contextPercentage(let sessionId, let percentage):
+            // Ignore from a different session (prevents cross-session contamination)
             if let sessionId, sessionId != state.currentSessionId { break }
 
             let oldPct = state.contextPercentage
-            if let input { state.contextTokensUsed = input }
+            if let percentage {
+                state.contextPercentage = min(Double(percentage) / 100.0, 1.0)
+            }
             let newPct = state.contextPercentage
 
             if oldPct < 0.9 && newPct >= 0.9 {
@@ -555,6 +560,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .sessionStatus(_, let status, _): return "session_status status=\(status)"
         case .statusUpdate(let status): return "status_update status=\(status)"
         case .tokenUsage(_, let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
+        case .contextPercentage(_, let p): return "context_percentage pct=\(p ?? 0)"
         case .taskCreate(let id, _, _, _, _): return "task_create id=\(id ?? "nil")"
         case .taskUpdate(let id, let status, _, _, _): return "task_update id=\(id) status=\(status)"
         case .taskList(let tasks): return "task_list count=\(tasks.count)"
