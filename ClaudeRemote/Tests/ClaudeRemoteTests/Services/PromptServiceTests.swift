@@ -577,6 +577,88 @@ struct PromptServiceTests {
         #expect(service.promptQueue[0].toolUseId == "tu-2")
     }
 
+    // MARK: - History Recovery (Forward Scan)
+
+    @MainActor
+    @Test("recovery clears existing queue before recovering")
+    func recoveryClearsExistingQueue() {
+        let (service, _) = Self.makeSUT()
+        // Pre-populate the queue with an existing prompt
+        let existingQ = [QuestionData(question: "Old question")]
+        service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: existingQ))
+        #expect(service.promptQueue.count == 1)
+
+        // Now recover from history — old prompt should be gone
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.count == 1)
+        // Should be the recovered permission, not the old question
+        if case .permission(let tool, _, _) = service.currentPrompt?.kind {
+            #expect(tool == "Bash")
+        } else {
+            Issue.record("Expected recovered permission, not old question")
+        }
+    }
+
+    @MainActor
+    @Test("recovers multiple questions past user messages")
+    func recoverMultipleQuestionsPastUserMessages() {
+        let (service, _) = Self.makeSUT()
+        let q1 = [QuestionData(question: "Q1?")]
+        let q2 = [QuestionData(question: "Q2?")]
+        let q3 = [QuestionData(question: "Q3?")]
+        let messages = [
+            Message(type: .askUserQuestion, questions: q1),
+            Message(type: .user, content: "answer to Q1"),    // answers Q1
+            Message(type: .askUserQuestion, questions: q2),
+            Message(type: .askUserQuestion, questions: q3),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        // Q1 answered, Q2 and Q3 unanswered
+        #expect(service.promptQueue.count == 2)
+        if case .question(let qs) = service.promptQueue[0].kind {
+            #expect(qs[0].question == "Q2?")
+        } else {
+            Issue.record("Expected Q2")
+        }
+        if case .question(let qs) = service.promptQueue[1].kind {
+            #expect(qs[0].question == "Q3?")
+        } else {
+            Issue.record("Expected Q3")
+        }
+    }
+
+    @MainActor
+    @Test("answered question not recovered")
+    func answeredQuestionNotRecovered() {
+        let (service, _) = Self.makeSUT()
+        let q = [QuestionData(question: "Pick?")]
+        let messages = [
+            Message(type: .askUserQuestion, questions: q),
+            Message(type: .user, content: "my answer"),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.isEmpty)
+    }
+
+    @MainActor
+    @Test("recoverFromHistory is idempotent — no duplicates on re-call")
+    func recoverIdempotent() {
+        let (service, _) = Self.makeSUT()
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+            Message(type: .askUserQuestion, questions: [QuestionData(question: "Q?")]),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.count == 2)
+
+        // Call again with same data — should still have exactly 2, not 4
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.count == 2)
+    }
+
     @MainActor
     @Test("Allow Always cascade also cancels pending permissions")
     func allowAlwaysCascadePending() async throws {

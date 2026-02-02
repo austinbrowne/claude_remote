@@ -141,31 +141,43 @@ public final class PromptService {
     /// Finds ALL unmatched permission_request/ask_user_question entries.
     public func recoverFromHistory(_ messages: [Message], sessionStatus: SessionStatus) {
         guard sessionStatus == .waiting else { return }
+        clearQueue() // Prevent duplicates on reconnect
 
         // Collect all prompt messages and track which have been answered
         var answeredToolUseIds: Set<String> = []
         var unansweredPrompts: [Message] = []
 
-        // Scan forward to find tool_results and user messages
-        for msg in messages {
+        // Forward scan: find prompts and track which are answered
+        var promptIndices: [(index: Int, msg: Message)] = []
+        for (i, msg) in messages.enumerated() {
             if msg.type == .toolResult, let tuId = msg.toolUseId {
                 answeredToolUseIds.insert(tuId)
             }
+            if msg.type == .permissionRequest || msg.type == .askUserQuestion {
+                promptIndices.append((i, msg))
+            }
         }
 
-        // Scan backwards to find unanswered prompts
-        // Stop at the first user message (everything before it was answered)
-        for i in stride(from: messages.count - 1, through: 0, by: -1) {
-            let msg = messages[i]
-            if msg.type == .user {
-                break
-            }
-            if msg.type == .permissionRequest || msg.type == .askUserQuestion {
+        // A prompt is unanswered if:
+        // - Permission: no matching tool_result and no immediately following user message
+        // - Question: no subsequent user message (answer injection)
+        for (idx, msg) in promptIndices {
+            if msg.type == .permissionRequest {
                 if let tuId = msg.toolUseId, answeredToolUseIds.contains(tuId) {
-                    continue // Already answered
+                    continue
                 }
-                unansweredPrompts.insert(msg, at: 0) // Maintain order
+                // Also skip if a user message follows it (manual answer)
+                if idx + 1 < messages.count && messages[idx + 1].type == .user {
+                    continue
+                }
+            } else if msg.type == .askUserQuestion {
+                // Question answered if followed by a user message anywhere after it
+                let hasFollowingUserMsg = ((idx + 1)..<messages.count).contains {
+                    messages[$0].type == .user
+                }
+                if hasFollowingUserMsg { continue }
             }
+            unansweredPrompts.append(msg)
         }
 
         for msg in unansweredPrompts {
