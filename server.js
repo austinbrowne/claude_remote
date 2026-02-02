@@ -421,7 +421,9 @@ async function watchSession(sessionId) {
               const entry = JSON.parse(line);
 
               // Skip Task (subagent) tool results — streamed via subagent_output
+              // But signal completion immediately instead of waiting for 30s idle timeout
               if (entry.type === 'user' && entry.toolUseResult?.agentId) {
+                stopSubagent(sessionId, entry.toolUseResult.agentId, 'task completed');
                 continue;
               }
 
@@ -868,7 +870,7 @@ function resetSubagentIdleTimeout(sessionId, agentId) {
   sessionData.subagentTimeouts.set(agentId, timeout);
 }
 
-function stopSubagent(sessionId, agentId) {
+function stopSubagent(sessionId, agentId, reason) {
   const sessionData = activeSessions.get(sessionId);
   if (!sessionData) return;
 
@@ -886,7 +888,7 @@ function stopSubagent(sessionId, agentId) {
       sessionData.subagentTimeouts.delete(agentId);
     }
 
-    console.log(`[Subagent ${agentId}] Stopped (idle timeout)`);
+    console.log(`[Subagent ${agentId}] Stopped (${reason || 'idle timeout'})`);
 
     broadcastToClients({
       type: 'subagent_stop',
