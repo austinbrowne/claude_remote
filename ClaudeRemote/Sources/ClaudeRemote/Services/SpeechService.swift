@@ -126,13 +126,11 @@ public final class SpeechService {
         interruptionObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.interruptionNotification,
             object: session,
-            queue: nil
+            queue: .main
         ) { [weak self] notification in
             let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-            Task { @MainActor [weak self] in
-                self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
-            }
+            self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
         }
     }
 
@@ -181,9 +179,9 @@ public final class SpeechService {
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            SFSpeechRecognizer.requestAuthorization { status in
                 if status == .authorized {
-                    Task { @MainActor [weak self] in
+                    DispatchQueue.main.async { [weak self] in
                         try? self?.startListening()
                     }
                 }
@@ -233,9 +231,9 @@ public final class SpeechService {
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            SFSpeechRecognizer.requestAuthorization { status in
                 if status == .authorized {
-                    Task { @MainActor [weak self] in
+                    DispatchQueue.main.async { [weak self] in
                         try? self?.startTriggerListening()
                     }
                 }
@@ -343,8 +341,8 @@ public final class SpeechService {
             isListening = true
         }
 
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
-            Task { @MainActor [weak self] in
+        recognitionTask = speechRecognizer?.recognitionTask(with: request) { result, error in
+            DispatchQueue.main.async { [weak self] in
                 guard let self, gen == self.recognitionGeneration else { return }
                 if let result {
                     let text = result.bestTranscription.formattedString
