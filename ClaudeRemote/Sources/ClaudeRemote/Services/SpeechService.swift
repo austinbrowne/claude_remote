@@ -101,8 +101,12 @@ public final class SpeechService {
 
     // MARK: - Audio Session
 
+    /// Whether the audio session has been configured at least once
+    private var audioSessionConfigured = false
+
     /// Configure the shared audio session for play-and-record.
     /// Pass `forBackground: true` when trigger mode is active to add `.mixWithOthers`.
+    /// Safe to call multiple times — skips `setActive` if already active.
     public func configureAudioSession(forBackground: Bool = false) throws {
         let session = AVAudioSession.sharedInstance()
         var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
@@ -110,7 +114,12 @@ public final class SpeechService {
             options.insert(.mixWithOthers)
         }
         try session.setCategory(.playAndRecord, options: options)
-        try session.setActive(true)
+        // Only call setActive if not already active — setActive(true) can block
+        // the main thread for seconds if the audio daemon is in a bad state.
+        if !session.isOtherAudioPlaying || !audioSessionConfigured {
+            try session.setActive(true)
+        }
+        audioSessionConfigured = true
 
         // Only register interruption observer once
         guard interruptionObserver == nil else { return }
@@ -124,6 +133,14 @@ public final class SpeechService {
             Task { @MainActor [weak self] in
                 self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
             }
+        }
+    }
+
+    /// Ensure the audio session is configured before using the audio engine.
+    /// Called lazily from beginRecognition — avoids blocking app launch.
+    private func ensureAudioSession(forBackground: Bool = false) throws {
+        if !audioSessionConfigured {
+            try configureAudioSession(forBackground: forBackground)
         }
     }
 
@@ -273,6 +290,8 @@ public final class SpeechService {
 
     /// Start a new recognition session. Used by both manual and trigger modes.
     private func beginRecognition() throws {
+        try ensureAudioSession(forBackground: isInTriggerMode)
+
         let gen = recognitionGeneration
 
         let request = SFSpeechAudioBufferRecognitionRequest()
