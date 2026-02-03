@@ -213,12 +213,14 @@ function getGitBranch(cwd) {
 
 // Load allowed tools from Claude Code's settings files
 async function loadAllowedTools(sessionCwd) {
-  // Tools that never require permission in Claude Code
+  // Only tools that Claude Code NEVER prompts for, regardless of context.
+  // Do NOT include Read, Glob, Grep, LS, WebSearch, Task, AskUserQuestion —
+  // Claude Code can prompt for those when accessing files outside the project.
   const allowed = new Set([
-    'Read', 'Glob', 'Grep', 'LS', 'TodoRead', 'TodoWrite',
+    'TodoRead', 'TodoWrite',
     'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList',
-    'WebSearch', 'Task', 'EnterPlanMode', 'ExitPlanMode',
-    'AskUserQuestion', 'Skill', 'NotebookRead'
+    'EnterPlanMode', 'ExitPlanMode',
+    'Skill', 'NotebookRead'
   ]);
 
   const claudeHome = path.join(os.homedir(), '.claude');

@@ -96,6 +96,11 @@ function showStructuredPrompt(questions, subagentId = null) {
 }
 
 function showPromptCard(prompt) {
+  // Skip if tool is pre-allowed (from claudeState permissions)
+  if (prompt.type === 'permission' && prompt.tool && alwaysAllowedTools.has(prompt.tool)) {
+    return;
+  }
+
   // Queue if a prompt is already showing
   if (currentPrompt) {
     promptQueue.push(prompt);

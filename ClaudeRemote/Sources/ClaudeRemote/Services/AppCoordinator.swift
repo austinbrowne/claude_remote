@@ -477,7 +477,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.sessionMode = SessionMode(rawValue: mode) ?? .defaultMode
             }
             if let pct = claudeState.contextPercentage {
-                state.contextPercentage = pct
+                // Server sends 0-100 integer; state expects 0-1.0 fraction
+                state.contextPercentage = min(pct / 100.0, 1.0)
             }
             if let permissions = claudeState.permissions {
                 promptService.updateAllowedTools(permissions)
