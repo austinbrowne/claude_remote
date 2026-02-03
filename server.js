@@ -232,7 +232,7 @@ async function loadAllowedTools(sessionCwd) {
 
   // Project-level: ~/.claude/projects/<hash>/settings.local.json
   if (sessionCwd) {
-    const projectHash = '-' + sessionCwd.replace(/\//g, '-');
+    const projectHash = sessionCwd.replace(/[/_]/g, '-');
     try {
       const raw = await fsp.readFile(path.join(claudeHome, 'projects', projectHash, 'settings.local.json'), 'utf8');
       const settings = JSON.parse(raw);
