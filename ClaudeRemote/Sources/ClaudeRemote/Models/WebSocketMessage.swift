@@ -29,6 +29,7 @@ public enum ServerMessage: Sendable {
     case modeChange(sessionId: String?, mode: String)
     case error(code: String, message: String, details: [String: AnyCodableValue]?)
     case pong(timestamp: Int)
+    case claudeState(sessionId: String?, state: ClaudeState)
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
     case unknown(type: String, raw: [String: AnyCodableValue])
 }
@@ -230,8 +231,8 @@ extension ServerMessage: Decodable {
         case code, message, details
         // pong
         case timestamp
-        // state
-        case clientId, watchingSessions, settings
+        // state / claude_state
+        case clientId, watchingSessions, settings, state
         // question
         case questions
         // permission
@@ -381,6 +382,11 @@ extension ServerMessage: Decodable {
         case "pong":
             let timestamp = try container.decode(Int.self, forKey: .timestamp)
             self = .pong(timestamp: timestamp)
+
+        case "claude_state":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let claudeState = try container.decode(ClaudeState.self, forKey: .state)
+            self = .claudeState(sessionId: sessionId, state: claudeState)
 
         case "state":
             let clientId = try container.decodeIfPresent(String.self, forKey: .clientId)

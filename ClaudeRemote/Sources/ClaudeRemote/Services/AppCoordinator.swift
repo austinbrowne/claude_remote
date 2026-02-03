@@ -468,6 +468,21 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             notify(trigger: .error, sessionId: nil, body: errorMessage)
             #endif
 
+        case .claudeState(let sessionId, let claudeState):
+            guard sessionId == state.currentSessionId else { break }
+            if let status = claudeState.status {
+                state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
+            }
+            if let mode = claudeState.mode {
+                state.sessionMode = SessionMode(rawValue: mode) ?? .defaultMode
+            }
+            if let pct = claudeState.contextPercentage {
+                state.contextPercentage = pct
+            }
+            if let permissions = claudeState.permissions {
+                promptService.updateAllowedTools(permissions)
+            }
+
         case .pong:
             break // Handled by WebSocketService
 
@@ -576,6 +591,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .modeToggleResult(let success, _): return "mode_toggle_result success=\(success)"
         case .error(let code, let msg, _): return "error code=\(code) msg=\(msg)"
         case .pong(let ts): return "pong ts=\(ts)"
+        case .claudeState(let sid, _): return "claude_state session=\(sid ?? "nil")"
         case .state: return "state"
         case .unknown(let type, _): return "unknown type=\(type)"
         }

@@ -61,6 +61,29 @@ public final class PromptService {
     /// The active prompt being displayed — queue head (nil when queue is empty).
     public var currentPrompt: PromptItem? { promptQueue.first }
 
+    // MARK: - Allowed Tools (from claudeState)
+
+    /// Tools that are pre-allowed and should never show permission prompts
+    private var allowedTools: Set<String> = []
+
+    /// Update allowed tools from a claudeState permissions payload
+    public func updateAllowedTools(_ permissions: ClaudeState.Permissions) {
+        var tools = Set(permissions.allowedTools ?? [])
+        tools.formUnion(permissions.sessionGranted ?? [])
+        allowedTools = tools
+    }
+
+    /// Check if a tool is pre-allowed (no permission prompt needed)
+    private func isToolAllowed(_ tool: String) -> Bool {
+        if allowedTools.contains(tool) { return true }
+        // Domain-scoped: WebFetch(domain:x.com) allows all WebFetch
+        if tool == "WebFetch" {
+            return allowedTools.contains(where: { $0.hasPrefix("WebFetch(") })
+        }
+        // MCP tools: already checked by exact match above
+        return false
+    }
+
     // MARK: - Internal State
 
     /// Number of messages received since any prompt was shown
@@ -182,6 +205,8 @@ public final class PromptService {
 
         for msg in unansweredPrompts {
             if msg.type == .permissionRequest {
+                // Skip if tool is pre-allowed
+                if let tool = msg.tool, isToolAllowed(tool) { continue }
                 let prompt = PromptItem(
                     kind: .permission(
                         tool: msg.tool,
@@ -283,6 +308,9 @@ public final class PromptService {
     // MARK: - Private
 
     private func handlePermissionRequest(_ data: ClaudeOutputData, agentDescription: String?) {
+        // Skip if tool is pre-allowed (from claudeState permissions)
+        if let tool = data.tool, isToolAllowed(tool) { return }
+
         let command = data.content ?? data.input?["command"]?.stringValue
         let pendingKey = data.toolUseId ?? UUID().uuidString
         arrivalCounter += 1

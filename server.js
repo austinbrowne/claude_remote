@@ -211,6 +211,58 @@ function getGitBranch(cwd) {
   });
 }
 
+// Load allowed tools from Claude Code's settings files
+async function loadAllowedTools(sessionCwd) {
+  // Tools that never require permission in Claude Code
+  const allowed = new Set([
+    'Read', 'Glob', 'Grep', 'LS', 'TodoRead', 'TodoWrite',
+    'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList',
+    'WebSearch', 'Task', 'EnterPlanMode', 'ExitPlanMode',
+    'AskUserQuestion', 'Skill', 'NotebookRead'
+  ]);
+
+  const claudeHome = path.join(os.homedir(), '.claude');
+
+  // User-level: ~/.claude/settings.local.json
+  try {
+    const raw = await fsp.readFile(path.join(claudeHome, 'settings.local.json'), 'utf8');
+    const settings = JSON.parse(raw);
+    (settings.permissions?.allow || []).forEach(t => allowed.add(t));
+  } catch { /* no user settings */ }
+
+  // Project-level: ~/.claude/projects/<hash>/settings.local.json
+  if (sessionCwd) {
+    const projectHash = '-' + sessionCwd.replace(/\//g, '-');
+    try {
+      const raw = await fsp.readFile(path.join(claudeHome, 'projects', projectHash, 'settings.local.json'), 'utf8');
+      const settings = JSON.parse(raw);
+      (settings.permissions?.allow || []).forEach(t => allowed.add(t));
+    } catch { /* no project settings */ }
+  }
+
+  return allowed;
+}
+
+// Check if a tool needs user permission (not pre-allowed)
+function needsPermission(toolName, sessionData) {
+  if (!sessionData) return true;
+  const allowed = sessionData.allowedTools || new Set();
+  const granted = sessionData.sessionGranted || new Set();
+
+  // Exact match
+  if (allowed.has(toolName) || granted.has(toolName)) return false;
+
+  // Domain-scoped: WebFetch(domain:github.com) allows all WebFetch
+  if (toolName === 'WebFetch') {
+    for (const entry of allowed) {
+      if (entry.startsWith('WebFetch(')) return false;
+    }
+  }
+
+  // MCP tools: already checked by exact match above
+  return true;
+}
+
 async function discoverSessions() {
   const sessions = [];
 
@@ -427,7 +479,7 @@ async function watchSession(sessionId) {
                 continue;
               }
 
-              const parsed = parseLogEntry(entry);
+              const parsed = parseLogEntry(entry, activeSessions.get(sessionId));
               if (parsed) {
                 linesProcessed = true;
                 const items = Array.isArray(parsed) ? parsed : [parsed];
@@ -535,6 +587,8 @@ async function watchSession(sessionId) {
   
   const initialStatus = await getSessionStatus(session.logFile);
 
+  const allowedTools = await loadAllowedTools(session.cwd);
+
   activeSessions.set(sessionId, {
     watcher,
     logsDirWatcher,
@@ -548,7 +602,10 @@ async function watchSession(sessionId) {
     subagentWatchers: new Map(),  // Track subagent file watchers
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
-    subagentInfo: new Map()       // Track subagent metadata for sync to new clients
+    subagentInfo: new Map(),      // Track subagent metadata for sync to new clients
+    allowedTools,                 // Pre-allowed tools from Claude Code settings
+    sessionGranted: new Set(),    // Tools granted "always" during this session
+    lastPermissionTool: null      // Most recent permission tool (for "always" tracking)
   });
 
   // Poll /tmp/claude-ctx-{sessionId} for context percentage updates
@@ -774,7 +831,7 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
         for (const line of lines) {
           try {
             const entry = JSON.parse(line);
-            const parsed = parseLogEntry(entry);
+            const parsed = parseLogEntry(entry, activeSessions.get(sessionId));
             if (parsed) {
               const items = Array.isArray(parsed) ? parsed : [parsed];
               for (const item of items) {
@@ -919,7 +976,7 @@ function stopSubagent(sessionId, agentId, reason) {
   }
 }
 
-function parseLogEntry(entry) {
+function parseLogEntry(entry, sessionData) {
   const results = [];
   const timestamp = entry.timestamp || new Date().toISOString();
 
@@ -967,7 +1024,6 @@ function parseLogEntry(entry) {
             timestamp
           });
 
-          const PERMISSION_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'WebFetch', 'NotebookEdit'];
           const isMcpTool = block.name && block.name.startsWith('mcp__');
 
           // Special handling for AskUserQuestion - emit as structured prompt
@@ -978,9 +1034,10 @@ function parseLogEntry(entry) {
               timestamp
             });
           }
-          // Permission-requiring tools - emit as permission_request
-          else if (PERMISSION_TOOLS.includes(block.name) || isMcpTool) {
+          // Permission-requiring tools - only emit if not pre-allowed
+          else if (needsPermission(block.name, sessionData) || (isMcpTool && needsPermission(block.name, sessionData))) {
             console.log(`[Permission] Detected ${block.name} tool call`);
+            if (sessionData) sessionData.lastPermissionTool = block.name;
             results.push({
               type: 'permission_request',
               tool: isMcpTool ? formatMcpToolName(block.name) : block.name,
@@ -1225,6 +1282,67 @@ function broadcastToClients(message) {
   });
 }
 
+// Build the full claudeState object for a session
+function buildClaudeState(sessionId) {
+  const sd = activeSessions.get(sessionId);
+  if (!sd) return null;
+
+  const subagents = {};
+  for (const [id, info] of sd.subagentInfo) {
+    subagents[id] = {
+      status: info.status,
+      description: info.description,
+      agentType: info.agentType,
+      currentTool: info.currentTool || null,
+      inputTokens: info.inputTokens || 0,
+      outputTokens: info.outputTokens || 0,
+      startTime: info.startTime,
+      lastActivity: info.lastActivity
+    };
+  }
+
+  return {
+    session: {
+      id: sessionId,
+      name: sd.session.name,
+      cwd: sd.session.cwd,
+      branch: sd.session.branch,
+      tty: sd.session.tty,
+      pid: sd.session.pid
+    },
+    status: sd.lastStatus || 'unknown',
+    mode: sd.mode || 'default',
+    contextPercentage: sd.contextPercentage || 0,
+    permissions: {
+      allowedTools: Array.from(sd.allowedTools || []),
+      sessionGranted: Array.from(sd.sessionGranted || []),
+      mode: sd.mode || 'default'
+    },
+    subagents,
+    lastActivity: new Date().toISOString()
+  };
+}
+
+// Broadcast claudeState update to all clients watching a session
+function broadcastClaudeState(sessionId) {
+  const state = buildClaudeState(sessionId);
+  if (state) {
+    broadcastToClients({
+      type: 'claude_state',
+      sessionId,
+      state
+    });
+  }
+}
+
+// Periodic claudeState sync — corrects any drift from missed individual messages
+const CLAUDE_STATE_SYNC_MS = 30000;
+setInterval(() => {
+  for (const [sessionId] of activeSessions) {
+    broadcastClaudeState(sessionId);
+  }
+}, CLAUDE_STATE_SYNC_MS);
+
 // Check if any other client is watching a session (excludes given ws)
 function isAnyoneWatching(sessionId, excludeWs = null) {
   for (const [ws, data] of clients) {
@@ -1397,6 +1515,15 @@ async function handleClientMessage(ws, msg) {
               percentage: sessionData.contextPercentage
             }));
           }
+          // Send full claudeState snapshot (permissions, mode, subagents, etc.)
+          const claudeState = buildClaudeState(msg.sessionId);
+          if (claudeState) {
+            ws.send(JSON.stringify({
+              type: 'claude_state',
+              sessionId: msg.sessionId,
+              state: claudeState
+            }));
+          }
         } finally {
           // Resume broadcasting — live events will now flow after history
           clientData.pauseBroadcast = false;
@@ -1437,6 +1564,15 @@ async function handleClientMessage(ws, msg) {
       if (msg.command.length > 10000) {
         ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Command too long (max 10000 chars)' }));
         break;
+      }
+      // Track "always" grants — record which tool was just granted
+      if (msg.command === 'always' && msg.sessionId) {
+        const sd = activeSessions.get(msg.sessionId);
+        if (sd && sd.lastPermissionTool) {
+          sd.sessionGranted.add(sd.lastPermissionTool);
+          console.log(`[Permission] Always-granted: ${sd.lastPermissionTool}`);
+          broadcastClaudeState(msg.sessionId);
+        }
       }
       // Use cached session first (fast), fall back to discovery (slow) if needed
       (async () => {
@@ -1636,7 +1772,7 @@ async function sendRecentHistory(ws, sessionId) {
           continue;
         }
 
-        const parsed = parseLogEntry(entry);
+        const parsed = parseLogEntry(entry, sessionData);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
           allItems.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
@@ -1706,7 +1842,7 @@ async function sendActiveSubagents(ws, sessionId) {
       for (const line of lines) {
         try {
           const entry = JSON.parse(line);
-          const parsed = parseLogEntry(entry);
+          const parsed = parseLogEntry(entry, activeSessions.get(sessionId));
           if (parsed) {
             const items = Array.isArray(parsed) ? parsed : [parsed];
             for (const item of items) {
