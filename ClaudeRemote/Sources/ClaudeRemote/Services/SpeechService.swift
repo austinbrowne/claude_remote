@@ -68,6 +68,20 @@ public final class SpeechService {
     /// Stored observer token for audio interruption notifications
     nonisolated(unsafe) private var interruptionObserver: (any NSObjectProtocol)?
 
+    /// Stored observer token for media services reset notifications
+    nonisolated(unsafe) private var mediaResetObserver: (any NSObjectProtocol)?
+
+    /// Stored observer token for audio route change notifications
+    nonisolated(unsafe) private var routeChangeObserver: (any NSObjectProtocol)?
+
+    /// Retry attempt counter for exponential backoff
+    private var retryCount = 0
+    private static let maxRetries = 5
+    nonisolated(unsafe) private var retryTask: Task<Void, Never>?
+
+    /// Guard against concurrent restart cycles
+    private var isRestarting = false
+
     /// Whether recognition is running in trigger mode (vs manual mode)
     private var isInTriggerMode = false
 
@@ -94,7 +108,14 @@ public final class SpeechService {
         silenceTask?.cancel()
         restartTask?.cancel()
         cooldownTask?.cancel()
+        retryTask?.cancel()
         if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = mediaResetObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = routeChangeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -102,7 +123,9 @@ public final class SpeechService {
     // MARK: - Audio Session
 
     /// Whether the audio session has been configured at least once
-    private var audioSessionConfigured = false
+    /// Whether the audio session has been configured at least once.
+    /// Internal so AppCoordinator can reset it on foreground return.
+    var audioSessionConfigured = false
 
     /// Configure the shared audio session for play-and-record.
     /// Pass `forBackground: true` when trigger mode is active to add `.mixWithOthers`.
@@ -114,23 +137,49 @@ public final class SpeechService {
             options.insert(.mixWithOthers)
         }
         try session.setCategory(.playAndRecord, options: options)
-        // Only call setActive if not already active — setActive(true) can block
-        // the main thread for seconds if the audio daemon is in a bad state.
-        if !session.isOtherAudioPlaying || !audioSessionConfigured {
+        // Only call setActive on first configuration — once active, the session
+        // stays active until we explicitly deactivate or iOS interrupts (handled
+        // by the interruption handler which reactivates on resume).
+        // Avoids blocking the main thread on redundant setActive(true) calls.
+        if !audioSessionConfigured {
             try session.setActive(true)
         }
         audioSessionConfigured = true
 
         // Only register interruption observer once
-        guard interruptionObserver == nil else { return }
-        interruptionObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: session,
-            queue: .main
-        ) { [weak self] notification in
-            let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-            let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-            self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
+        if interruptionObserver == nil {
+            interruptionObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+                let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
+                self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
+            }
+        }
+
+        // Register media services reset observer (once only)
+        if mediaResetObserver == nil {
+            mediaResetObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.mediaServicesWereResetNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.handleMediaServicesReset()
+            }
+        }
+
+        // Register route change observer (once only)
+        if routeChangeObserver == nil {
+            routeChangeObserver = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.routeChangeNotification,
+                object: session,
+                queue: .main
+            ) { [weak self] notification in
+                let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                self?.handleRouteChange(reasonValue: reasonValue)
+            }
         }
     }
 
@@ -163,6 +212,47 @@ public final class SpeechService {
                 }
             }
         @unknown default:
+            break
+        }
+    }
+
+    /// Handle iOS media services reset — the audio engine is now invalid and must be recreated.
+    private func handleMediaServicesReset() {
+        print("[Speech] Media services were reset — recreating audio engine")
+        teardownRecognition()
+
+        // The old audio engine is dead. Create a new one.
+        recreateAudioEngine()
+        audioSessionConfigured = false
+
+        // Restart trigger if it was active
+        if isInTriggerMode && (triggerState == .listening || triggerState == .capturing) {
+            scheduleRetry()
+        }
+    }
+
+    /// Replace the audio engine after media services reset.
+    /// AVAudioEngine is invalidated when media services reset — it cannot be reused.
+    private func recreateAudioEngine() {
+        if audioEngine.isRunning { audioEngine.stop() }
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
+    }
+
+    /// Handle audio route changes (headphones, Bluetooth, etc.)
+    private func handleRouteChange(reasonValue: UInt?) {
+        guard let reasonValue,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+
+        switch reason {
+        case .oldDeviceUnavailable, .newDeviceAvailable:
+            print("[Speech] Audio route changed (reason: \(reason.rawValue)) — restarting recognition")
+            if isInTriggerMode && (triggerState == .listening || triggerState == .capturing) {
+                restartTriggerRecognition()
+            } else if isListening {
+                restartRecognition()
+            }
+        default:
             break
         }
     }
@@ -249,12 +339,16 @@ public final class SpeechService {
         lastTranscriptLength = 0
         triggerState = .listening
         try beginRecognition()
+        retryCount = 0
     }
 
     /// Stop trigger word listening
     public func stopTriggerListening() {
         cooldownTask?.cancel()
         cooldownTask = nil
+        retryTask?.cancel()
+        retryTask = nil
+        retryCount = 0
         silenceTask?.cancel()
         silenceTask = nil
         restartTask?.cancel()
@@ -309,11 +403,10 @@ public final class SpeechService {
             print("[Speech] Invalid audio format: sampleRate=\(recordingFormat.sampleRate) channels=\(recordingFormat.channelCount)")
             teardownRecognition()
             if isInTriggerMode {
-                triggerState = .idle
-                isInTriggerMode = false
-            } else {
-                isListening = false
+                scheduleRetry()
+                return
             }
+            isListening = false
             throw SpeechError.invalidAudioFormat
         }
 
@@ -328,11 +421,10 @@ public final class SpeechService {
             print("[Speech] Audio engine failed to start: \(error)")
             teardownRecognition()
             if isInTriggerMode {
-                triggerState = .idle
-                isInTriggerMode = false
-            } else {
-                isListening = false
+                scheduleRetry()
+                return
             }
+            isListening = false
             throw error
         }
 
@@ -380,6 +472,10 @@ public final class SpeechService {
 
     /// Seamless restart for manual recognition
     private func restartRecognition() {
+        guard !isRestarting else { return }
+        isRestarting = true
+        defer { isRestarting = false }
+
         restartTask?.cancel()
         restartTask = nil
         recognitionGeneration += 1
@@ -389,6 +485,10 @@ public final class SpeechService {
 
     /// Seamless restart for trigger recognition
     private func restartTriggerRecognition() {
+        guard !isRestarting else { return }
+        isRestarting = true
+        defer { isRestarting = false }
+
         restartTask?.cancel()
         restartTask = nil
         recognitionGeneration += 1
@@ -397,7 +497,46 @@ public final class SpeechService {
         // If we were capturing, the command continues in the new window
         // capturedCommand and triggerState are preserved
         guard triggerState == .listening || triggerState == .capturing else { return }
-        try? beginRecognition()
+        do {
+            try beginRecognition()
+        } catch {
+            print("[Speech] Trigger restart failed: \(error)")
+            scheduleRetry()
+        }
+    }
+
+    /// Schedule a retry for trigger recognition with exponential backoff.
+    /// Called when beginRecognition fails in trigger mode.
+    private func scheduleRetry() {
+        guard retryCount < Self.maxRetries else {
+            print("[Speech] Max retries (\(Self.maxRetries)) reached — trigger disabled")
+            triggerState = .idle
+            isInTriggerMode = false
+            retryCount = 0
+            return
+        }
+
+        let delay = Double(min(1 << retryCount, 16)) // 1, 2, 4, 8, 16 seconds
+        retryCount += 1
+        print("[Speech] Trigger retry #\(retryCount) in \(delay)s")
+
+        retryTask?.cancel()
+        retryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            guard self.isInTriggerMode, self.triggerState != .idle else { return }
+
+            do {
+                self.audioSessionConfigured = false
+                try self.configureAudioSession(forBackground: true)
+                try self.beginRecognition()
+                self.retryCount = 0 // Success — reset counter
+                print("[Speech] Trigger retry succeeded")
+            } catch {
+                print("[Speech] Trigger retry failed: \(error)")
+                self.scheduleRetry() // Try again with longer delay
+            }
+        }
     }
 
     /// Tears down audio engine and recognition without changing state.

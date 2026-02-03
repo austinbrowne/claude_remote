@@ -678,5 +678,27 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             try? speechService.configureAudioSession(forBackground: false)
         }
     }
+
+    /// Restart trigger listening after returning from background.
+    /// iOS may deactivate the audio session while backgrounded; this re-establishes it.
+    public func restoreTriggerIfNeeded() {
+        guard state.triggerEnabled else { return }
+
+        // If trigger is already actively listening, nothing to do
+        if speechService.triggerState == .listening || speechService.triggerState == .capturing {
+            return
+        }
+
+        // Re-enable: force-reconfigure audio session (iOS may have deactivated it
+        // while backgrounded) and start listening
+        do {
+            speechService.audioSessionConfigured = false
+            try speechService.configureAudioSession(forBackground: true)
+            try speechService.startTriggerListening()
+            print("[Trigger] Restored after foreground return")
+        } catch {
+            print("[Trigger] Failed to restore after foreground: \(error)")
+        }
+    }
     #endif
 }
