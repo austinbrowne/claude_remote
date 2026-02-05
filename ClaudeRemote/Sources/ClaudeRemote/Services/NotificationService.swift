@@ -6,9 +6,10 @@ import Observation
 /// Notification trigger types, ordered by priority (highest first)
 public enum NotificationTrigger: Int, Comparable, Sendable {
     case permission = 0
-    case question = 1
-    case error = 2
-    case status = 3
+    case planExit = 1
+    case question = 2
+    case error = 3
+    case status = 4
 
     public static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -17,6 +18,7 @@ public enum NotificationTrigger: Int, Comparable, Sendable {
     public var subtitle: String {
         switch self {
         case .permission: "Permission Required"
+        case .planExit: "Plan Ready"
         case .question: "Question"
         case .error: "Error"
         case .status: "Status"
@@ -25,7 +27,7 @@ public enum NotificationTrigger: Int, Comparable, Sendable {
 
     public var hasSound: Bool {
         switch self {
-        case .permission, .question, .error: true
+        case .permission, .planExit, .question, .error: true
         case .status: false
         }
     }
@@ -33,6 +35,7 @@ public enum NotificationTrigger: Int, Comparable, Sendable {
     public var categoryIdentifier: String {
         switch self {
         case .permission: "permission"
+        case .planExit: "plan_exit"
         case .question: "question"
         case .error: "error"
         case .status: "status"
@@ -154,6 +157,7 @@ public final class NotificationService: NSObject {
     private func registerCategories() {
         let categories: Set<UNNotificationCategory> = [
             UNNotificationCategory(identifier: "permission", actions: [], intentIdentifiers: []),
+            UNNotificationCategory(identifier: "plan_exit", actions: [], intentIdentifiers: []),
             UNNotificationCategory(identifier: "question", actions: [], intentIdentifiers: []),
             UNNotificationCategory(identifier: "error", actions: [], intentIdentifiers: []),
             UNNotificationCategory(identifier: "status", actions: [], intentIdentifiers: []),

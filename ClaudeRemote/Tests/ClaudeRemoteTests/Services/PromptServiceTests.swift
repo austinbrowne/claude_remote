@@ -725,6 +725,123 @@ struct PromptServiceTests {
         #expect(service.promptQueue[0].toolUseId == "tu-1")
         #expect(service.promptQueue[1].toolUseId == "tu-2")
     }
+
+    // MARK: - Plan Exit Handling
+
+    @MainActor
+    @Test("exit_plan_mode creates planExit prompt immediately")
+    func exitPlanModeShowsImmediately() {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+
+        #expect(service.currentPrompt != nil)
+        #expect(service.promptQueue.count == 1)
+        if case .planExit = service.currentPrompt?.kind {
+            // Expected
+        } else {
+            Issue.record("Expected planExit prompt")
+        }
+    }
+
+    @MainActor
+    @Test("respondPlanExit acceptPreserveContext sends selectOption index 1")
+    func respondPlanExitPreserveContext() {
+        let (service, capture) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+        #expect(service.currentPrompt != nil)
+
+        service.respondPlanExit(.acceptPreserveContext)
+        #expect(capture.actions.count == 1)
+        if case .selectOption(let index, let sessionId) = capture.actions[0] {
+            #expect(index == 1) // Option 2 is 0-indexed as 1
+            #expect(sessionId == "test-session")
+        } else {
+            Issue.record("Expected selectOption action")
+        }
+        #expect(service.currentPrompt == nil)
+    }
+
+    @MainActor
+    @Test("respondPlanExit acceptClearContext sends selectOption index 0")
+    func respondPlanExitClearContext() {
+        let (service, capture) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+
+        service.respondPlanExit(.acceptClearContext)
+        #expect(capture.actions.count == 1)
+        if case .selectOption(let index, _) = capture.actions[0] {
+            #expect(index == 0) // Option 1 is 0-indexed as 0
+        } else {
+            Issue.record("Expected selectOption action")
+        }
+    }
+
+    @MainActor
+    @Test("respondPlanExit manualApprove sends selectOption index 2")
+    func respondPlanExitManualApprove() {
+        let (service, capture) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+
+        service.respondPlanExit(.manualApprove)
+        #expect(capture.actions.count == 1)
+        if case .selectOption(let index, _) = capture.actions[0] {
+            #expect(index == 2) // Option 3 is 0-indexed as 2
+        } else {
+            Issue.record("Expected selectOption action")
+        }
+    }
+
+    @MainActor
+    @Test("respondPlanExit requestChanges sends selectOption then inject")
+    func respondPlanExitRequestChanges() async throws {
+        let (service, capture) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+
+        service.respondPlanExit(.requestChanges("fix the bug"))
+        // First action is selectOption
+        #expect(capture.actions.count >= 1)
+        if case .selectOption(let index, _) = capture.actions[0] {
+            #expect(index == 3) // Option 4 is 0-indexed as 3
+        } else {
+            Issue.record("Expected selectOption action first")
+        }
+
+        // Wait for delayed inject
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(capture.actions.count == 2)
+        if case .inject(let command, _) = capture.actions[1] {
+            #expect(command == "fix the bug")
+        } else {
+            Issue.record("Expected inject action second")
+        }
+    }
+
+    @MainActor
+    @Test("planExit prompt can queue alongside permission prompts")
+    func planExitQueuesWithPermissions() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // First add a permission
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(600)) // Wait for delay
+        #expect(service.promptQueue.count == 1)
+
+        // Then add a planExit
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+        #expect(service.promptQueue.count == 2)
+
+        // Permission is head, planExit is second
+        if case .permission = service.promptQueue[0].kind {
+            // Expected
+        } else {
+            Issue.record("Expected permission as head")
+        }
+        if case .planExit = service.promptQueue[1].kind {
+            // Expected
+        } else {
+            Issue.record("Expected planExit as second")
+        }
+    }
 }
 
 // MARK: - Test Helpers

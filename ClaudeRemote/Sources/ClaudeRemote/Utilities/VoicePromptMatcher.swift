@@ -6,6 +6,7 @@ public enum VoicePromptMatch: Equatable, Sendable {
     case allowAlways
     case deny
     case option(index: Int)
+    case planExitOption(PlanExitOption)
     case noMatch
 }
 
@@ -33,6 +34,9 @@ public enum VoicePromptMatcher {
                 return .noMatch
             }
             return matchQuestionResponse(cleaned, options: options)
+
+        case .planExit:
+            return matchPlanExitResponse(cleaned)
         }
     }
 
@@ -78,6 +82,41 @@ public enum VoicePromptMatcher {
                 return .option(index: index)
             }
         }
+        return .noMatch
+    }
+
+    private static func matchPlanExitResponse(_ cleaned: String) -> VoicePromptMatch {
+        let words = cleaned.split(separator: " ").map(String.init)
+        guard let firstWord = words.first else { return .noMatch }
+
+        // "accept" / "approve" / "yes" → accept with preserve context (safest default)
+        if ["accept", "approve", "yes", "okay"].contains(firstWord) {
+            // Check for "clear" to distinguish clear context option
+            if cleaned.contains("clear") {
+                return .planExitOption(.acceptClearContext)
+            }
+            // Check for "manual" to distinguish manual approve option
+            if cleaned.contains("manual") {
+                return .planExitOption(.manualApprove)
+            }
+            return .planExitOption(.acceptPreserveContext)
+        }
+
+        // "clear" alone maps to clear context
+        if firstWord == "clear" {
+            return .planExitOption(.acceptClearContext)
+        }
+
+        // "manual" alone maps to manual approve
+        if firstWord == "manual" {
+            return .planExitOption(.manualApprove)
+        }
+
+        // "reject" / "no" / "changes" / "modify" → request changes (requires text, not auto-applied)
+        if ["reject", "no", "changes", "modify", "change"].contains(firstWord) {
+            return .noMatch // Can't do requestChanges via voice without text input
+        }
+
         return .noMatch
     }
 }

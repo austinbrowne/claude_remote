@@ -5,6 +5,15 @@ import Observation
 public enum PromptKind: Sendable, Equatable {
     case permission(tool: String?, command: String?, isDestructive: Bool)
     case question(questions: [QuestionData])
+    case planExit
+}
+
+/// The user's response to a plan exit prompt
+public enum PlanExitOption: Sendable, Equatable {
+    case acceptPreserveContext  // Option 2: preserves conversation context (recommended)
+    case acceptClearContext     // Option 1: clears context (destructive)
+    case manualApprove          // Option 3: manually approve each edit
+    case requestChanges(String) // Option 4: free-form modification text
 }
 
 /// The user's response to a permission prompt
@@ -135,6 +144,9 @@ public final class PromptService {
 
         case "ask_user_question":
             handleQuestion(data, agentDescription: agentDescription)
+
+        case "exit_plan_mode":
+            handlePlanExit(agentDescription: agentDescription)
 
         case "tool_result":
             // Cancel pending permission matching this tool_result's toolUseId,
@@ -339,6 +351,42 @@ public final class PromptService {
             agentDescription: agentDescription
         )
         enqueuePrompt(prompt)
+    }
+
+    private func handlePlanExit(agentDescription: String?) {
+        // Plan exit prompts show immediately (no delay)
+        let prompt = PromptItem(
+            kind: .planExit,
+            agentDescription: agentDescription
+        )
+        enqueuePrompt(prompt)
+    }
+
+    /// Respond to a plan exit prompt using arrow-key selection.
+    /// ExitPlanMode uses an ink-based TUI selector like AskUserQuestion.
+    public func respondPlanExit(_ option: PlanExitOption) {
+        guard let sid = sessionId else { return }
+
+        switch option {
+        case .acceptPreserveContext:
+            // Option 2 (0-indexed: 1) — preserves context
+            sendHandler?(.selectOption(index: 1, sessionId: sid))
+        case .acceptClearContext:
+            // Option 1 (0-indexed: 0) — clears context (destructive)
+            sendHandler?(.selectOption(index: 0, sessionId: sid))
+        case .manualApprove:
+            // Option 3 (0-indexed: 2) — manually approve each edit
+            sendHandler?(.selectOption(index: 2, sessionId: sid))
+        case .requestChanges(let text):
+            // Option 4 (0-indexed: 3) — select text input field, then inject text
+            sendHandler?(.selectOption(index: 3, sessionId: sid))
+            // Small delay before injecting text to allow selector to focus text field
+            Task { @MainActor [sendHandler] in
+                try? await Task.sleep(for: .milliseconds(300))
+                sendHandler?(.inject(command: text, sessionId: sid))
+            }
+        }
+        dismissHead()
     }
 
     /// Cancel a pending permission (still buffered before coalesce flush). Returns true if found.

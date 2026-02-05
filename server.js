@@ -579,6 +579,15 @@ async function watchSession(sessionId) {
   logsDirWatcher.on('add', (newFile) => {
     if (newFile.endsWith('.jsonl')) {
       console.log(`[Session ${sessionId.substring(0, 8)}] New log file in project dir: ${path.basename(newFile)}`);
+
+      // If this session has a pendingClear, the new file is the post-/clear session
+      const sd = activeSessions.get(sessionId);
+      if (sd && sd.pendingClear) {
+        const newSessionId = path.basename(newFile, '.jsonl');
+        if (newSessionId !== sessionId) {
+          handleNewSessionAfterClear(sessionId, newSessionId, newFile);
+        }
+      }
     }
   });
 
@@ -1080,6 +1089,8 @@ function parseLogEntry(entry, sessionData) {
           }
           else if (block.name === 'ExitPlanMode') {
             results.push({ type: 'mode_change', mode: 'default', timestamp });
+            // Also emit exit_plan_mode for interactive prompt (separate from mode_change state tracking)
+            results.push({ type: 'exit_plan_mode', timestamp });
           }
           else if (block.name === 'Task') {
             // Subagent being spawned - track description for correlation
@@ -1267,6 +1278,121 @@ async function getSessionStatus(logFile) {
   } catch (e) {
     return 'unknown';
   }
+}
+
+// ============================================
+// Clear & Resume
+// ============================================
+
+// Polling fallback: scan logs directory for a new .jsonl file after /clear
+function checkForNewSessionAfterClear(oldSessionId) {
+  const sd = activeSessions.get(oldSessionId);
+  if (!sd || !sd.pendingClear) return;
+
+  const logsDir = sd.pendingClear.logsDir;
+  const oldLogFile = sd.pendingClear.oldLogFile;
+  const startedAt = sd.pendingClear.startedAt;
+
+  fsp.readdir(logsDir).then(async (files) => {
+    for (const file of files) {
+      if (!file.endsWith('.jsonl')) continue;
+      const fullPath = path.join(logsDir, file);
+      if (fullPath === oldLogFile) continue;
+
+      try {
+        const stats = await fsp.stat(fullPath);
+        if (stats.mtimeMs > startedAt) {
+          const newSessionId = path.basename(file, '.jsonl');
+          handleNewSessionAfterClear(oldSessionId, newSessionId, fullPath);
+          return;
+        }
+      } catch { /* file disappeared */ }
+    }
+  }).catch(() => { /* dir read error */ });
+}
+
+// Core transition: old session → new session after /clear
+async function handleNewSessionAfterClear(oldSessionId, newSessionId, newLogFile) {
+  const sd = activeSessions.get(oldSessionId);
+  if (!sd || !sd.pendingClear) return;
+
+  // Prevent double-fire (both watcher and poll may trigger)
+  const pending = sd.pendingClear;
+  sd.pendingClear = null;
+
+  // Clear timeout and polling interval
+  if (pending.timeout) clearTimeout(pending.timeout);
+  if (pending.pollInterval) clearInterval(pending.pollInterval);
+
+  console.log(`[Clear&Resume] Transitioning: ${oldSessionId.substring(0, 8)} → ${newSessionId.substring(0, 8)}`);
+
+  // Transfer client watch registrations: old session → new session
+  for (const [ws, clientData] of clients) {
+    if (clientData.watchingSessions.has(oldSessionId)) {
+      clientData.watchingSessions.delete(oldSessionId);
+      clientData.watchingSessions.add(newSessionId);
+    }
+  }
+
+  // Tear down old session watchers
+  unwatchSession(oldSessionId);
+
+  // Watch the new session (retry — log file may not have cwd written yet)
+  let newSession = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    newSession = await watchSession(newSessionId);
+    if (newSession) break;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  if (!newSession) {
+    console.warn(`[Clear&Resume] Could not discover new session ${newSessionId.substring(0, 8)} after retries`);
+    broadcastToClients({
+      type: 'clear_and_resume_progress',
+      sessionId: newSessionId,
+      step: 'failed',
+      message: 'New session created but could not be watched'
+    });
+    return;
+  }
+
+  // Broadcast session_replaced to all watching clients
+  broadcastToClients({
+    type: 'session_replaced',
+    oldSessionId,
+    newSessionId,
+    session: newSession
+  });
+
+  // Broadcast progress: switching
+  broadcastToClients({
+    type: 'clear_and_resume_progress',
+    sessionId: newSessionId,
+    step: 'switching',
+    message: 'New session detected, resuming...'
+  });
+
+  // After a brief delay, inject the resume prompt
+  setTimeout(async () => {
+    try {
+      const newSd = activeSessions.get(newSessionId);
+      const tty = newSd?.session?.tty || pending.tty;
+      if (tty) {
+        const resumePrompt = 'Read .compact-state.md in the project root if it exists and continue the previous task. If it does not exist, ask what I would like to work on. If the file exists: review it thoroughly, then run `git status` and `git diff --stat` to verify the codebase matches. Pick up from the Next Steps section. Do not re-explain what was already done — just continue the work.';
+        await injectCommandToTty(resumePrompt, tty);
+        console.log(`[Clear&Resume] Resume prompt injected to ${tty}`);
+      }
+    } catch (err) {
+      console.error(`[Clear&Resume] Failed to inject resume prompt: ${err.message}`);
+    }
+
+    broadcastToClients({
+      type: 'clear_and_resume_progress',
+      sessionId: newSessionId,
+      step: 'complete',
+      message: 'Context cleared and resumed'
+    });
+  }, 2000);
 }
 
 function broadcastToClients(message) {
@@ -1672,6 +1798,208 @@ async function handleClientMessage(ws, msg) {
       })();
       break;
 
+    case 'clear_and_resume': {
+      const sessionId = msg.sessionId;
+      const sd = activeSessions.get(sessionId);
+      if (!sd) {
+        sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found', { sessionId });
+        break;
+      }
+      if (sd.pendingClear) {
+        ws.send(JSON.stringify({
+          type: 'clear_and_resume_progress',
+          sessionId,
+          step: 'already_pending',
+          message: 'Clear already in progress'
+        }));
+        break;
+      }
+
+      const logsDir = path.dirname(sd.session.logFile);
+      const cwd = sd.session.cwd;
+      const tty = sd.session.tty;
+      sd.pendingClear = {
+        startedAt: Date.now(),
+        cwd,
+        tty,
+        logsDir,
+        oldLogFile: sd.session.logFile
+      };
+
+      // Step 1: Save state before clearing
+      broadcastToClients({
+        type: 'clear_and_resume_progress',
+        sessionId,
+        step: 'saving_state',
+        message: 'Saving session state...'
+      });
+
+      (async () => {
+        try {
+          // Record initial .compact-state.md mtime (or 0 if non-existent)
+          const stateFilePath = path.join(cwd, '.compact-state.md');
+          let initialMtime = 0;
+          try {
+            const stats = await fsp.stat(stateFilePath);
+            initialMtime = stats.mtimeMs;
+          } catch { /* file doesn't exist yet */ }
+
+          // Write detailed save instructions to a temp file so the injected command stays short
+          const instructionsPath = path.join(cwd, '.claude-save-instructions.tmp');
+          const saveInstructions = [
+            'Write a handoff document to .compact-state.md in the project root.',
+            'A fresh Claude session with ZERO prior context will read ONLY this file to continue your work.',
+            'Its effectiveness depends entirely on what you write here.',
+            '',
+            'Use these exact sections:',
+            '',
+            '# Session State',
+            '',
+            '## Objective',
+            'The user\'s original request and what we are trying to accomplish.',
+            '',
+            '## Branch & Git State',
+            'Current branch name. Run `git diff --stat` and `git log --oneline -5` to capture actual state.',
+            '',
+            '## Completed',
+            'What is done. Use `file:line` references for changes, NOT code blocks.',
+            '',
+            '## In Progress',
+            'What is partially done. Describe exactly where you stopped and what remains.',
+            '',
+            '## Key Decisions',
+            'Decisions made and WHY (rationale). The next agent must not re-debate these.',
+            '',
+            '## Failed Approaches',
+            'What was tried and abandoned, with reasons. Prevent the next agent from repeating mistakes.',
+            '',
+            '## Blockers & Open Questions',
+            'Unresolved issues or questions needing user input.',
+            '',
+            '## Next Steps (Ordered)',
+            'Numbered list of exactly what to do next, in priority order.',
+            '',
+            '## Important Context',
+            'Architecture constraints, patterns, non-obvious facts the next agent needs.',
+            '',
+            'Write the file NOW. Do not ask questions. Do not summarize what you will do. Just write it.',
+            'When done, delete .claude-save-instructions.tmp.',
+          ].join('\n');
+          await fsp.writeFile(instructionsPath, saveInstructions);
+
+          // Prepare session: Escape (cancel processing) + Ctrl+U (clear input)
+          await prepareSessionForInjection(tty);
+
+          // Inject a SHORT command that references the instructions file
+          await injectCommandToTty('Read .claude-save-instructions.tmp and follow those instructions exactly.', tty);
+          console.log(`[Clear&Resume] Save-state prompt injected for session ${sessionId.substring(0, 8)}`);
+
+          // Poll until Claude finishes saving state
+          // Note: during multi-tool responses, getSessionStatus() oscillates between
+          // 'processing', 'waiting', and 'active'. We require multiple consecutive
+          // non-processing polls to confirm Claude is truly done (not just between tool calls).
+          const maxWaitMs = 90000;
+          const pollMs = 2000;
+          const startTime = Date.now();
+          let savedState = false;
+          let sawProcessing = false;
+          let nonProcessingCount = 0;
+          const requiredStablePollCount = 3; // 3 consecutive polls = 6s of non-processing
+
+          while (Date.now() - startTime < maxWaitMs) {
+            await new Promise(r => setTimeout(r, pollMs));
+
+            // Check if pendingClear was cancelled externally
+            const currentSd = activeSessions.get(sessionId);
+            if (!currentSd || !currentSd.pendingClear) return;
+
+            // Check if .compact-state.md was modified
+            let fileUpdated = false;
+            try {
+              const stats = await fsp.stat(stateFilePath);
+              if (stats.mtimeMs > initialMtime) {
+                fileUpdated = true;
+              }
+            } catch { /* file still doesn't exist */ }
+
+            // Check session status
+            const status = await getSessionStatus(currentSd.session.logFile);
+            if (status === 'processing') {
+              sawProcessing = true;
+              nonProcessingCount = 0;
+            } else if (sawProcessing) {
+              nonProcessingCount++;
+              // Require consecutive non-processing polls to confirm Claude finished
+              // (status oscillates during multi-tool responses)
+              if (nonProcessingCount >= requiredStablePollCount) {
+                savedState = fileUpdated;
+                break;
+              }
+            } else if (fileUpdated) {
+              // File was updated and Claude never entered processing — done
+              savedState = true;
+              break;
+            }
+          }
+
+          // Clean up instructions file
+          try { await fsp.unlink(instructionsPath); } catch { /* already deleted by Claude or missing */ }
+
+          if (savedState) {
+            console.log(`[Clear&Resume] State saved to .compact-state.md`);
+          } else {
+            console.warn(`[Clear&Resume] State save may not have completed, proceeding with /clear anyway`);
+          }
+
+          // Step 2: Prepare session again (clear any leftover input) then send /clear
+          await prepareSessionForInjection(tty);
+
+          broadcastToClients({
+            type: 'clear_and_resume_progress',
+            sessionId,
+            step: 'clearing',
+            message: 'Sending /clear...'
+          });
+
+          await injectCommandToTty('/clear', tty);
+          console.log(`[Clear&Resume] /clear injected for session ${sessionId.substring(0, 8)}`);
+
+          // Start 2s polling fallback (in case logsDirWatcher misses the new file)
+          const pollInterval = setInterval(() => {
+            checkForNewSessionAfterClear(sessionId);
+          }, 2000);
+          sd.pendingClear.pollInterval = pollInterval;
+
+          // 30s timeout — fail gracefully if new session never appears
+          const timeout = setTimeout(() => {
+            const currentSd = activeSessions.get(sessionId);
+            if (currentSd && currentSd.pendingClear) {
+              clearInterval(currentSd.pendingClear.pollInterval);
+              currentSd.pendingClear = null;
+              console.warn(`[Clear&Resume] Timeout waiting for new session after /clear`);
+              broadcastToClients({
+                type: 'clear_and_resume_progress',
+                sessionId,
+                step: 'failed',
+                message: 'Timeout: new session not detected after /clear'
+              });
+            }
+          }, 30000);
+          sd.pendingClear.timeout = timeout;
+        } catch (err) {
+          console.error(`[Clear&Resume] Failed: ${err.message}`);
+          sd.pendingClear = null;
+          broadcastToClients({
+            type: 'clear_and_resume_progress',
+            sessionId,
+            step: 'failed',
+            message: `Failed: ${err.message}`
+          });
+        }
+      })();
+      break;
+    }
+
     case 'mode_toggle':
       // Send Shift+Tab to cycle modes (requires activating iTerm)
       (async () => {
@@ -1913,6 +2241,44 @@ const commandRateLimit = {
 };
 
 // Inject command to a specific iTerm session by TTY (works on background tabs)
+// Send a raw control character to a session (bypasses sanitizer)
+// Common: 27 = Escape, 21 = Ctrl+U (clear line), 3 = Ctrl+C
+function sendControlCharToTty(charCode, tty) {
+  if (!/^ttys\d+$/.test(tty)) {
+    return Promise.reject(new Error('Invalid TTY format'));
+  }
+  return new Promise((resolve, reject) => {
+    const targetTty = `/dev/${tty}`;
+    const appleScript = `
+      tell application "iTerm2"
+        repeat with w in windows
+          repeat with t in tabs of w
+            repeat with s in sessions of t
+              if tty of s is "${targetTty}" then
+                tell s to write text (ASCII character ${charCode}) newline no
+                return "ok"
+              end if
+            end repeat
+          end repeat
+        end repeat
+        return "not found"
+      end tell
+    `;
+    exec(`osascript -e '${appleScript.replace(/'/g, "'\"'\"'")}'`, (err, stdout) => {
+      if (err) reject(new Error(err.message));
+      else resolve();
+    });
+  });
+}
+
+// Prepare a session for command injection: cancel processing + clear input
+async function prepareSessionForInjection(tty) {
+  await sendControlCharToTty(27, tty);  // Escape — cancel any processing
+  await new Promise(r => setTimeout(r, 1500));
+  await sendControlCharToTty(21, tty);  // Ctrl+U — clear input line
+  await new Promise(r => setTimeout(r, 500));
+}
+
 function injectCommandToTty(command, tty) {
   // Rate limit check
   if (!commandRateLimit.check()) {
@@ -1937,7 +2303,7 @@ function injectCommandToTty(command, tty) {
     const targetTty = `/dev/${tty}`;
 
     // Use iTerm's native write text command - works on any session without activation
-    // Write text without auto-newline, then explicitly send carriage return (ASCII 13) to submit
+    // Write text without auto-newline, delay briefly, then send CR to submit
     const appleScript = `
       tell application "iTerm2"
         repeat with w in windows
@@ -1946,6 +2312,7 @@ function injectCommandToTty(command, tty) {
               if tty of s is "${targetTty}" then
                 tell s
                   write text "${escaped}" newline no
+                  delay 0.2
                   write text (ASCII character 13) newline no
                 end tell
                 return "ok"
@@ -2267,16 +2634,36 @@ async function discoverCommands() {
     for (const cmd of projCmds) addCommand(cmd);
   }
 
-  // 4. Installed plugin commands
+  // 4. Installed plugin commands and skills
   const pluginsFile = path.join(os.homedir(), '.claude', 'plugins', 'installed_plugins.json');
   try {
     const pluginsData = JSON.parse(await fsp.readFile(pluginsFile, 'utf8'));
     for (const [key, installs] of Object.entries(pluginsData.plugins || {})) {
       for (const install of installs) {
         if (!install.installPath) continue;
+        // Scan commands/ directory
         const pluginCommandsDir = path.join(install.installPath, 'commands');
         const pluginCmds = await scanCommandsDir(pluginCommandsDir);
         for (const cmd of pluginCmds) addCommand(cmd);
+        // Scan skills/ directory (skills use SKILL.md in subdirectories)
+        const pluginSkillsDir = path.join(install.installPath, 'skills');
+        try {
+          const skillEntries = await fsp.readdir(pluginSkillsDir, { withFileTypes: true });
+          for (const entry of skillEntries) {
+            if (!entry.isDirectory()) continue;
+            const skillFile = path.join(pluginSkillsDir, entry.name, 'SKILL.md');
+            try {
+              const content = await fsp.readFile(skillFile, 'utf8');
+              const fm = parseFrontmatter(content);
+              if (fm && fm.name) {
+                addCommand({
+                  name: fm.name,
+                  description: fm.description || ''
+                });
+              }
+            } catch { /* no SKILL.md or unreadable */ }
+          }
+        } catch { /* no skills directory */ }
       }
     }
   } catch { /* no plugins file */ }

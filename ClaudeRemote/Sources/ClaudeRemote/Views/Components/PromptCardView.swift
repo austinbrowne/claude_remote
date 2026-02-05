@@ -60,6 +60,14 @@ struct PromptCardView: View {
                     onRespondMulti: { coordinator.promptService.respondMultiSelect($0) },
                     onDismiss: { coordinator.promptService.dismiss() }
                 )
+
+            case .planExit:
+                PlanExitCardContent(
+                    isStale: prompt.isStale,
+                    isHead: isHead,
+                    onRespond: { coordinator.promptService.respondPlanExit($0) },
+                    onDismiss: { coordinator.promptService.dismiss() }
+                )
             }
         }
         .opacity(isHead ? 1.0 : 0.6)
@@ -397,6 +405,125 @@ private struct SingleQuestionView: View {
             onSubmitOption(index)
         } else if question.options == nil {
             onSubmit(otherText.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+}
+
+// MARK: - Plan Exit Card
+
+private struct PlanExitCardContent: View {
+    let isStale: Bool
+    let isHead: Bool
+    let onRespond: (PlanExitOption) -> Void
+    let onDismiss: () -> Void
+
+    @State private var showChangesInput = false
+    @State private var changesText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack {
+                Text("Plan Ready")
+                    .font(.headline)
+                    .foregroundStyle(.indigo)
+                Spacer()
+                if !isHead {
+                    PendingBadge()
+                } else if isStale {
+                    StaleBadge()
+                }
+                if isHead {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(6)
+                            .background(.secondary.opacity(0.1))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // Description
+            Text("Claude has prepared a plan. Review and choose how to proceed.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if isHead {
+                if showChangesInput {
+                    // Changes input mode
+                    VStack(spacing: 10) {
+                        TextField("Describe changes...", text: $changesText, axis: .vertical)
+                            .textFieldStyle(.roundedBorder)
+                            .lineLimit(2...4)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                showChangesInput = false
+                                changesText = ""
+                            } label: {
+                                Text("Cancel")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                let trimmed = changesText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onRespond(.requestChanges(trimmed))
+                                }
+                            } label: {
+                                Text("Submit")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(changesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+                } else {
+                    // Main buttons
+                    VStack(spacing: 8) {
+                        // Primary: Accept (preserve context) - recommended
+                        Button {
+                            onRespond(.acceptPreserveContext)
+                        } label: {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                Text("Accept (preserve context)")
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.indigo)
+
+                        HStack(spacing: 10) {
+                            // Secondary: Accept (clear context) - destructive
+                            Button {
+                                onRespond(.acceptClearContext)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.orange)
+                                    Text("Clear context")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+
+                            // Request changes
+                            Button {
+                                showChangesInput = true
+                            } label: {
+                                Text("Request changes")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                    }
+                }
+            }
         }
     }
 }
