@@ -679,6 +679,52 @@ struct PromptServiceTests {
         // Queue should be empty — tu-2 was cancelled from pending
         #expect(service.promptQueue.isEmpty)
     }
+
+    // MARK: - Regression: Double-Dismissal (Issue #8)
+
+    @MainActor
+    @Test("tool_result for already-dismissed permission does not remove other queue items")
+    func toolResultForDismissedDoesNotAffectQueue() async throws {
+        let (service, _) = Self.makeSUT()
+        // Queue 3 permissions
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Edit", toolUseId: "tu-3"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 3)
+
+        // User dismisses head (tu-1)
+        service.dismiss()
+        #expect(service.promptQueue.count == 2)
+        #expect(service.promptQueue[0].toolUseId == "tu-2")
+
+        // tool_result arrives for tu-1 (already dismissed by user)
+        service.handleClaudeOutput(ClaudeOutputData(type: "tool_result", toolUseId: "tu-1"))
+
+        // tu-2 and tu-3 must still be in the queue — not affected
+        #expect(service.promptQueue.count == 2)
+        #expect(service.promptQueue[0].toolUseId == "tu-2")
+        #expect(service.promptQueue[1].toolUseId == "tu-3")
+    }
+
+    @MainActor
+    @Test("tool_result for never-queued permission does not remove queue items")
+    func toolResultForUnknownDoesNotAffectQueue() async throws {
+        let (service, _) = Self.makeSUT()
+        // Queue 2 permissions
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 2)
+
+        // tool_result for a toolUseId that was never queued (auto-approved server-side)
+        service.handleClaudeOutput(ClaudeOutputData(type: "tool_result", toolUseId: "tu-unknown"))
+
+        // Queue must be unaffected
+        #expect(service.promptQueue.count == 2)
+        #expect(service.promptQueue[0].toolUseId == "tu-1")
+        #expect(service.promptQueue[1].toolUseId == "tu-2")
+    }
 }
 
 // MARK: - Test Helpers

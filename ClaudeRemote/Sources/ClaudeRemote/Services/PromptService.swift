@@ -445,10 +445,12 @@ public final class PromptService {
         if let toolUseId {
             if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
                 promptQueue.remove(at: idx)
-                return
             }
+            // toolUseId provided — don't fallback to head dismissal even if not found
+            // (the item may have already been dismissed by user or cascadeAlwaysAllow)
+            return
         }
-        // Fallback: dismiss the head if it's a permission
+        // Fallback ONLY when no toolUseId provided (legacy path)
         if case .permission = promptQueue.first?.kind {
             dismissHead()
         }
