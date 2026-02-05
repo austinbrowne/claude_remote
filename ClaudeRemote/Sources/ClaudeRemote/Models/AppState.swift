@@ -8,6 +8,14 @@ public enum SessionSwitchState: Sendable {
     case active
 }
 
+/// Clear & Resume lifecycle state
+public enum ClearAndResumeState: Sendable {
+    case idle
+    case savingState
+    case clearing
+    case switching
+}
+
 /// Claude Code session mode (server-driven, synced from JSONL permissionMode)
 public enum SessionMode: String, Sendable {
     case defaultMode = "default"
@@ -98,6 +106,7 @@ public final class AppState {
 
     // MARK: - Context Window
     public var contextPercentage: Double = 0
+    public var clearAndResumeState: ClearAndResumeState = .idle
 
     // MARK: - Settings
     public var ttsEnabled = false

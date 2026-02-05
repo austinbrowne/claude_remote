@@ -144,6 +144,10 @@ private struct ContextDetailSheet: View {
                     .padding(.horizontal)
                 }
 
+                // Clear & Resume — full context reset with auto-resume
+                clearAndResumeButton
+                    .padding(.horizontal)
+
                 Spacer()
             }
             .padding(.top, 24)
@@ -180,8 +184,50 @@ private struct ContextDetailSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var clearAndResumeButton: some View {
+        let clearState = state.clearAndResumeState
+        Button {
+            sendClearAndResume()
+            dismiss()
+        } label: {
+            HStack(spacing: 8) {
+                if clearState != .idle {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(clearStateLabel(clearState))
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                } else {
+                    Label("Clear & Resume", systemImage: "arrow.clockwise.circle")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.blue)
+        .disabled(clearState != .idle)
+    }
+
+    private func clearStateLabel(_ clearState: ClearAndResumeState) -> String {
+        switch clearState {
+        case .savingState: "Saving state..."
+        case .clearing: "Clearing..."
+        case .switching: "Switching..."
+        case .idle: ""
+        }
+    }
+
     private func sendCompact() {
         guard let sessionId = state.currentSessionId else { return }
         coordinator.injectCommand("/compact", sessionId: sessionId)
+    }
+
+    private func sendClearAndResume() {
+        guard let sessionId = state.currentSessionId else { return }
+        coordinator.clearAndResume(sessionId)
     }
 }
