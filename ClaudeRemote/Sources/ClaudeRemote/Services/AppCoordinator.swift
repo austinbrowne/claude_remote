@@ -115,6 +115,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         webSocket?.send(.modeToggle(sessionId: sessionId))
     }
 
+    /// Trigger a clear & resume cycle for the given session
+    public func clearAndResume(_ sessionId: String) {
+        state.clearAndResumeState = .clearing
+        webSocket?.send(.clearAndResume(sessionId: sessionId))
+    }
+
     /// Sync current settings to the server
     public func syncSettings() {
         var settings: [String: AnyCodableValue] = [
@@ -281,7 +287,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             promptService.handleClaudeOutput(data)
 
             #if os(iOS)
-            // Notify for permission requests and questions
+            // Notify for permission requests, questions, and plan exit
             if data.type == "permission_request" {
                 let tool = data.tool ?? "Tool"
                 let cmd = data.content ?? data.input?["command"]?.stringValue ?? ""
@@ -289,6 +295,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             } else if data.type == "ask_user_question" {
                 let questionText = data.questions?.first?.question ?? "Question from Claude"
                 notify(trigger: .question, sessionId: sessionId, body: questionText)
+            } else if data.type == "exit_plan_mode" {
+                notify(trigger: .planExit, sessionId: sessionId, body: "Plan ready for approval")
             }
 
             // Haptic when a new prompt card appears
@@ -468,6 +476,72 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             notify(trigger: .error, sessionId: nil, body: errorMessage)
             #endif
 
+        case .sessionReplaced(let oldSessionId, let newSessionId, let session):
+            // Only handle if we were watching the old session
+            guard oldSessionId == state.currentSessionId else { break }
+
+            // Update session list with the new session
+            if let session {
+                if let index = state.sessions.firstIndex(where: { $0.id == oldSessionId }) {
+                    state.sessions[index] = session
+                } else {
+                    state.sessions.append(session)
+                }
+            }
+            // Remove old session from list
+            state.sessions.removeAll { $0.id == oldSessionId }
+
+            // Switch to the new session in-place
+            state.beginSessionSwitch(to: newSessionId)
+            state.confirmSessionSwitch(sessionId: newSessionId)
+            promptService.clearQueue()
+            promptService.sessionId = newSessionId
+            webSocket?.setLastWatchedSession(newSessionId)
+            state.clearAndResumeState = .switching
+
+        case .clearAndResumeProgress(_, let step, let progressMessage):
+            switch step {
+            case "saving_state":
+                state.clearAndResumeState = .savingState
+            case "clearing":
+                state.clearAndResumeState = .clearing
+            case "switching":
+                state.clearAndResumeState = .switching
+            case "complete":
+                state.clearAndResumeState = .idle
+                state.showToast("Context cleared & resumed", icon: "arrow.clockwise.circle", style: .success)
+                #if os(iOS)
+                HapticService.success()
+                #endif
+            case "failed":
+                state.clearAndResumeState = .idle
+                state.showToast(progressMessage, icon: "exclamationmark.triangle", style: .error)
+                #if os(iOS)
+                HapticService.error()
+                #endif
+            case "already_pending":
+                // Already in progress, no state change needed
+                break
+            default:
+                break
+            }
+
+        case .claudeState(let sessionId, let claudeState):
+            guard sessionId == state.currentSessionId else { break }
+            if let status = claudeState.status {
+                state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
+            }
+            if let mode = claudeState.mode {
+                state.sessionMode = SessionMode(rawValue: mode) ?? .defaultMode
+            }
+            if let pct = claudeState.contextPercentage {
+                // Server sends 0-100 integer; state expects 0-1.0 fraction
+                state.contextPercentage = min(pct / 100.0, 1.0)
+            }
+            if let permissions = claudeState.permissions {
+                promptService.updateAllowedTools(permissions)
+            }
+
         case .pong:
             break // Handled by WebSocketService
 
@@ -576,6 +650,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .modeToggleResult(let success, _): return "mode_toggle_result success=\(success)"
         case .error(let code, let msg, _): return "error code=\(code) msg=\(msg)"
         case .pong(let ts): return "pong ts=\(ts)"
+        case .sessionReplaced(let old, let new, _): return "session_replaced \(old.prefix(8)) → \(new.prefix(8))"
+        case .clearAndResumeProgress(_, let step, _): return "clear_and_resume_progress step=\(step)"
+        case .claudeState(let sid, _): return "claude_state session=\(sid ?? "nil")"
         case .state: return "state"
         case .unknown(let type, _): return "unknown type=\(type)"
         }
@@ -606,6 +683,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             guard let q = questions.first else { return "" }
             let optionLabels = (q.options ?? []).map(\.label).joined(separator: ", ")
             return "Question: \(q.question). Options are: \(optionLabels)."
+
+        case .planExit:
+            return "Plan ready. Say accept, accept and clear, or manual."
         }
     }
 
@@ -636,6 +716,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                index < options.count {
                 promptService.respondOption(index: index)
             }
+        case .planExitOption(let option):
+            promptService.respondPlanExit(option)
         }
 
         speechService.onTranscriptUpdate = nil

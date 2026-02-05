@@ -5,6 +5,15 @@ import Observation
 public enum PromptKind: Sendable, Equatable {
     case permission(tool: String?, command: String?, isDestructive: Bool)
     case question(questions: [QuestionData])
+    case planExit
+}
+
+/// The user's response to a plan exit prompt
+public enum PlanExitOption: Sendable, Equatable {
+    case acceptPreserveContext  // Option 2: preserves conversation context (recommended)
+    case acceptClearContext     // Option 1: clears context (destructive)
+    case manualApprove          // Option 3: manually approve each edit
+    case requestChanges(String) // Option 4: free-form modification text
 }
 
 /// The user's response to a permission prompt
@@ -61,6 +70,29 @@ public final class PromptService {
     /// The active prompt being displayed — queue head (nil when queue is empty).
     public var currentPrompt: PromptItem? { promptQueue.first }
 
+    // MARK: - Allowed Tools (from claudeState)
+
+    /// Tools that are pre-allowed and should never show permission prompts
+    private var allowedTools: Set<String> = []
+
+    /// Update allowed tools from a claudeState permissions payload
+    public func updateAllowedTools(_ permissions: ClaudeState.Permissions) {
+        var tools = Set(permissions.allowedTools ?? [])
+        tools.formUnion(permissions.sessionGranted ?? [])
+        allowedTools = tools
+    }
+
+    /// Check if a tool is pre-allowed (no permission prompt needed)
+    private func isToolAllowed(_ tool: String) -> Bool {
+        if allowedTools.contains(tool) { return true }
+        // Domain-scoped: WebFetch(domain:x.com) allows all WebFetch
+        if tool == "WebFetch" {
+            return allowedTools.contains(where: { $0.hasPrefix("WebFetch(") })
+        }
+        // MCP tools: already checked by exact match above
+        return false
+    }
+
     // MARK: - Internal State
 
     /// Number of messages received since any prompt was shown
@@ -112,6 +144,9 @@ public final class PromptService {
 
         case "ask_user_question":
             handleQuestion(data, agentDescription: agentDescription)
+
+        case "exit_plan_mode":
+            handlePlanExit(agentDescription: agentDescription)
 
         case "tool_result":
             // Cancel pending permission matching this tool_result's toolUseId,
@@ -182,6 +217,8 @@ public final class PromptService {
 
         for msg in unansweredPrompts {
             if msg.type == .permissionRequest {
+                // Skip if tool is pre-allowed
+                if let tool = msg.tool, isToolAllowed(tool) { continue }
                 let prompt = PromptItem(
                     kind: .permission(
                         tool: msg.tool,
@@ -283,6 +320,9 @@ public final class PromptService {
     // MARK: - Private
 
     private func handlePermissionRequest(_ data: ClaudeOutputData, agentDescription: String?) {
+        // Skip if tool is pre-allowed (from claudeState permissions)
+        if let tool = data.tool, isToolAllowed(tool) { return }
+
         let command = data.content ?? data.input?["command"]?.stringValue
         let pendingKey = data.toolUseId ?? UUID().uuidString
         arrivalCounter += 1
@@ -311,6 +351,42 @@ public final class PromptService {
             agentDescription: agentDescription
         )
         enqueuePrompt(prompt)
+    }
+
+    private func handlePlanExit(agentDescription: String?) {
+        // Plan exit prompts show immediately (no delay)
+        let prompt = PromptItem(
+            kind: .planExit,
+            agentDescription: agentDescription
+        )
+        enqueuePrompt(prompt)
+    }
+
+    /// Respond to a plan exit prompt using arrow-key selection.
+    /// ExitPlanMode uses an ink-based TUI selector like AskUserQuestion.
+    public func respondPlanExit(_ option: PlanExitOption) {
+        guard let sid = sessionId else { return }
+
+        switch option {
+        case .acceptPreserveContext:
+            // Option 2 (0-indexed: 1) — preserves context
+            sendHandler?(.selectOption(index: 1, sessionId: sid))
+        case .acceptClearContext:
+            // Option 1 (0-indexed: 0) — clears context (destructive)
+            sendHandler?(.selectOption(index: 0, sessionId: sid))
+        case .manualApprove:
+            // Option 3 (0-indexed: 2) — manually approve each edit
+            sendHandler?(.selectOption(index: 2, sessionId: sid))
+        case .requestChanges(let text):
+            // Option 4 (0-indexed: 3) — select text input field, then inject text
+            sendHandler?(.selectOption(index: 3, sessionId: sid))
+            // Small delay before injecting text to allow selector to focus text field
+            Task { @MainActor [sendHandler] in
+                try? await Task.sleep(for: .milliseconds(300))
+                sendHandler?(.inject(command: text, sessionId: sid))
+            }
+        }
+        dismissHead()
     }
 
     /// Cancel a pending permission (still buffered before coalesce flush). Returns true if found.
@@ -417,10 +493,12 @@ public final class PromptService {
         if let toolUseId {
             if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
                 promptQueue.remove(at: idx)
-                return
             }
+            // toolUseId provided — don't fallback to head dismissal even if not found
+            // (the item may have already been dismissed by user or cascadeAlwaysAllow)
+            return
         }
-        // Fallback: dismiss the head if it's a permission
+        // Fallback ONLY when no toolUseId provided (legacy path)
         if case .permission = promptQueue.first?.kind {
             dismissHead()
         }

@@ -307,4 +307,102 @@ struct VoicePromptMatcherTests {
         )
         #expect(result == .noMatch)
     }
+
+    // MARK: - Plan Exit: Accept Keywords
+
+    @Test("'accept' matches .planExitOption(.acceptPreserveContext) for planExit")
+    func acceptMatchesPlanExitPreserve() {
+        let result = VoicePromptMatcher.match(
+            transcript: "accept",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.acceptPreserveContext))
+    }
+
+    @Test("'approve' matches .planExitOption(.acceptPreserveContext) for planExit")
+    func approveMatchesPlanExitPreserve() {
+        let result = VoicePromptMatcher.match(
+            transcript: "approve",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.acceptPreserveContext))
+    }
+
+    @Test("'yes' matches .planExitOption(.acceptPreserveContext) for planExit")
+    func yesMatchesPlanExitPreserve() {
+        let result = VoicePromptMatcher.match(
+            transcript: "yes",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.acceptPreserveContext))
+    }
+
+    // MARK: - Plan Exit: Clear Context
+
+    @Test("'accept and clear' matches .planExitOption(.acceptClearContext)")
+    func acceptClearMatchesClearContext() {
+        let result = VoicePromptMatcher.match(
+            transcript: "accept and clear",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.acceptClearContext))
+    }
+
+    @Test("'clear' alone matches .planExitOption(.acceptClearContext)")
+    func clearAloneMatchesClearContext() {
+        let result = VoicePromptMatcher.match(
+            transcript: "clear",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.acceptClearContext))
+    }
+
+    // MARK: - Plan Exit: Manual Approve
+
+    @Test("'manual' matches .planExitOption(.manualApprove)")
+    func manualMatchesManualApprove() {
+        let result = VoicePromptMatcher.match(
+            transcript: "manual",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.manualApprove))
+    }
+
+    @Test("'accept manual' matches .planExitOption(.manualApprove)")
+    func acceptManualMatchesManualApprove() {
+        let result = VoicePromptMatcher.match(
+            transcript: "accept manual",
+            promptKind: .planExit
+        )
+        #expect(result == .planExitOption(.manualApprove))
+    }
+
+    // MARK: - Plan Exit: No Match for Request Changes
+
+    @Test("'reject' returns .noMatch for planExit (can't do requestChanges via voice)")
+    func rejectNoMatchForPlanExit() {
+        let result = VoicePromptMatcher.match(
+            transcript: "reject",
+            promptKind: .planExit
+        )
+        #expect(result == .noMatch)
+    }
+
+    @Test("'changes' returns .noMatch for planExit")
+    func changesNoMatchForPlanExit() {
+        let result = VoicePromptMatcher.match(
+            transcript: "changes",
+            promptKind: .planExit
+        )
+        #expect(result == .noMatch)
+    }
+
+    @Test("gibberish returns .noMatch for planExit")
+    func gibberishNoMatchPlanExit() {
+        let result = VoicePromptMatcher.match(
+            transcript: "flibbertigibbet",
+            promptKind: .planExit
+        )
+        #expect(result == .noMatch)
+    }
 }

@@ -78,8 +78,14 @@ struct InputBarView: View {
                         .onChange(of: inputText) { _, newValue in
                             // On iOS, Return in a vertical TextField inserts a newline
                             // instead of triggering .onSubmit. Detect and submit instead.
-                            if newValue.hasSuffix("\n") {
-                                inputText = String(newValue.dropLast())
+                            // Check both \n and \r — hardware vs software keyboards differ.
+                            if newValue.hasSuffix("\n") || newValue.hasSuffix("\r") {
+                                // Strip only the trailing newline, preserve any mid-text newlines
+                                var trimmed = newValue
+                                while trimmed.hasSuffix("\n") || trimmed.hasSuffix("\r") {
+                                    trimmed = String(trimmed.dropLast())
+                                }
+                                inputText = trimmed
                                 send()
                                 return
                             }

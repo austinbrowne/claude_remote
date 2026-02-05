@@ -29,6 +29,9 @@ public enum ServerMessage: Sendable {
     case modeChange(sessionId: String?, mode: String)
     case error(code: String, message: String, details: [String: AnyCodableValue]?)
     case pong(timestamp: Int)
+    case claudeState(sessionId: String?, state: ClaudeState)
+    case sessionReplaced(oldSessionId: String, newSessionId: String, session: Session?)
+    case clearAndResumeProgress(sessionId: String?, step: String, message: String)
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
     case unknown(type: String, raw: [String: AnyCodableValue])
 }
@@ -169,6 +172,7 @@ public enum ClientAction: Sendable {
     case escape(sessionId: String)
     case modeToggle(sessionId: String)
     case updateSettings(settings: [String: AnyCodableValue])
+    case clearAndResume(sessionId: String)
     case ping
 
     /// Encode to JSON dictionary for sending over WebSocket
@@ -198,6 +202,8 @@ public enum ClientAction: Sendable {
                 }
             dict["settings"] = settingsDict
             return dict
+        case .clearAndResume(let sessionId):
+            return ["action": "clear_and_resume", "sessionId": sessionId]
         case .ping:
             return ["action": "ping"]
         }
@@ -230,8 +236,10 @@ extension ServerMessage: Decodable {
         case code, message, details
         // pong
         case timestamp
-        // state
-        case clientId, watchingSessions, settings
+        // state / claude_state
+        case clientId, watchingSessions, settings, state
+        // clear_and_resume / session_replaced
+        case oldSessionId, newSessionId, step
         // question
         case questions
         // permission
@@ -381,6 +389,23 @@ extension ServerMessage: Decodable {
         case "pong":
             let timestamp = try container.decode(Int.self, forKey: .timestamp)
             self = .pong(timestamp: timestamp)
+
+        case "claude_state":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let claudeState = try container.decode(ClaudeState.self, forKey: .state)
+            self = .claudeState(sessionId: sessionId, state: claudeState)
+
+        case "session_replaced":
+            let oldSessionId = try container.decode(String.self, forKey: .oldSessionId)
+            let newSessionId = try container.decode(String.self, forKey: .newSessionId)
+            let session = try container.decodeIfPresent(Session.self, forKey: .session)
+            self = .sessionReplaced(oldSessionId: oldSessionId, newSessionId: newSessionId, session: session)
+
+        case "clear_and_resume_progress":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let step = try container.decode(String.self, forKey: .step)
+            let message = try container.decode(String.self, forKey: .message)
+            self = .clearAndResumeProgress(sessionId: sessionId, step: step, message: message)
 
         case "state":
             let clientId = try container.decodeIfPresent(String.self, forKey: .clientId)

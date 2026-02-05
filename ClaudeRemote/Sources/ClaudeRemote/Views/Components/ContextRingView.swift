@@ -4,7 +4,7 @@ import SwiftUI
 struct ContextRingView: View {
     @Environment(AppState.self) private var state
 
-    @State private var showPopover = false
+    @State private var showOverlay = false
 
     private var pct: Double { state.contextPercentage }
 
@@ -19,7 +19,7 @@ struct ContextRingView: View {
     var body: some View {
         if state.currentSessionId != nil {
             Button {
-                showPopover = true
+                showOverlay = true
             } label: {
                 ZStack {
                     Circle()
@@ -32,35 +32,202 @@ struct ContextRingView: View {
                 }
                 .frame(width: 22, height: 22)
             }
-            .popover(isPresented: $showPopover) {
-                ContextDetailPopover(pct: pct)
+            .sheet(isPresented: $showOverlay) {
+                ContextDetailSheet()
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
             }
         }
     }
 }
 
-/// Popover showing context usage details
-private struct ContextDetailPopover: View {
-    let pct: Double
+/// Sheet overlay showing session context and status details
+private struct ContextDetailSheet: View {
+    @Environment(AppState.self) private var state
+    @Environment(AppCoordinator.self) private var coordinator
+    @Environment(\.dismiss) private var dismiss
+
+    private var pct: Double { state.contextPercentage }
+    private var pctInt: Int { Int(pct * 100) }
+
+    private var ringColor: Color {
+        switch pct {
+        case ..<0.7: .green
+        case 0.7..<0.9: .orange
+        default: .red
+        }
+    }
+
+    private var statusLabel: String {
+        switch state.sessionStatus {
+        case .processing: "Processing"
+        case .waiting: "Waiting for input"
+        case .active: "Active"
+        case .idle: "Idle"
+        case .unknown: "Unknown"
+        }
+    }
+
+    private var statusColor: Color {
+        switch state.sessionStatus {
+        case .processing: .blue
+        case .waiting: .orange
+        case .active: .green
+        case .idle: .secondary
+        case .unknown: .secondary
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Context: \(Int(pct * 100))%")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+        NavigationStack {
+            VStack(spacing: 24) {
+                // Large context ring
+                ZStack {
+                    Circle()
+                        .stroke(Color.secondary.opacity(0.15), lineWidth: 8)
+                    Circle()
+                        .trim(from: 0, to: pct)
+                        .stroke(ringColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeInOut(duration: 0.5), value: pct)
+                    VStack(spacing: 2) {
+                        Text("\(pctInt)%")
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .fontDesign(.rounded)
+                        Text("context")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: 100, height: 100)
 
-            Text("\(Int(pct * 100))% used")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                // Status rows
+                VStack(spacing: 12) {
+                    infoRow(label: "Status", value: statusLabel, color: statusColor)
+                    infoRow(label: "Mode", value: state.sessionMode.label, color: modeColor)
 
-            if pct > 0.8 {
-                Text("Consider /compact to free space")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
+                    if !state.activeSubagents.isEmpty {
+                        let running = state.activeSubagents.values.filter { $0.status == "running" }.count
+                        infoRow(
+                            label: "Subagents",
+                            value: "\(running) active",
+                            color: running > 0 ? .blue : .secondary
+                        )
+                    }
+
+                    if pct > 0 {
+                        let remaining = Int((1.0 - pct) * 200_000)
+                        infoRow(
+                            label: "Remaining",
+                            value: "~\(remaining.formatted()) tokens",
+                            color: .secondary
+                        )
+                    }
+                }
+                .padding(.horizontal)
+
+                // Warning / action
+                if pct >= 0.8 {
+                    Button {
+                        sendCompact()
+                        dismiss()
+                    } label: {
+                        Label("Send /compact", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(pct >= 0.9 ? .red : .orange)
+                    .padding(.horizontal)
+                }
+
+                // Clear & Resume — full context reset with auto-resume
+                clearAndResumeButton
+                    .padding(.horizontal)
+
+                Spacer()
+            }
+            .padding(.top, 24)
+            .navigationTitle("Session Info")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
-        .padding(12)
-        .frame(width: 200, alignment: .leading)
-        .presentationCompactAdaptation(.popover)
+    }
+
+    private var modeColor: Color {
+        switch state.sessionMode {
+        case .defaultMode: .secondary
+        case .acceptEdits: .green
+        case .plan: .orange
+        }
+    }
+
+    private func infoRow(label: String, value: String, color: Color) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundStyle(color)
+        }
+    }
+
+    @ViewBuilder
+    private var clearAndResumeButton: some View {
+        let clearState = state.clearAndResumeState
+        Button {
+            sendClearAndResume()
+            dismiss()
+        } label: {
+            HStack(spacing: 8) {
+                if clearState != .idle {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(clearStateLabel(clearState))
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                } else {
+                    Label("Clear & Resume", systemImage: "arrow.clockwise.circle")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.blue)
+        .disabled(clearState != .idle)
+    }
+
+    private func clearStateLabel(_ clearState: ClearAndResumeState) -> String {
+        switch clearState {
+        case .savingState: "Saving state..."
+        case .clearing: "Clearing..."
+        case .switching: "Switching..."
+        case .idle: ""
+        }
+    }
+
+    private func sendCompact() {
+        guard let sessionId = state.currentSessionId else { return }
+        coordinator.injectCommand("/compact", sessionId: sessionId)
+    }
+
+    private func sendClearAndResume() {
+        guard let sessionId = state.currentSessionId else { return }
+        coordinator.clearAndResume(sessionId)
     }
 }
