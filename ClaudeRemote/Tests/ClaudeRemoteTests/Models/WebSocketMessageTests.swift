@@ -788,6 +788,28 @@ struct ClientActionEncodingTests {
         #expect(json["action"] as? String == "inject")
         #expect(json["command"] as? String == "hello world")
         #expect(json["sessionId"] as? String == "sess-1")
+        // Default toolUseId should be nil and not present in JSON
+        #expect(json["toolUseId"] == nil)
+    }
+
+    @Test("Encode inject action with toolUseId")
+    func encodeInjectWithToolUseId() throws {
+        let action = ClientAction.inject(command: "always", sessionId: "sess-1", toolUseId: "toolu_abc123")
+        let json = action.toJSON()
+        #expect(json["action"] as? String == "inject")
+        #expect(json["command"] as? String == "always")
+        #expect(json["sessionId"] as? String == "sess-1")
+        #expect(json["toolUseId"] as? String == "toolu_abc123")
+    }
+
+    @Test("Encode inject action without toolUseId omits key")
+    func encodeInjectWithoutToolUseId() throws {
+        let action = ClientAction.inject(command: "y", sessionId: "sess-1", toolUseId: nil)
+        let json = action.toJSON()
+        #expect(json["action"] as? String == "inject")
+        #expect(json["command"] as? String == "y")
+        // toolUseId nil should not be included in JSON
+        #expect(json["toolUseId"] == nil)
     }
 
     @Test("Encode escape action")
@@ -939,5 +961,79 @@ struct IsLocalCommandTests {
     func nilContent() {
         let data = ClaudeOutputData(type: "user", content: nil)
         #expect(data.isLocalCommand == false)
+    }
+}
+
+@Suite("ClaudeState Decoding")
+struct ClaudeStateDecodingTests {
+
+    @Test("Decode ClaudeState with tasks")
+    func claudeStateWithTasks() throws {
+        let json = """
+        {
+            "session": {"id": "sess-1", "name": "project"},
+            "status": "active",
+            "mode": "default",
+            "contextPercentage": 42,
+            "tasks": [
+                {"id": "1", "subject": "Fix bug", "status": "completed"},
+                {"id": "2", "subject": "Write tests", "status": "in_progress", "activeForm": "Writing tests"}
+            ],
+            "lastActivity": "2026-02-05T10:00:00Z"
+        }
+        """.data(using: .utf8)!
+        let state = try JSONDecoder().decode(ClaudeState.self, from: json)
+        #expect(state.tasks?.count == 2)
+        #expect(state.tasks?[0].id == "1")
+        #expect(state.tasks?[0].status == "completed")
+        #expect(state.tasks?[1].activeForm == "Writing tests")
+    }
+
+    @Test("Decode ClaudeState without tasks (backwards compat)")
+    func claudeStateWithoutTasks() throws {
+        let json = """
+        {
+            "session": {"id": "sess-1"},
+            "status": "idle",
+            "mode": "default"
+        }
+        """.data(using: .utf8)!
+        let state = try JSONDecoder().decode(ClaudeState.self, from: json)
+        #expect(state.tasks == nil)
+    }
+
+    @Test("Decode ClaudeState with empty tasks array")
+    func claudeStateEmptyTasks() throws {
+        let json = """
+        {
+            "session": {"id": "sess-1"},
+            "status": "active",
+            "tasks": []
+        }
+        """.data(using: .utf8)!
+        let state = try JSONDecoder().decode(ClaudeState.self, from: json)
+        #expect(state.tasks?.isEmpty == true)
+    }
+}
+
+@Suite("Task Update Deleted Status")
+struct TaskUpdateDeletedTests {
+
+    private func decode(_ json: String) throws -> ServerMessage {
+        let data = json.data(using: .utf8)!
+        return try JSONDecoder().decode(ServerMessage.self, from: data)
+    }
+
+    @Test("Decode task_update with deleted status")
+    func taskUpdateDeleted() throws {
+        let msg = try decode("""
+        {"type": "task_update", "taskId": "task-1", "status": "deleted"}
+        """)
+        guard case .taskUpdate(let taskId, let status, _, _, _) = msg else {
+            Issue.record("Expected taskUpdate")
+            return
+        }
+        #expect(taskId == "task-1")
+        #expect(status == "deleted")
     }
 }

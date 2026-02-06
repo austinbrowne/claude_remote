@@ -8,6 +8,7 @@ const WebSocket = require('ws');
 const os = require('os');
 const chokidar = require('chokidar');
 const crypto = require('crypto');
+const { parseTaskListResult } = require('./lib/parsers');
 
 const app = express();
 const PORT = process.env.PORT || 3456;
@@ -528,6 +529,10 @@ async function watchSession(sessionId) {
                 description: item.description,
                 agentType: item.agentType
               });
+            } else if (item.type === 'task_create' || item.type === 'task_update' || item.type === 'task_list') {
+              // Broadcast task messages as top-level so iOS decodes them as
+              // .taskCreate / .taskUpdate / .taskList (not wrapped in claude_output)
+              broadcastToClients(Object.assign({}, item, { sessionId }));
             } else {
               broadcastToClients({
                 type: 'claude_output',
@@ -616,7 +621,9 @@ async function watchSession(sessionId) {
     subagentInfo: new Map(),      // Track subagent metadata for sync to new clients
     allowedTools,                 // Pre-allowed tools from Claude Code settings
     sessionGranted: new Set(),    // Tools granted "always" during this session
-    lastPermissionTool: null      // Most recent permission tool (for "always" tracking)
+    permissionToolMap: new Map(), // toolUseId -> {tool, timestamp} for accurate "always" tracking
+    tasks: new Map(),             // Accumulated task state: taskId -> {id, subject, status, description, activeForm}
+    pendingTaskListIds: new Set() // tool_use IDs for TaskList calls — gates parseTaskListResult to only run on TaskList results
   });
 
   // Poll /tmp/claude-ctx-{sessionId} for context percentage updates
@@ -987,6 +994,8 @@ function stopSubagent(sessionId, agentId, reason) {
   }
 }
 
+// parseTaskListResult imported from ./lib/parsers.js
+
 function parseLogEntry(entry, sessionData) {
   const results = [];
   const timestamp = entry.timestamp || new Date().toISOString();
@@ -1048,7 +1057,16 @@ function parseLogEntry(entry, sessionData) {
           // Permission-requiring tools - only emit if not pre-allowed
           else if (needsPermission(block.name, sessionData) || (isMcpTool && needsPermission(block.name, sessionData))) {
             console.log(`[Permission] Detected ${block.name} tool call`);
-            if (sessionData) sessionData.lastPermissionTool = block.name;
+            if (sessionData && block.id) {
+              // Clean stale entries (>60s) before adding new one
+              const now = Date.now();
+              for (const [id, entry] of sessionData.permissionToolMap) {
+                if (now - entry.timestamp > 60000) {
+                  sessionData.permissionToolMap.delete(id);
+                }
+              }
+              sessionData.permissionToolMap.set(block.id, { tool: block.name, timestamp: now });
+            }
             results.push({
               type: 'permission_request',
               tool: isMcpTool ? formatMcpToolName(block.name) : block.name,
@@ -1063,26 +1081,50 @@ function parseLogEntry(entry, sessionData) {
             if (block.id) {
               pendingTaskIds.set(block.id, pendingId);
             }
-            results.push({
-              type: 'task_create',
+            const taskData = {
               id: pendingId,
               subject: block.input?.subject,
               description: block.input?.description,
               activeForm: block.input?.activeForm,
               status: 'pending'
-            });
+            };
+            if (sessionData) {
+              sessionData.tasks.set(pendingId, taskData);
+            }
+            results.push({ type: 'task_create', ...taskData });
           }
           else if (block.name === 'TaskUpdate') {
             const realId = String(block.input?.taskId ?? '');
             const mappedId = taskIdMap.get(realId) || realId;
+            const newStatus = block.input?.status;
+            if (sessionData) {
+              if (newStatus === 'deleted') {
+                sessionData.tasks.delete(mappedId);
+              } else {
+                const existing = sessionData.tasks.get(mappedId) || { id: mappedId };
+                sessionData.tasks.set(mappedId, {
+                  ...existing,
+                  status: newStatus ?? existing.status,
+                  subject: block.input?.subject ?? existing.subject,
+                  description: block.input?.description ?? existing.description,
+                  activeForm: block.input?.activeForm ?? existing.activeForm
+                });
+              }
+            }
             results.push({
               type: 'task_update',
               taskId: mappedId,
-              status: block.input?.status,
+              status: newStatus,
               subject: block.input?.subject,
               description: block.input?.description,
               activeForm: block.input?.activeForm
             });
+          }
+          else if (block.name === 'TaskList') {
+            // Track this tool_use ID so we only run parseTaskListResult on actual TaskList results
+            if (sessionData && block.id) {
+              sessionData.pendingTaskListIds.add(block.id);
+            }
           }
           else if (block.name === 'EnterPlanMode') {
             results.push({ type: 'mode_change', mode: 'plan', timestamp });
@@ -1159,6 +1201,37 @@ function parseLogEntry(entry, sessionData) {
         }
         pendingTaskIds.delete(toolUseId);
       }
+
+      // Parse TaskList tool_result for authoritative task snapshot — only when
+      // the tool_result corresponds to an actual TaskList tool_use (CONS-005).
+      // Without this guard, any tool output matching "#N. [status] ..." would
+      // wipe and replace sessionData.tasks.
+      const isTaskListResult = toolUseId && sessionData?.pendingTaskListIds?.has(toolUseId);
+      if (isTaskListResult) {
+        sessionData.pendingTaskListIds.delete(toolUseId);
+        const resultText = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+        const taskListItems = parseTaskListResult(resultText);
+        if (taskListItems && taskListItems.length > 0) {
+          sessionData.tasks.clear();
+          for (const task of taskListItems) {
+            const mappedId = taskIdMap.get(String(task.id)) || String(task.id);
+            sessionData.tasks.set(mappedId, {
+              id: mappedId,
+              subject: task.subject,
+              status: task.status,
+              description: task.description || null,
+              activeForm: task.activeForm || null
+            });
+          }
+          results.push({
+            type: 'task_list',
+            tasks: Array.from(sessionData.tasks.values())
+          });
+        }
+      }
+
+      // permissionToolMap cleanup is TTL-based (60s) — not deleted here
+      // because the user may click "Always Allow" after tool_result arrives
 
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
@@ -1447,6 +1520,7 @@ function buildClaudeState(sessionId) {
       mode: sd.mode || 'default'
     },
     subagents,
+    tasks: Array.from(sd.tasks?.values() || []),
     lastActivity: new Date().toISOString()
   };
 }
@@ -1693,13 +1767,35 @@ async function handleClientMessage(ws, msg) {
         ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Command too long (max 10000 chars)' }));
         break;
       }
+      // Validate toolUseId if present — must be a string, max 200 chars, alphanumeric/dash/underscore
+      if (msg.toolUseId !== undefined) {
+        if (typeof msg.toolUseId !== 'string' || msg.toolUseId.length > 200 || !/^[a-zA-Z0-9_-]+$/.test(msg.toolUseId)) {
+          console.log(`[Permission] Invalid toolUseId rejected: ${typeof msg.toolUseId} (${String(msg.toolUseId).substring(0, 50)})`);
+          delete msg.toolUseId;
+        }
+      }
       // Track "always" grants — record which tool was just granted
       if (msg.command === 'always' && msg.sessionId) {
         const sd = activeSessions.get(msg.sessionId);
-        if (sd && sd.lastPermissionTool) {
-          sd.sessionGranted.add(sd.lastPermissionTool);
-          console.log(`[Permission] Always-granted: ${sd.lastPermissionTool}`);
-          broadcastClaudeState(msg.sessionId);
+        if (sd) {
+          let grantedTool = null;
+          // Prefer toolUseId-based lookup (from iOS/updated web client)
+          if (msg.toolUseId && sd.permissionToolMap.has(msg.toolUseId)) {
+            grantedTool = sd.permissionToolMap.get(msg.toolUseId).tool;
+            sd.permissionToolMap.delete(msg.toolUseId);
+          }
+          // Legacy fallback: no toolUseId — skip grant to avoid race condition.
+          // Old web clients without toolUseId won't get server-side sessionGranted
+          // tracking, but the local alwaysAllowedTools set in prompts.js still works.
+          if (grantedTool) {
+            sd.sessionGranted.add(grantedTool);
+            console.log(`[Permission] Always-granted: ${grantedTool} (toolUseId: ${msg.toolUseId})`);
+            broadcastClaudeState(msg.sessionId);
+          } else if (!msg.toolUseId) {
+            console.log(`[Permission] Always-grant skipped: no toolUseId provided (legacy client)`);
+          } else {
+            console.log(`[Permission] Always-grant skipped: toolUseId ${msg.toolUseId} not found in permissionToolMap`);
+          }
         }
       }
       // Use cached session first (fast), fall back to discovery (slow) if needed
@@ -2083,7 +2179,24 @@ async function sendRecentHistory(ws, sessionId) {
       // File may not exist yet — context percentage stays at 0
     }
 
+    // Scan lines BEFORE the history window for task state — tasks created early
+    // in the session may be outside the HISTORY_LINE_LIMIT display window.
+    // parseLogEntry accumulates task_create/task_update into sessionData.tasks.
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
+    if (sessionData && lines.length > HISTORY_LINE_LIMIT) {
+      sessionData.tasks.clear();
+      const olderLines = lines.slice(0, -HISTORY_LINE_LIMIT);
+      for (const line of olderLines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.type === 'user' && entry.toolUseResult?.agentId) continue;
+          parseLogEntry(entry, sessionData);
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+    }
+
     const allItems = [];
     let lastMode = null;
 
@@ -2105,7 +2218,10 @@ async function sendRecentHistory(ws, sessionId) {
         const parsed = parseLogEntry(entry, sessionData);
         if (parsed) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
-          allItems.push(...items.filter(i => i.type !== 'token_usage' && i.type !== 'mode_change'));
+          allItems.push(...items.filter(i =>
+            i.type !== 'token_usage' && i.type !== 'mode_change' &&
+            i.type !== 'task_create' && i.type !== 'task_update' && i.type !== 'task_list'
+          ));
         }
       } catch (e) {
         // Skip invalid JSON lines in history (expected for partial writes)
@@ -2134,6 +2250,13 @@ async function sendRecentHistory(ws, sessionId) {
 
     console.log(`[HISTORY] Sending ${history.length} items for session ${sessionId.substring(0, 8)}`);
     ws.send(JSON.stringify({ type: 'history', sessionId, data: history }));
+
+    // Send accumulated task state after history so client has the full task list
+    if (sessionData?.tasks?.size > 0) {
+      const tasks = Array.from(sessionData.tasks.values());
+      console.log(`[HISTORY] Sending ${tasks.length} accumulated tasks for session ${sessionId.substring(0, 8)}`);
+      ws.send(JSON.stringify({ type: 'task_list', sessionId, tasks }));
+    }
 
     // Send current mode after history so client knows the session's mode
     const currentMode = sessionData?.mode || 'default';

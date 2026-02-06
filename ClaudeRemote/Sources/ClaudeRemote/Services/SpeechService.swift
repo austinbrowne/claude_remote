@@ -4,8 +4,27 @@ import AVFoundation
 import Observation
 
 /// Errors from speech recognition setup
-public enum SpeechError: Error {
+public enum SpeechError: Error, CustomStringConvertible {
     case invalidAudioFormat
+    case authorizationDenied
+    case authorizationPending
+    case onDeviceRecognitionUnavailable
+
+    public var description: String {
+        switch self {
+        case .invalidAudioFormat: return "Invalid audio format — no microphone available"
+        case .authorizationDenied: return "Speech recognition permission denied"
+        case .authorizationPending: return "Requesting speech recognition permission"
+        case .onDeviceRecognitionUnavailable: return "On-device speech recognition unavailable"
+        }
+    }
+}
+
+/// Result of attempting to start trigger listening
+public enum TriggerStartResult: Sendable {
+    case started
+    case authorizationPending
+    case failed(String)
 }
 
 /// Trigger word detection state machine
@@ -43,6 +62,12 @@ public final class SpeechService {
 
     /// Called when trigger mode captures a complete command to send.
     public var onTriggerCommand: ((String) -> Void)?
+
+    /// Called when an error occurs that should be surfaced to the user via toast.
+    public var onError: ((String) -> Void)?
+
+    /// Whether the audio engine is currently running (for external liveness checks)
+    public var isAudioEngineRunning: Bool { audioEngine.isRunning }
 
     // MARK: - Trigger Word Config
 
@@ -122,7 +147,6 @@ public final class SpeechService {
 
     // MARK: - Audio Session
 
-    /// Whether the audio session has been configured at least once
     /// Whether the audio session has been configured at least once.
     /// Internal so AppCoordinator can reset it on foreground return.
     var audioSessionConfigured = false
@@ -140,7 +164,6 @@ public final class SpeechService {
         // Only call setActive on first configuration — once active, the session
         // stays active until we explicitly deactivate or iOS interrupts (handled
         // by the interruption handler which reactivates on resume).
-        // Avoids blocking the main thread on redundant setActive(true) calls.
         if !audioSessionConfigured {
             try session.setActive(true)
         }
@@ -205,10 +228,17 @@ public final class SpeechService {
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if options.contains(.shouldResume) {
-                try? AVAudioSession.sharedInstance().setActive(true)
-                if triggerPaused {
-                    triggerPaused = false
-                    try? startTriggerListening()
+                // Reactivate audio session off main thread to avoid blocking UI.
+                // Resume trigger listening on MainActor once activation succeeds.
+                Task.detached { [weak self] in
+                    try? AVAudioSession.sharedInstance().setActive(true)
+                    await MainActor.run {
+                        guard let self else { return }
+                        if self.triggerPaused {
+                            self.triggerPaused = false
+                            try? self.startTriggerListening()
+                        }
+                    }
                 }
             }
         @unknown default:
@@ -259,7 +289,8 @@ public final class SpeechService {
 
     // MARK: - Manual Recognition (STT)
 
-    /// Start listening for speech input (manual mic mode)
+    /// Start listening for speech input (manual mic mode).
+    /// On first use, requests authorization and auto-starts after grant (no double-tap).
     public func startListening() throws {
         // Pause trigger if active (manual mic takes priority)
         if triggerState == .listening || triggerState == .capturing || triggerState == .cooldown {
@@ -269,16 +300,26 @@ public final class SpeechService {
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { status in
-                if status == .authorized {
-                    DispatchQueue.main.async { [weak self] in
-                        try? self?.startListening()
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if status == .authorized {
+                        // Auto-start after authorization grant — no second tap needed
+                        do {
+                            try self.startListening()
+                        } catch {
+                            self.onError?("Mic failed: \(error.localizedDescription)")
+                        }
+                    } else {
+                        self.onError?(SpeechError.authorizationDenied.description)
                     }
                 }
             }
             return
         }
-        guard authStatus == .authorized else { return }
+        guard authStatus == .authorized else {
+            throw SpeechError.authorizationDenied
+        }
 
         teardownRecognition()
         recognitionGeneration += 1
@@ -312,25 +353,36 @@ public final class SpeechService {
 
     // MARK: - Trigger Word Recognition
 
-    /// Start trigger word listening (background-capable, always-on)
-    public func startTriggerListening() throws {
-        guard triggerState == .idle || triggerState == .cooldown else { return }
+    /// Start trigger word listening (background-capable, always-on).
+    /// Returns the start result so callers can handle auth deferral / failure.
+    @discardableResult
+    public func startTriggerListening() throws -> TriggerStartResult {
+        guard triggerState == .idle || triggerState == .cooldown else { return .started }
 
         // Don't start if manual listening or TTS is active
-        if isListening || isSpeaking { return }
+        if isListening || isSpeaking { return .failed("Audio in use") }
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { status in
-                if status == .authorized {
-                    DispatchQueue.main.async { [weak self] in
-                        try? self?.startTriggerListening()
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if status == .authorized {
+                        do {
+                            try self.startTriggerListening()
+                        } catch {
+                            self.onError?("Trigger word failed: \(error.localizedDescription)")
+                        }
+                    } else {
+                        self.onError?(SpeechError.authorizationDenied.description)
                     }
                 }
             }
-            return
+            return .authorizationPending
         }
-        guard authStatus == .authorized else { return }
+        guard authStatus == .authorized else {
+            throw SpeechError.authorizationDenied
+        }
 
         teardownRecognition()
         recognitionGeneration += 1
@@ -340,6 +392,7 @@ public final class SpeechService {
         triggerState = .listening
         try beginRecognition()
         retryCount = 0
+        return .started
     }
 
     /// Stop trigger word listening
@@ -389,7 +442,13 @@ public final class SpeechService {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if isInTriggerMode {
-            request.requiresOnDeviceRecognition = true
+            // Prefer on-device recognition for always-on trigger mode (battery, privacy).
+            // Fall back to server-based if on-device is unavailable on this device.
+            if speechRecognizer?.supportsOnDeviceRecognition == true {
+                request.requiresOnDeviceRecognition = true
+            } else {
+                print("[Speech] On-device recognition unavailable — falling back to server-based for trigger mode")
+            }
         }
         recognitionRequest = request
 
@@ -407,6 +466,7 @@ public final class SpeechService {
                 return
             }
             isListening = false
+            onError?(SpeechError.invalidAudioFormat.description)
             throw SpeechError.invalidAudioFormat
         }
 
@@ -513,6 +573,8 @@ public final class SpeechService {
             triggerState = .idle
             isInTriggerMode = false
             retryCount = 0
+            // Notify user that trigger word is dead — ear icon should stop showing teal
+            onError?("Trigger word stopped after \(Self.maxRetries) retries")
             return
         }
 

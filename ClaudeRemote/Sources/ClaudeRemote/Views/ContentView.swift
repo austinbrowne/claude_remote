@@ -23,6 +23,7 @@ struct MainView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @State private var selectedSessionId: String?
     @State private var showSettings = false
+    @State private var showTaskList = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
@@ -49,6 +50,9 @@ struct MainView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showTaskList) {
+            TaskListSheet()
         }
         .overlay(alignment: .top) {
             ToastOverlay(toast: state.currentToast) {
@@ -166,6 +170,9 @@ struct MainView: View {
             #endif
             ToolbarItem(placement: .confirmationAction) {
                 HStack(spacing: 8) {
+                    if !state.tasks.isEmpty {
+                        taskListButton
+                    }
                     ContextRingView()
                     #if os(iOS)
                     triggerToggle
@@ -214,6 +221,23 @@ struct MainView: View {
         }
     }
     #endif
+
+    private var taskListButton: some View {
+        Button {
+            showTaskList = true
+        } label: {
+            let completed = state.tasks.filter { $0.status == "completed" }.count
+            let total = state.tasks.count
+            HStack(spacing: 3) {
+                Image(systemName: "checklist")
+                    .font(.caption)
+                Text("\(completed)/\(total)")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(completed == total ? .green : .blue)
+        }
+    }
 
     private var connectionIndicator: some View {
         Circle()

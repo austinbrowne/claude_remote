@@ -269,16 +269,19 @@ public final class PromptService {
     /// Respond to a permission prompt (always applies to queue head)
     public func respondPermission(_ choice: PermissionChoice) {
         guard let sid = sessionId else { return }
-        let respondedTool = currentPrompt.flatMap { prompt -> String? in
+        let headPrompt = currentPrompt
+        let respondedTool = headPrompt.flatMap { prompt -> String? in
             if case .permission(let tool, _, _) = prompt.kind { return tool }
             return nil
         }
+        let respondedToolUseId = headPrompt?.toolUseId
 
         switch choice {
         case .allow:
             sendHandler?(.inject(command: "y", sessionId: sid))
         case .allowAlways:
-            sendHandler?(.inject(command: "always", sessionId: sid))
+            // Pass toolUseId so server can accurately track which tool was granted
+            sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: respondedToolUseId))
         case .deny:
             sendHandler?(.inject(command: "n", sessionId: sid))
         }

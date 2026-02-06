@@ -57,7 +57,13 @@ struct InputBarView: View {
                             label: speechService.isListening ? "Listening" : "Mic",
                             tint: speechService.isListening ? .red : .secondary,
                             pulsing: speechService.isListening,
-                            action: { try? speechService.toggleListening() }
+                            action: {
+                                do {
+                                    try speechService.toggleListening()
+                                } catch {
+                                    state.showToast("Mic unavailable: \(error.localizedDescription)", icon: "mic.slash", style: .warning)
+                                }
+                            }
                         )
                         #endif
                     }
