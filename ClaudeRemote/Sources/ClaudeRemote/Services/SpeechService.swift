@@ -85,24 +85,24 @@ public final class SpeechService {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let synthesizer = AVSpeechSynthesizer()
     private var synthesizerDelegate: SynthesizerDelegate?
-    nonisolated(unsafe) private var restartTask: Task<Void, Never>?
+    private var restartTask: Task<Void, Never>?
 
     /// Incremented on each new recognition session so stale callbacks are ignored
     private var recognitionGeneration = 0
 
     /// Stored observer token for audio interruption notifications
-    nonisolated(unsafe) private var interruptionObserver: (any NSObjectProtocol)?
+    private var interruptionObserver: (any NSObjectProtocol)?
 
     /// Stored observer token for media services reset notifications
-    nonisolated(unsafe) private var mediaResetObserver: (any NSObjectProtocol)?
+    private var mediaResetObserver: (any NSObjectProtocol)?
 
     /// Stored observer token for audio route change notifications
-    nonisolated(unsafe) private var routeChangeObserver: (any NSObjectProtocol)?
+    private var routeChangeObserver: (any NSObjectProtocol)?
 
     /// Retry attempt counter for exponential backoff
     private var retryCount = 0
     private static let maxRetries = 5
-    nonisolated(unsafe) private var retryTask: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
 
     /// Guard against concurrent restart cycles
     private var isRestarting = false
@@ -117,10 +117,10 @@ public final class SpeechService {
     private var lastTranscriptLength = 0
 
     /// Timer task for 3-second silence auto-send
-    nonisolated(unsafe) private var silenceTask: Task<Void, Never>?
+    private var silenceTask: Task<Void, Never>?
 
     /// Stored cooldown task — cancellable when trigger is stopped
-    nonisolated(unsafe) private var cooldownTask: Task<Void, Never>?
+    private var cooldownTask: Task<Void, Never>?
 
     /// True when trigger listening is paused for higher-priority audio
     private var triggerPaused = false
@@ -130,18 +130,22 @@ public final class SpeechService {
     public init() {}
 
     deinit {
-        silenceTask?.cancel()
-        restartTask?.cancel()
-        cooldownTask?.cancel()
-        retryTask?.cancel()
-        if let observer = interruptionObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = mediaResetObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = routeChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
+        // deinit is nonisolated but this class is @MainActor.
+        // At deallocation time we're the sole owner, so MainActor access is safe.
+        MainActor.assumeIsolated {
+            silenceTask?.cancel()
+            restartTask?.cancel()
+            cooldownTask?.cancel()
+            retryTask?.cancel()
+            if let observer = interruptionObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = mediaResetObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            if let observer = routeChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
         }
     }
 
@@ -156,7 +160,7 @@ public final class SpeechService {
     /// Safe to call multiple times — skips `setActive` if already active.
     public func configureAudioSession(forBackground: Bool = false) throws {
         let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetooth]
+        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
         if forBackground {
             options.insert(.mixWithOthers)
         }
@@ -178,7 +182,9 @@ public final class SpeechService {
             ) { [weak self] notification in
                 let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
                 let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt
-                self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
+                Task { @MainActor in
+                    self?.handleAudioInterruption(typeValue: typeValue, optionsValue: optionsValue)
+                }
             }
         }
 
@@ -189,7 +195,9 @@ public final class SpeechService {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                self?.handleMediaServicesReset()
+                Task { @MainActor in
+                    self?.handleMediaServicesReset()
+                }
             }
         }
 
@@ -201,7 +209,9 @@ public final class SpeechService {
                 queue: .main
             ) { [weak self] notification in
                 let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-                self?.handleRouteChange(reasonValue: reasonValue)
+                Task { @MainActor in
+                    self?.handleRouteChange(reasonValue: reasonValue)
+                }
             }
         }
     }
@@ -228,16 +238,12 @@ public final class SpeechService {
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if options.contains(.shouldResume) {
-                // Reactivate audio session off main thread to avoid blocking UI.
-                // Resume trigger listening on MainActor once activation succeeds.
-                Task.detached { [weak self] in
+                Task { @MainActor [weak self] in
                     try? AVAudioSession.sharedInstance().setActive(true)
-                    await MainActor.run {
-                        guard let self else { return }
-                        if self.triggerPaused {
-                            self.triggerPaused = false
-                            try? self.startTriggerListening()
-                        }
+                    guard let self else { return }
+                    if self.triggerPaused {
+                        self.triggerPaused = false
+                        _ = try? self.startTriggerListening()
                     }
                 }
             }
@@ -301,7 +307,7 @@ public final class SpeechService {
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
             SFSpeechRecognizer.requestAuthorization { [weak self] status in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     guard let self else { return }
                     if status == .authorized {
                         // Auto-start after authorization grant — no second tap needed
@@ -338,7 +344,7 @@ public final class SpeechService {
         // Resume trigger if it was paused for manual mic
         if triggerPaused {
             triggerPaused = false
-            try? startTriggerListening()
+            _ = try? startTriggerListening()
         }
     }
 
@@ -365,11 +371,11 @@ public final class SpeechService {
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
             SFSpeechRecognizer.requestAuthorization { [weak self] status in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     guard let self else { return }
                     if status == .authorized {
                         do {
-                            try self.startTriggerListening()
+                            _ = try self.startTriggerListening()
                         } catch {
                             self.onError?("Trigger word failed: \(error.localizedDescription)")
                         }
@@ -427,7 +433,7 @@ public final class SpeechService {
     public func resumeTriggerIfPaused() {
         if triggerPaused {
             triggerPaused = false
-            try? startTriggerListening()
+            _ = try? startTriggerListening()
         }
     }
 
@@ -493,8 +499,8 @@ public final class SpeechService {
             isListening = true
         }
 
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { result, error in
-            DispatchQueue.main.async { [weak self] in
+        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+            Task { @MainActor in
                 guard let self, gen == self.recognitionGeneration else { return }
                 if let result {
                     let text = result.bestTranscription.formattedString
@@ -698,7 +704,7 @@ public final class SpeechService {
             try? await Task.sleep(for: .seconds(Self.cooldownDuration))
             guard !Task.isCancelled, let self, self.triggerState == .cooldown else { return }
             self.triggerState = .idle
-            try? self.startTriggerListening()
+            _ = try? self.startTriggerListening()
         }
     }
 
