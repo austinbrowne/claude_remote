@@ -85,27 +85,34 @@ public final class SpeechService {
     private var recognitionTask: SFSpeechRecognitionTask?
     private let synthesizer = AVSpeechSynthesizer()
     private var synthesizerDelegate: SynthesizerDelegate?
-    private var restartTask: Task<Void, Never>?
+    // These properties are nonisolated(unsafe) because they are accessed in deinit,
+    // which is nonisolated. Task.cancel() and NotificationCenter.removeObserver are
+    // both thread-safe, so cleanup is safe from any thread. The Xcode warning
+    // "'nonisolated(unsafe)' has no effect" is expected and acceptable.
+    nonisolated(unsafe) private var restartTask: Task<Void, Never>?
 
     /// Incremented on each new recognition session so stale callbacks are ignored
     private var recognitionGeneration = 0
 
     /// Stored observer token for audio interruption notifications
-    private var interruptionObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var interruptionObserver: (any NSObjectProtocol)?
 
     /// Stored observer token for media services reset notifications
-    private var mediaResetObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var mediaResetObserver: (any NSObjectProtocol)?
 
     /// Stored observer token for audio route change notifications
-    private var routeChangeObserver: (any NSObjectProtocol)?
+    nonisolated(unsafe) private var routeChangeObserver: (any NSObjectProtocol)?
 
     /// Retry attempt counter for exponential backoff
     private var retryCount = 0
     private static let maxRetries = 5
-    private var retryTask: Task<Void, Never>?
+    nonisolated(unsafe) private var retryTask: Task<Void, Never>?
 
     /// Guard against concurrent restart cycles
     private var isRestarting = false
+
+    /// Guard against double-tap during async audio session activation
+    private var isStarting = false
 
     /// Whether recognition is running in trigger mode (vs manual mode)
     private var isInTriggerMode = false
@@ -117,10 +124,10 @@ public final class SpeechService {
     private var lastTranscriptLength = 0
 
     /// Timer task for 3-second silence auto-send
-    private var silenceTask: Task<Void, Never>?
+    nonisolated(unsafe) private var silenceTask: Task<Void, Never>?
 
     /// Stored cooldown task — cancellable when trigger is stopped
-    private var cooldownTask: Task<Void, Never>?
+    nonisolated(unsafe) private var cooldownTask: Task<Void, Never>?
 
     /// True when trigger listening is paused for higher-priority audio
     private var triggerPaused = false
@@ -130,22 +137,20 @@ public final class SpeechService {
     public init() {}
 
     deinit {
-        // deinit is nonisolated but this class is @MainActor.
-        // At deallocation time we're the sole owner, so MainActor access is safe.
-        MainActor.assumeIsolated {
-            silenceTask?.cancel()
-            restartTask?.cancel()
-            cooldownTask?.cancel()
-            retryTask?.cancel()
-            if let observer = interruptionObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = mediaResetObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            if let observer = routeChangeObserver {
-                NotificationCenter.default.removeObserver(observer)
-            }
+        // These properties are nonisolated(unsafe) — safe to access directly.
+        // Task.cancel() and NotificationCenter.removeObserver are thread-safe.
+        silenceTask?.cancel()
+        restartTask?.cancel()
+        cooldownTask?.cancel()
+        retryTask?.cancel()
+        if let observer = interruptionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = mediaResetObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = routeChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
@@ -157,7 +162,8 @@ public final class SpeechService {
 
     /// Configure the shared audio session for play-and-record.
     /// Pass `forBackground: true` when trigger mode is active to add `.mixWithOthers`.
-    /// Safe to call multiple times — skips `setActive` if already active.
+    /// This only sets the category and registers observers — `setActive` is called
+    /// separately via `activateAudioSession` to avoid blocking the MainActor.
     public func configureAudioSession(forBackground: Bool = false) throws {
         let session = AVAudioSession.sharedInstance()
         var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
@@ -165,13 +171,31 @@ public final class SpeechService {
             options.insert(.mixWithOthers)
         }
         try session.setCategory(.playAndRecord, options: options)
-        // Only call setActive on first configuration — once active, the session
-        // stays active until we explicitly deactivate or iOS interrupts (handled
-        // by the interruption handler which reactivates on resume).
+        registerAudioObservers()
+    }
+
+    /// Activate the audio session off the MainActor. `setActive(true)` can block
+    /// if hardware isn't ready, another app holds the session, or after a crash.
+    /// Running it via `Task.detached` prevents UI freezes.
+    private func activateAudioSession(forBackground: Bool) async throws {
+        let session = AVAudioSession.sharedInstance()
+        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
+        if forBackground { options.insert(.mixWithOthers) }
+        try session.setCategory(.playAndRecord, options: options)
+
         if !audioSessionConfigured {
-            try session.setActive(true)
+            // setActive can block — run off MainActor
+            try await Task.detached {
+                try AVAudioSession.sharedInstance().setActive(true)
+            }.value
         }
         audioSessionConfigured = true
+        registerAudioObservers()
+    }
+
+    /// Register audio notification observers (idempotent — only registers once each).
+    private func registerAudioObservers() {
+        let session = AVAudioSession.sharedInstance()
 
         // Only register interruption observer once
         if interruptionObserver == nil {
@@ -216,14 +240,6 @@ public final class SpeechService {
         }
     }
 
-    /// Ensure the audio session is configured before using the audio engine.
-    /// Called lazily from beginRecognition — avoids blocking app launch.
-    private func ensureAudioSession(forBackground: Bool = false) throws {
-        if !audioSessionConfigured {
-            try configureAudioSession(forBackground: forBackground)
-        }
-    }
-
     private func handleAudioInterruption(typeValue: UInt?, optionsValue: UInt?) {
         guard let typeValue, let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
@@ -238,12 +254,14 @@ public final class SpeechService {
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if options.contains(.shouldResume) {
-                Task { @MainActor [weak self] in
+                Task.detached { [weak self] in
                     try? AVAudioSession.sharedInstance().setActive(true)
-                    guard let self else { return }
-                    if self.triggerPaused {
-                        self.triggerPaused = false
-                        _ = try? self.startTriggerListening()
+                    await MainActor.run {
+                        guard let self else { return }
+                        if self.triggerPaused {
+                            self.triggerPaused = false
+                            _ = try? self.startTriggerListening()
+                        }
                     }
                 }
             }
@@ -298,6 +316,9 @@ public final class SpeechService {
     /// Start listening for speech input (manual mic mode).
     /// On first use, requests authorization and auto-starts after grant (no double-tap).
     public func startListening() throws {
+        // Guard against double-tap during async audio session activation
+        guard !isStarting else { return }
+
         // Pause trigger if active (manual mic takes priority)
         if triggerState == .listening || triggerState == .capturing || triggerState == .cooldown {
             stopTriggerListening()
@@ -330,11 +351,12 @@ public final class SpeechService {
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = false
-        try beginRecognition()
+        beginRecognition()
     }
 
     /// Stop listening for speech input (manual mic mode)
     public func stopListening() {
+        isStarting = false
         restartTask?.cancel()
         restartTask = nil
         recognitionGeneration += 1
@@ -396,13 +418,13 @@ public final class SpeechService {
         capturedCommand = ""
         lastTranscriptLength = 0
         triggerState = .listening
-        try beginRecognition()
-        retryCount = 0
+        beginRecognition()
         return .started
     }
 
     /// Stop trigger word listening
     public func stopTriggerListening() {
+        isStarting = false
         cooldownTask?.cancel()
         cooldownTask = nil
         retryTask?.cancel()
@@ -440,9 +462,32 @@ public final class SpeechService {
     // MARK: - Recognition Core
 
     /// Start a new recognition session. Used by both manual and trigger modes.
-    private func beginRecognition() throws {
-        try ensureAudioSession(forBackground: isInTriggerMode)
+    /// Phase 1: Activates the audio session off MainActor (async).
+    /// Phase 2: Starts the recognition engine on MainActor.
+    private func beginRecognition() {
+        isStarting = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.activateAudioSession(forBackground: self.isInTriggerMode)
+                try self.startRecognitionEngine()
+                // Success — reset retry counter
+                if self.isInTriggerMode { self.retryCount = 0 }
+            } catch {
+                if self.isInTriggerMode {
+                    self.scheduleRetry()
+                } else {
+                    self.isListening = false
+                    self.onError?("Mic unavailable: \(error.localizedDescription)")
+                }
+            }
+            self.isStarting = false
+        }
+    }
 
+    /// Phase 2: Set up the recognition request, audio tap, and start the engine.
+    /// Must be called on MainActor after the audio session is activated.
+    private func startRecognitionEngine() throws {
         let gen = recognitionGeneration
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -546,7 +591,7 @@ public final class SpeechService {
         restartTask = nil
         recognitionGeneration += 1
         teardownRecognition()
-        try? beginRecognition()
+        beginRecognition()
     }
 
     /// Seamless restart for trigger recognition
@@ -563,12 +608,7 @@ public final class SpeechService {
         // If we were capturing, the command continues in the new window
         // capturedCommand and triggerState are preserved
         guard triggerState == .listening || triggerState == .capturing else { return }
-        do {
-            try beginRecognition()
-        } catch {
-            print("[Speech] Trigger restart failed: \(error)")
-            scheduleRetry()
-        }
+        beginRecognition()
     }
 
     /// Schedule a retry for trigger recognition with exponential backoff.
@@ -594,16 +634,11 @@ public final class SpeechService {
             guard !Task.isCancelled, let self else { return }
             guard self.isInTriggerMode, self.triggerState != .idle else { return }
 
-            do {
-                self.audioSessionConfigured = false
-                try self.configureAudioSession(forBackground: true)
-                try self.beginRecognition()
-                self.retryCount = 0 // Success — reset counter
-                print("[Speech] Trigger retry succeeded")
-            } catch {
-                print("[Speech] Trigger retry failed: \(error)")
-                self.scheduleRetry() // Try again with longer delay
-            }
+            // Force re-activation on next beginRecognition
+            self.audioSessionConfigured = false
+            self.beginRecognition()
+            // Note: retryCount is reset inside beginRecognition's success path
+            // via activateAudioSession completing without error
         }
     }
 

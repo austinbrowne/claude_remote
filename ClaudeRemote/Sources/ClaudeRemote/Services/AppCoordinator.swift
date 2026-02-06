@@ -800,6 +800,19 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public func restoreTriggerIfNeeded() {
         guard state.triggerEnabled else { return }
 
+        // Crash-loop protection: if we attempted restore within the last 10 seconds,
+        // we likely crashed during it (setActive hanging). Break the loop.
+        let restoreKey = "triggerRestoreTimestamp"
+        let lastAttempt = UserDefaults.standard.double(forKey: restoreKey)
+        if lastAttempt > 0 && Date().timeIntervalSince1970 - lastAttempt < 10 {
+            print("[Trigger] Recent restore attempt (\(Int(Date().timeIntervalSince1970 - lastAttempt))s ago) — skipping to break crash loop")
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
+            state.triggerEnabled = false
+            SettingsStore.saveTriggerEnabled(false)
+            state.showToast("Trigger word disabled after crash — re-enable in Settings", icon: "mic.slash", style: .warning)
+            return
+        }
+
         // Check for zombie state: triggerState claims listening but audio engine is dead.
         // This happens when iOS kills the audio session while backgrounded.
         let isZombie = (speechService.triggerState == .listening || speechService.triggerState == .capturing)
@@ -817,6 +830,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             speechService.stopTriggerListening()
         }
 
+        // Mark restore attempt start
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: restoreKey)
+
         // Re-enable: force-reconfigure audio session (iOS may have deactivated it
         // while backgrounded) and start listening
         do {
@@ -824,8 +840,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             try speechService.configureAudioSession(forBackground: true)
             try speechService.startTriggerListening()
             print("[Trigger] Restored after foreground return")
+            // Clear on success
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
         } catch {
             print("[Trigger] Failed to restore after foreground: \(error)")
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
             state.showToast("Trigger word failed to restore", icon: "mic.slash", style: .warning)
         }
     }
