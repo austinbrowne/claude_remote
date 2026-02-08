@@ -166,10 +166,11 @@ public final class PromptService {
 
     /// Handle a session_status change
     public func handleSessionStatus(_ status: SessionStatus) {
-        if status == .processing {
-            // Claude moved on — dismiss all prompts and pending permissions
-            clearQueue()
-        }
+        // Note: we intentionally do NOT clearQueue() on .processing.
+        // In multi-agent mode, one agent starting to process doesn't mean
+        // others are done waiting. Each prompt is properly dismissed by its
+        // own tool_result event via dismissPermission(toolUseId:).
+        // Session disconnect/switch still calls clearQueue() explicitly.
     }
 
     /// Recover prompts from history (called after loading history messages).
@@ -508,7 +509,11 @@ public final class PromptService {
     }
 
     /// After "Allow Always", proactively remove other permissions for the same tool
+    /// and persist the grant so future requests are auto-skipped without a server round-trip.
     private func cascadeAlwaysAllow(tool: String) {
+        // Persist grant client-side so handlePermissionRequest → isToolAllowed skips future prompts
+        allowedTools.insert(tool)
+
         // Cancel pending permissions for the same tool
         for (key, pending) in pendingPermissions {
             if case .permission(let t, _, _) = pending.item.kind, t == tool {

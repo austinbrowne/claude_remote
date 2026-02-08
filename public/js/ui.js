@@ -807,11 +807,11 @@ function handleSubagentOutput(agentId, data) {
       showPromptCard({
         type: 'permission',
         text: `Allow ${tool}?`,
+        tool: tool,
+        toolUseId: toolUseId,
         command: cmd,
         isDestructive: isDestructive,
-        subagentId: agentId,
-        tool: tool,
-        toolUseId: toolUseId
+        subagentId: agentId
       });
     }, PERMISSION_CARD_DELAY_MS);
 

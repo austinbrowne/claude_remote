@@ -104,6 +104,11 @@ function showPromptCard(prompt) {
   // Queue if a prompt is already showing
   if (currentPrompt) {
     promptQueue.push(prompt);
+    // If current prompt is same-tool permission, update batch button count
+    if (currentPrompt.type === 'permission' && prompt.type === 'permission'
+        && currentPrompt.tool && currentPrompt.tool === prompt.tool) {
+      updateBatchButton();
+    }
     return;
   }
 
@@ -139,15 +144,23 @@ function showPromptCard(prompt) {
       }
       content.innerHTML = permissionHtml;
       // Claude Code uses numbered options: 1=Yes (once), 2=Yes and always allow, 3=No
+      const toolName = prompt.tool || '';
+      const toolUseId = prompt.toolUseId || '';
+      // Count same-tool permissions in queue (+ current = total)
+      const sameToolQueued = promptQueue.filter(p => p.type === 'permission' && p.tool === toolName).length;
+      const sameToolTotal = sameToolQueued + 1; // +1 for current prompt
       actions.innerHTML = `
         <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" data-action="yes">Yes</button>
         <button class="prompt-btn allow-always" data-action="always">Always Allow</button>
         <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" data-action="no">No</button>
+        ${sameToolTotal > 1 && toolName ? `<button class="prompt-btn allow-all" data-action="allow-all">Allow All ${escapeHtml(toolName)} (${sameToolTotal})</button>` : ''}
       `;
       // Attach handlers programmatically to avoid inline string interpolation (XSS defense)
       actions.querySelector('[data-action="yes"]').addEventListener('click', () => respondToPrompt('1'));
-      actions.querySelector('[data-action="always"]').addEventListener('click', () => respondToPermission(prompt.tool || '', prompt.toolUseId || ''));
+      actions.querySelector('[data-action="always"]').addEventListener('click', () => respondToPermission(toolName, toolUseId));
       actions.querySelector('[data-action="no"]').addEventListener('click', () => respondToPrompt('3'));
+      const allowAllBtn = actions.querySelector('[data-action="allow-all"]');
+      if (allowAllBtn) allowAllBtn.addEventListener('click', () => respondToPermission(toolName, toolUseId));
       break;
 
     case 'yesNo':
@@ -295,6 +308,28 @@ function sanitizeUrl(url) {
   }
 }
 
+// Update or add the batch "Allow All" button when a same-tool permission is queued
+function updateBatchButton() {
+  if (!currentPrompt || currentPrompt.type !== 'permission' || !currentPrompt.tool) return;
+  const actions = document.getElementById('promptActions');
+  if (!actions) return;
+  const toolName = currentPrompt.tool;
+  const toolUseId = currentPrompt.toolUseId || '';
+  const sameToolQueued = promptQueue.filter(p => p.type === 'permission' && p.tool === toolName).length;
+  const sameToolTotal = sameToolQueued + 1;
+  // Remove existing batch button if any
+  const existing = actions.querySelector('[data-action="allow-all"]');
+  if (existing) existing.remove();
+  if (sameToolTotal > 1) {
+    const btn = document.createElement('button');
+    btn.className = 'prompt-btn allow-all';
+    btn.dataset.action = 'allow-all';
+    btn.textContent = `Allow All ${toolName} (${sameToolTotal})`;
+    btn.addEventListener('click', () => respondToPermission(toolName, toolUseId));
+    actions.appendChild(btn);
+  }
+}
+
 // Track which tools have been "always allowed" (local tracking for UI only)
 const alwaysAllowedTools = new Set();
 
@@ -302,6 +337,12 @@ const alwaysAllowedTools = new Set();
 function respondToPermission(tool, toolUseId) {
   if (tool) {
     alwaysAllowedTools.add(tool);
+    // Cascade: remove queued permissions for the same tool
+    for (let i = promptQueue.length - 1; i >= 0; i--) {
+      if (promptQueue[i].type === 'permission' && promptQueue[i].tool === tool) {
+        promptQueue.splice(i, 1);
+      }
+    }
   }
   // Send 'always' (matching iOS behavior) so server can track the grant,
   // and include toolUseId for accurate tool-to-grant mapping

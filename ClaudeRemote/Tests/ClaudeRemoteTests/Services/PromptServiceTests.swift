@@ -111,16 +111,17 @@ struct PromptServiceTests {
     }
 
     @MainActor
-    @Test("prompt dismissed on session_status processing")
-    func autoDismissOnProcessing() async throws {
+    @Test("session_status processing preserves prompt queue (multi-agent safe)")
+    func processingPreservesPrompts() async throws {
         let (service, _) = Self.makeSUT()
         let questions = [QuestionData(question: "Pick?")]
         service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
         #expect(service.currentPrompt != nil)
 
+        // In multi-agent mode, one agent processing should not nuke other agents' prompts
         service.handleSessionStatus(.processing)
-        #expect(service.currentPrompt == nil)
-        #expect(service.promptQueue.isEmpty)
+        #expect(service.currentPrompt != nil, "Processing should not clear prompts")
+        #expect(!service.promptQueue.isEmpty, "Queue should be preserved")
     }
 
     @MainActor
@@ -580,8 +581,8 @@ struct PromptServiceTests {
     }
 
     @MainActor
-    @Test("session_status processing clears entire queue")
-    func processingClearsQueue() async throws {
+    @Test("session_status processing does NOT clear queue (multi-agent safe)")
+    func processingDoesNotClearQueue() async throws {
         let (service, _) = Self.makeSUT()
         service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
         let questions = [QuestionData(question: "Pick?")]
@@ -589,8 +590,10 @@ struct PromptServiceTests {
         try await Task.sleep(for: .milliseconds(700))
         #expect(service.promptQueue.count == 2)
 
+        // In multi-agent mode, one agent processing doesn't mean others are done.
+        // Queue should remain intact — prompts are dismissed individually by tool_result.
         service.handleSessionStatus(.processing)
-        #expect(service.promptQueue.isEmpty)
+        #expect(service.promptQueue.count == 2)
     }
 
     @MainActor
@@ -772,6 +775,29 @@ struct PromptServiceTests {
 
         // Queue should be empty — tu-2 was cancelled from pending
         #expect(service.promptQueue.isEmpty)
+    }
+
+    @MainActor
+    @Test("Allow Always cascade persists tool to allowedTools, skipping future requests")
+    func allowAlwaysPersistsToAllowedTools() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1)
+
+        // Allow Always on Bash
+        service.respondPermission(.allowAlways)
+        #expect(service.promptQueue.isEmpty)
+
+        // New Bash permission arrives — should be auto-skipped (no prompt)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.isEmpty, "Future Bash requests should be auto-skipped after Allow Always")
+
+        // Different tool still shows prompt
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-3"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1, "Non-Bash tools should still prompt")
     }
 
     // MARK: - Regression: Double-Dismissal (Issue #8)

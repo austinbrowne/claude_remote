@@ -305,10 +305,10 @@ function handleMessage(msg) {
             showPromptCard({
               type: 'permission',
               text: `Allow ${queued.data.tool}?`,
-              command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
-              isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase()),
               tool: queued.data.tool,
-              toolUseId: queued.data.toolUseId || null
+              toolUseId: queued.data.toolUseId || null,
+              command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
+              isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase())
             });
           }
         }
@@ -356,10 +356,10 @@ function handleMessage(msg) {
             showPromptCard({
               type: 'permission',
               text: `Allow ${pending.permissionCard.tool}?`,
-              command: pending.permissionCard.cmd,
-              isDestructive: pending.permissionCard.isDestructive,
               tool: pending.permissionCard.tool,
-              toolUseId: pending.permissionCard.toolUseId
+              toolUseId: pending.permissionCard.toolUseId,
+              command: pending.permissionCard.cmd,
+              isDestructive: pending.permissionCard.isDestructive
             });
             pending.permissionCard = null;
           }
@@ -373,15 +373,25 @@ function handleMessage(msg) {
           pending.permissionTimeout = null;
           pending.permissionCard = null;
         }
-        // Clear any queued permission prompts (they were auto-approved)
-        for (let i = promptQueue.length - 1; i >= 0; i--) {
-          if (promptQueue[i].type === 'permission') {
-            promptQueue.splice(i, 1);
+        // In multi-agent mode, only dismiss the specific matching permission —
+        // NOT all permissions (other agents may still be waiting).
+        // If toolUseId provided, dismiss only the matching one.
+        const resultToolUseId = msg.data.toolUseId;
+        if (resultToolUseId) {
+          for (let i = promptQueue.length - 1; i >= 0; i--) {
+            if (promptQueue[i].toolUseId === resultToolUseId) {
+              promptQueue.splice(i, 1);
+              break;
+            }
           }
-        }
-        // Dismiss existing permission card immediately
-        if (currentPrompt?.type === 'permission') {
-          hidePromptCard();
+          if (currentPrompt?.toolUseId === resultToolUseId) {
+            hidePromptCard();
+          }
+        } else {
+          // Legacy fallback (no toolUseId): dismiss current permission card only
+          if (currentPrompt?.type === 'permission') {
+            hidePromptCard();
+          }
         }
         // Merge result into matching tool card (like iOS), or append standalone
         mergeOrAppendToolResult(msg.data);

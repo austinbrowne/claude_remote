@@ -46,6 +46,7 @@ struct PromptCardView: View {
                     isDestructive: isDestructive,
                     isStale: prompt.isStale,
                     isHead: isHead,
+                    sameToolCount: isHead ? sameToolCount(for: tool) : 0,
                     onRespond: { coordinator.promptService.respondPermission($0) },
                     onDismiss: { coordinator.promptService.dismiss() }
                 )
@@ -73,12 +74,54 @@ struct PromptCardView: View {
         .opacity(isHead ? 1.0 : 0.6)
     }
 
+    /// Count all permissions in the queue (including head) for the given tool.
+    private func sameToolCount(for tool: String?) -> Int {
+        guard let tool else { return 0 }
+        return queue.filter { item in
+            if case .permission(let t, _, _) = item.kind { return t == tool }
+            return false
+        }.count
+    }
+
     private func overflowIndicator(remaining: Int) -> some View {
-        Text("+\(remaining) more pending")
+        let overflow = Array(queue.dropFirst(Self.maxVisible))
+        let text = toolBreakdownText(for: overflow, remaining: remaining)
+        return Text(text)
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
+    }
+
+    /// Format overflow as tool breakdown: "+3 more: Bash (2), Read (1)"
+    private func toolBreakdownText(for items: [PromptItem], remaining: Int) -> String {
+        var toolCounts: [(String, Int)] = []
+        var nonPermissionCount = 0
+        var toolOrder: [String] = []
+
+        for item in items {
+            if case .permission(let tool, _, _) = item.kind, let tool {
+                if let idx = toolOrder.firstIndex(of: tool) {
+                    toolCounts[idx] = (tool, toolCounts[idx].1 + 1)
+                } else {
+                    toolOrder.append(tool)
+                    toolCounts.append((tool, 1))
+                }
+            } else {
+                nonPermissionCount += 1
+            }
+        }
+
+        if toolCounts.isEmpty {
+            return "+\(remaining) more pending"
+        }
+
+        let parts = toolCounts.map { "\($0.0) (\($0.1))" }
+        var result = "+\(remaining) more: \(parts.joined(separator: ", "))"
+        if nonPermissionCount > 0 {
+            result += ", other (\(nonPermissionCount))"
+        }
+        return result
     }
 }
 
@@ -118,6 +161,8 @@ private struct PermissionCardContent: View {
     let isDestructive: Bool
     let isStale: Bool
     let isHead: Bool
+    /// Total number of same-tool permissions in queue (including this one). Only meaningful for head.
+    let sameToolCount: Int
     let onRespond: (PermissionChoice) -> Void
     let onDismiss: () -> Void
 
@@ -181,6 +226,21 @@ private struct PermissionCardContent: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+                }
+
+                // Batch button: "Allow All Bash (3)" when multiple same-tool permissions queued
+                if sameToolCount > 1, let tool {
+                    Button {
+                        onRespond(.allowAlways)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.shield.fill")
+                            Text("Allow All \(tool) (\(sameToolCount))")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.green)
                 }
             }
         }
