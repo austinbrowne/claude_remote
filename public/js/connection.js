@@ -306,7 +306,9 @@ function handleMessage(msg) {
               type: 'permission',
               text: `Allow ${queued.data.tool}?`,
               command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
-              isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase())
+              isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase()),
+              tool: queued.data.tool,
+              toolUseId: queued.data.toolUseId || null
             });
           }
         }
@@ -347,7 +349,7 @@ function handleMessage(msg) {
         });
 
         // Store pending card and wait before showing (allows auto-approval to cancel)
-        pending.permissionCard = { tool, cmd, isDestructive };
+        pending.permissionCard = { tool, cmd, isDestructive, toolUseId: msg.data.toolUseId || null };
         pending.permissionTimeout = setTimeout(() => {
           if (pending.permissionCard) {
             pending.lastPermissionCardTime = Date.now();
@@ -355,7 +357,9 @@ function handleMessage(msg) {
               type: 'permission',
               text: `Allow ${pending.permissionCard.tool}?`,
               command: pending.permissionCard.cmd,
-              isDestructive: pending.permissionCard.isDestructive
+              isDestructive: pending.permissionCard.isDestructive,
+              tool: pending.permissionCard.tool,
+              toolUseId: pending.permissionCard.toolUseId
             });
             pending.permissionCard = null;
           }

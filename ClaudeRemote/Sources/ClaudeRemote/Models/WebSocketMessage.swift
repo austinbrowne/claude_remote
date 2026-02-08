@@ -167,7 +167,7 @@ public enum ClientAction: Sendable {
     case watchSession(sessionId: String)
     case unwatchSession(sessionId: String)
     case refreshSessions
-    case inject(command: String, sessionId: String)
+    case inject(command: String, sessionId: String, toolUseId: String? = nil)
     case selectOption(index: Int, sessionId: String)
     case escape(sessionId: String)
     case modeToggle(sessionId: String)
@@ -186,8 +186,10 @@ public enum ClientAction: Sendable {
             return ["action": "unwatch_session", "sessionId": sessionId]
         case .refreshSessions:
             return ["action": "refresh_sessions"]
-        case .inject(let command, let sessionId):
-            return ["action": "inject", "command": command, "sessionId": sessionId]
+        case .inject(let command, let sessionId, let toolUseId):
+            var dict: [String: Any] = ["action": "inject", "command": command, "sessionId": sessionId]
+            if let toolUseId { dict["toolUseId"] = toolUseId }
+            return dict
         case .selectOption(let index, let sessionId):
             return ["action": "select_option", "index": index, "sessionId": sessionId]
         case .escape(let sessionId):

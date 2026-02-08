@@ -458,7 +458,7 @@ function renderHistory(history) {
           const tool = promptEntry.tool;
           const isDestructive = tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((input.command || '').toLowerCase());
           pending.lastPermissionCardTime = Date.now();
-          showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive });
+          showPromptCard({ type: 'permission', text: `Allow ${tool}?`, command: input, tool: tool, isDestructive, toolUseId: promptEntry.toolUseId || null });
         }
       }
     }

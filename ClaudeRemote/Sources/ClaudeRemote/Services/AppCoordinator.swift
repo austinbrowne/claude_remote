@@ -43,6 +43,17 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         speechService.onTriggerCommand = { [weak self] command in
             self?.handleTriggerCommand(command)
         }
+
+        // Wire error callback — surfaces SpeechService errors as toasts
+        speechService.onError = { [weak self] message in
+            guard let self else { return }
+            self.state.showToast(message, icon: "mic.slash", style: .warning)
+            // If trigger retries exhausted, reset the toggle
+            if self.state.triggerEnabled && self.speechService.triggerState == .idle && !self.speechService.isAudioEngineRunning {
+                self.state.triggerEnabled = false
+                SettingsStore.saveTriggerEnabled(false)
+            }
+        }
         #endif
     }
 
@@ -360,7 +371,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             state.tasks.append(task)
 
         case .taskUpdate(let taskId, let status, let subject, let activeForm, let description):
-            if let index = state.tasks.firstIndex(where: { $0.id == taskId }) {
+            if status == "deleted" {
+                // Remove deleted tasks from the list
+                state.tasks.removeAll { $0.id == taskId }
+            } else if let index = state.tasks.firstIndex(where: { $0.id == taskId }) {
                 let old = state.tasks[index]
                 state.tasks[index] = TaskItem(
                     id: old.id,
@@ -540,6 +554,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             if let permissions = claudeState.permissions {
                 promptService.updateAllowedTools(permissions)
+            }
+            if let tasks = claudeState.tasks {
+                state.tasks = tasks
             }
 
         case .pong:
@@ -741,13 +758,29 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// Enable or disable trigger word mode. Persists to UserDefaults,
     /// reconfigures the audio session, and starts/stops trigger listening.
     public func setTriggerEnabled(_ enabled: Bool) {
+        // Guard against redundant calls (prevents Settings toggle feedback loop)
+        guard enabled != state.triggerEnabled else { return }
+
         state.triggerEnabled = enabled
         SettingsStore.saveTriggerEnabled(enabled)
 
         if enabled {
             do {
                 try speechService.configureAudioSession(forBackground: true)
-                try speechService.startTriggerListening()
+                let result = try speechService.startTriggerListening()
+                switch result {
+                case .started:
+                    break // Success
+                case .authorizationPending:
+                    // Auth dialog is showing — don't revert yet.
+                    // If denied, the onError callback will handle revert.
+                    state.showToast("Requesting speech permission...", icon: "mic", style: .info)
+                case .failed(let reason):
+                    print("[Trigger] Failed to start: \(reason)")
+                    state.triggerEnabled = false
+                    SettingsStore.saveTriggerEnabled(false)
+                    state.showToast("Trigger word unavailable: \(reason)", icon: "mic.slash", style: .warning)
+                }
             } catch {
                 // Revert — prevents boot-loop if audio hardware isn't available
                 print("[Trigger] Failed to start: \(error)")
@@ -763,13 +796,42 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     /// Restart trigger listening after returning from background.
     /// iOS may deactivate the audio session while backgrounded; this re-establishes it.
+    /// Also detects zombie state where triggerState says .listening but audio engine is dead.
     public func restoreTriggerIfNeeded() {
         guard state.triggerEnabled else { return }
 
-        // If trigger is already actively listening, nothing to do
-        if speechService.triggerState == .listening || speechService.triggerState == .capturing {
+        // Crash-loop protection: if we attempted restore within the last 10 seconds,
+        // we likely crashed during it (setActive hanging). Break the loop.
+        let restoreKey = "triggerRestoreTimestamp"
+        let lastAttempt = UserDefaults.standard.double(forKey: restoreKey)
+        if lastAttempt > 0 && Date().timeIntervalSince1970 - lastAttempt < 10 {
+            print("[Trigger] Recent restore attempt (\(Int(Date().timeIntervalSince1970 - lastAttempt))s ago) — skipping to break crash loop")
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
+            state.triggerEnabled = false
+            SettingsStore.saveTriggerEnabled(false)
+            state.showToast("Trigger word disabled after crash — re-enable in Settings", icon: "mic.slash", style: .warning)
             return
         }
+
+        // Check for zombie state: triggerState claims listening but audio engine is dead.
+        // This happens when iOS kills the audio session while backgrounded.
+        let isZombie = (speechService.triggerState == .listening || speechService.triggerState == .capturing)
+            && !speechService.isAudioEngineRunning
+
+        // If trigger is actively listening AND audio engine is running, nothing to do
+        if (speechService.triggerState == .listening || speechService.triggerState == .capturing)
+            && speechService.isAudioEngineRunning {
+            return
+        }
+
+        if isZombie {
+            print("[Trigger] Zombie state detected — triggerState=\(speechService.triggerState) but audioEngine not running. Force-restarting.")
+            // Force stop to reset state before restarting
+            speechService.stopTriggerListening()
+        }
+
+        // Mark restore attempt start
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: restoreKey)
 
         // Re-enable: force-reconfigure audio session (iOS may have deactivated it
         // while backgrounded) and start listening
@@ -778,8 +840,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             try speechService.configureAudioSession(forBackground: true)
             try speechService.startTriggerListening()
             print("[Trigger] Restored after foreground return")
+            // Clear on success
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
         } catch {
             print("[Trigger] Failed to restore after foreground: \(error)")
+            UserDefaults.standard.set(0.0, forKey: restoreKey)
+            state.showToast("Trigger word failed to restore", icon: "mic.slash", style: .warning)
         }
     }
     #endif

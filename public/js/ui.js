@@ -801,6 +801,7 @@ function handleSubagentOutput(agentId, data) {
     if (existing) clearTimeout(existing.timeout);
 
     // Delay showing card - if tool_result comes quickly, it was auto-approved
+    const toolUseId = data.toolUseId || null;
     const timeout = setTimeout(() => {
       pendingSubagentPermissions.delete(agentId);
       showPromptCard({
@@ -808,11 +809,13 @@ function handleSubagentOutput(agentId, data) {
         text: `Allow ${tool}?`,
         command: cmd,
         isDestructive: isDestructive,
-        subagentId: agentId
+        subagentId: agentId,
+        tool: tool,
+        toolUseId: toolUseId
       });
     }, PERMISSION_CARD_DELAY_MS);
 
-    pendingSubagentPermissions.set(agentId, { timeout, tool, cmd, isDestructive });
+    pendingSubagentPermissions.set(agentId, { timeout, tool, cmd, isDestructive, toolUseId });
     return;
   }
 

@@ -140,10 +140,14 @@ function showPromptCard(prompt) {
       content.innerHTML = permissionHtml;
       // Claude Code uses numbered options: 1=Yes (once), 2=Yes and always allow, 3=No
       actions.innerHTML = `
-        <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" onclick="respondToPrompt('1')">Yes</button>
-        <button class="prompt-btn allow-always" onclick="respondToPermission('2', '${prompt.tool || ''}')">Always Allow</button>
-        <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" onclick="respondToPrompt('3')">No</button>
+        <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" data-action="yes">Yes</button>
+        <button class="prompt-btn allow-always" data-action="always">Always Allow</button>
+        <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" data-action="no">No</button>
       `;
+      // Attach handlers programmatically to avoid inline string interpolation (XSS defense)
+      actions.querySelector('[data-action="yes"]').addEventListener('click', () => respondToPrompt('1'));
+      actions.querySelector('[data-action="always"]').addEventListener('click', () => respondToPermission(prompt.tool || '', prompt.toolUseId || ''));
+      actions.querySelector('[data-action="no"]').addEventListener('click', () => respondToPrompt('3'));
       break;
 
     case 'yesNo':
@@ -295,11 +299,31 @@ function sanitizeUrl(url) {
 const alwaysAllowedTools = new Set();
 
 // Handle permission response with tool tracking
-function respondToPermission(response, tool) {
-  if (response === '1' && tool) {
+function respondToPermission(tool, toolUseId) {
+  if (tool) {
     alwaysAllowedTools.add(tool);
   }
-  respondToPrompt(response);
+  // Send 'always' (matching iOS behavior) so server can track the grant,
+  // and include toolUseId for accurate tool-to-grant mapping
+  const card = document.getElementById('promptCard');
+  card.classList.add('loading');
+  navigator.vibrate?.(50);
+
+  const msg = { action: 'inject', command: 'always', sessionId: currentSessionId };
+  if (toolUseId) msg.toolUseId = toolUseId;
+  const success = wsSend(msg);
+
+  if (success) {
+    trackSentMessage('always');
+    appendMessage({ type: 'user', content: 'always' });
+    if (settings.ttsEnabled) {
+      speak('Sent: always allow');
+    }
+    setTimeout(() => hidePromptCard(), 300);
+  } else {
+    card.classList.remove('loading');
+    showToast('Failed to send response', 'error');
+  }
 }
 
 function respondToPrompt(response) {

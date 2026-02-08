@@ -262,7 +262,7 @@ struct PromptServiceTests {
 
         service.respondPermission(.allow)
         #expect(capture.actions.count == 1)
-        if case .inject(let command, let sessionId) = capture.actions[0] {
+        if case .inject(let command, let sessionId, _) = capture.actions[0] {
             #expect(command == "y")
             #expect(sessionId == "test-session")
         } else {
@@ -277,7 +277,7 @@ struct PromptServiceTests {
         let (service, capture) = Self.makeSUT()
         service.respondPermission(.deny)
         #expect(capture.actions.count == 1)
-        if case .inject(let command, _) = capture.actions[0] {
+        if case .inject(let command, _, _) = capture.actions[0] {
             #expect(command == "n")
         } else {
             Issue.record("Expected inject action")
@@ -290,10 +290,104 @@ struct PromptServiceTests {
         let (service, capture) = Self.makeSUT()
         service.respondPermission(.allowAlways)
         #expect(capture.actions.count == 1)
-        if case .inject(let command, _) = capture.actions[0] {
+        if case .inject(let command, _, _) = capture.actions[0] {
             #expect(command == "always")
         } else {
             Issue.record("Expected inject action")
+        }
+    }
+
+    @MainActor
+    @Test("respondPermission allowAlways passes toolUseId from head prompt")
+    func respondAllowAlwaysPassesToolUseId() async throws {
+        let (service, capture) = Self.makeSUT()
+        // Enqueue a permission with a specific toolUseId
+        let data = ClaudeOutputData(
+            type: "permission_request",
+            tool: "Bash",
+            input: ["command": .string("ls")],
+            toolUseId: "toolu_abc123"
+        )
+        service.handleClaudeOutput(data)
+        // Wait for coalescing flush
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.currentPrompt != nil)
+        #expect(service.currentPrompt?.toolUseId == "toolu_abc123")
+
+        service.respondPermission(.allowAlways)
+        #expect(capture.actions.count == 1)
+        if case .inject(let command, let sessionId, let toolUseId) = capture.actions[0] {
+            #expect(command == "always")
+            #expect(sessionId == "test-session")
+            #expect(toolUseId == "toolu_abc123")
+        } else {
+            Issue.record("Expected inject action with toolUseId")
+        }
+    }
+
+    @MainActor
+    @Test("respondPermission allow does not pass toolUseId")
+    func respondAllowDoesNotPassToolUseId() async throws {
+        let (service, capture) = Self.makeSUT()
+        let data = ClaudeOutputData(
+            type: "permission_request",
+            tool: "Write",
+            input: ["file_path": .string("/tmp/test.txt")],
+            toolUseId: "toolu_xyz789"
+        )
+        service.handleClaudeOutput(data)
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.currentPrompt != nil)
+
+        service.respondPermission(.allow)
+        #expect(capture.actions.count == 1)
+        if case .inject(let command, _, let toolUseId) = capture.actions[0] {
+            #expect(command == "y")
+            // "allow" should not pass toolUseId (only "always" needs it)
+            #expect(toolUseId == nil)
+        } else {
+            Issue.record("Expected inject action")
+        }
+    }
+
+    @MainActor
+    @Test("cross-tool isolation: Always Allow Bash does not affect Write permissions")
+    func crossToolIsolation() async throws {
+        let (service, capture) = Self.makeSUT()
+        // Queue Bash permission
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request",
+            tool: "Bash",
+            input: ["command": .string("ls")],
+            toolUseId: "toolu_bash1"
+        ))
+        // Queue Write permission
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request",
+            tool: "Write",
+            input: ["file_path": .string("/tmp/test.txt")],
+            toolUseId: "toolu_write1"
+        ))
+        // Wait for coalescing flush
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 2)
+
+        // Always Allow Bash (head prompt)
+        service.respondPermission(.allowAlways)
+        #expect(capture.actions.count == 1)
+        if case .inject(let command, _, let toolUseId) = capture.actions[0] {
+            #expect(command == "always")
+            #expect(toolUseId == "toolu_bash1")
+        } else {
+            Issue.record("Expected inject action with Bash toolUseId")
+        }
+
+        // Write permission should still be in queue (cascade only removes same-tool)
+        #expect(service.promptQueue.count == 1)
+        if case .permission(let tool, _, _) = service.currentPrompt?.kind {
+            #expect(tool == "Write")
+        } else {
+            Issue.record("Expected Write permission to remain in queue")
         }
     }
 
@@ -307,7 +401,7 @@ struct PromptServiceTests {
 
         service.respond(text: "my answer")
         #expect(capture.actions.count == 1)
-        if case .inject(let command, _) = capture.actions[0] {
+        if case .inject(let command, _, _) = capture.actions[0] {
             #expect(command == "my answer")
         } else {
             Issue.record("Expected inject action")
@@ -327,7 +421,7 @@ struct PromptServiceTests {
         // Should have 4 actions: A, B, C, ""
         #expect(capture.actions.count == 4)
         let commands = capture.actions.compactMap { action -> String? in
-            if case .inject(let cmd, _) = action { return cmd }
+            if case .inject(let cmd, _, _) = action { return cmd }
             return nil
         }
         #expect(commands == ["A", "B", "C", ""])
@@ -809,7 +903,7 @@ struct PromptServiceTests {
         // Wait for delayed inject
         try await Task.sleep(for: .milliseconds(400))
         #expect(capture.actions.count == 2)
-        if case .inject(let command, _) = capture.actions[1] {
+        if case .inject(let command, _, _) = capture.actions[1] {
             #expect(command == "fix the bug")
         } else {
             Issue.record("Expected inject action second")

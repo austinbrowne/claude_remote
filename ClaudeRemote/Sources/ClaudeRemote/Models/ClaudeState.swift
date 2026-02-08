@@ -9,6 +9,7 @@ public struct ClaudeState: Decodable, Sendable {
     public let contextPercentage: Double?
     public let permissions: Permissions?
     public let subagents: [String: SubagentState]?
+    public let tasks: [TaskItem]?
     public let lastActivity: String?
 
     public struct SessionInfo: Decodable, Sendable {

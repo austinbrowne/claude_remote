@@ -140,11 +140,15 @@ struct SettingsView: View {
 
     private var voiceInputSection: some View {
         Section("Voice Input") {
-            @Bindable var s = state
-            Toggle("Trigger Word (\"Titus\")", isOn: $s.triggerEnabled)
-                .onChange(of: state.triggerEnabled) { _, newValue in
+            Toggle("Trigger Word (\"Titus\")", isOn: Binding(
+                get: { state.triggerEnabled },
+                set: { newValue in
+                    // Route through coordinator which handles audio session,
+                    // auth, and persistence. The guard inside setTriggerEnabled
+                    // prevents feedback loops when it reverts on failure.
                     coordinator.setTriggerEnabled(newValue)
                 }
+            ))
         }
     }
     #endif
