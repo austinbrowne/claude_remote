@@ -254,14 +254,15 @@ public final class SpeechService {
         case .ended:
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue ?? 0)
             if options.contains(.shouldResume) {
-                Task.detached { [weak self] in
-                    try? AVAudioSession.sharedInstance().setActive(true)
-                    await MainActor.run {
-                        guard let self else { return }
-                        if self.triggerPaused {
-                            self.triggerPaused = false
-                            _ = try? self.startTriggerListening()
-                        }
+                // setActive can block — run off MainActor, then resume trigger on MainActor
+                Task { @MainActor [weak self] in
+                    await Task.detached {
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                    }.value
+                    guard let self else { return }
+                    if self.triggerPaused {
+                        self.triggerPaused = false
+                        _ = try? self.startTriggerListening()
                     }
                 }
             }
