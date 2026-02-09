@@ -3,6 +3,12 @@ import Speech
 import AVFoundation
 import Observation
 
+/// Wrapper to send non-Sendable values across isolation boundaries
+/// when we guarantee serial access (e.g., one recognition session at a time).
+private struct UnsafeSendable<T>: @unchecked Sendable {
+    let value: T
+}
+
 /// Errors from speech recognition setup
 public enum SpeechError: Error, CustomStringConvertible {
     case invalidAudioFormat
@@ -179,17 +185,11 @@ public final class SpeechService {
     /// Internal so AppCoordinator can reset it on foreground return.
     var audioSessionConfigured = false
 
-    /// Configure the shared audio session for play-and-record.
-    /// Pass `forBackground: true` when trigger mode is active to add `.mixWithOthers`.
-    /// This only sets the category and registers observers — `setActive` is called
-    /// separately via `activateAudioSession` to avoid blocking the MainActor.
-    public func configureAudioSession(forBackground: Bool = false) throws {
-        let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
-        if forBackground {
-            options.insert(.mixWithOthers)
-        }
-        try session.setCategory(.playAndRecord, options: options)
+    /// Pre-register audio observers so interruption/route changes are handled.
+    /// The actual audio session configuration (setCategory + setActive) happens
+    /// off MainActor inside `activateAudioSession`, called by `beginRecognition`.
+    /// This keeps the public API non-blocking on MainActor.
+    public func configureAudioSession(forBackground: Bool = false) {
         registerAudioObservers()
     }
 
@@ -197,17 +197,17 @@ public final class SpeechService {
     /// if hardware isn't ready, another app holds the session, or after a crash.
     /// Running it via `Task.detached` prevents UI freezes.
     private func activateAudioSession(forBackground: Bool) async throws {
-        let session = AVAudioSession.sharedInstance()
-        var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
-        if forBackground { options.insert(.mixWithOthers) }
-        try session.setCategory(.playAndRecord, options: options)
-
-        if !audioSessionConfigured {
-            // setActive can block — run off MainActor
-            try await Task.detached {
-                try AVAudioSession.sharedInstance().setActive(true)
-            }.value
-        }
+        let needsActivation = !audioSessionConfigured
+        // setCategory AND setActive can both block — run everything off MainActor
+        try await Task.detached {
+            let session = AVAudioSession.sharedInstance()
+            var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
+            if forBackground { options.insert(.mixWithOthers) }
+            try session.setCategory(.playAndRecord, options: options)
+            if needsActivation {
+                try session.setActive(true)
+            }
+        }.value
         audioSessionConfigured = true
         registerAudioObservers()
     }
@@ -546,7 +546,7 @@ public final class SpeechService {
             guard let self else { return }
             do {
                 try await self.activateAudioSession(forBackground: self.isInTriggerMode)
-                try self.startRecognitionEngine()
+                try await self.startRecognitionEngine()
                 // Success — reset retry counter
                 if self.isInTriggerMode { self.retryCount = 0 }
             } catch {
@@ -563,8 +563,9 @@ public final class SpeechService {
     }
 
     /// Phase 2: Set up the recognition request, audio tap, and start the engine.
-    /// Must be called on MainActor after the audio session is activated.
-    private func startRecognitionEngine() throws {
+    /// Audio engine operations (inputNode, installTap, prepare, start) run off
+    /// MainActor via Task.detached to prevent UI freezes.
+    private func startRecognitionEngine() async throws {
         let gen = recognitionGeneration
 
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -580,40 +581,36 @@ public final class SpeechService {
         }
         recognitionRequest = request
 
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        // Audio engine operations can block — run off MainActor.
+        // UnsafeSendable wraps non-Sendable types for the isolation crossing.
+        // Safe because we guarantee serial access (one recognition session at a time,
+        // guarded by isStarting + recognitionGeneration).
+        let engine = UnsafeSendable(value: audioEngine)
+        let req = UnsafeSendable(value: request)
+        try await Task.detached {
+            let inputNode = engine.value.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        // Guard against invalid format — happens when audio session isn't ready,
-        // no input route exists, or hardware isn't initialized yet.
-        // installTap crashes with a CoreAudio assertion if sampleRate is 0.
-        guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
-            print("[Speech] Invalid audio format: sampleRate=\(recordingFormat.sampleRate) channels=\(recordingFormat.channelCount)")
-            teardownRecognition()
-            if isInTriggerMode {
-                scheduleRetry()
-                return
+            // Guard against invalid format — happens when audio session isn't ready,
+            // no input route exists, or hardware isn't initialized yet.
+            // installTap crashes with a CoreAudio assertion if sampleRate is 0.
+            guard recordingFormat.sampleRate > 0, recordingFormat.channelCount > 0 else {
+                print("[Speech] Invalid audio format: sampleRate=\(recordingFormat.sampleRate) channels=\(recordingFormat.channelCount)")
+                throw SpeechError.invalidAudioFormat
             }
-            isListening = false
-            onError?(SpeechError.invalidAudioFormat.description)
-            throw SpeechError.invalidAudioFormat
-        }
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak request] buffer, _ in
-            request?.append(buffer)
-        }
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-        } catch {
-            print("[Speech] Audio engine failed to start: \(error)")
-            teardownRecognition()
-            if isInTriggerMode {
-                scheduleRetry()
-                return
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { buffer, _ in
+                req.value.append(buffer)
             }
-            isListening = false
-            throw error
+
+            engine.value.prepare()
+            try engine.value.start()
+        }.value
+
+        // Back on MainActor — check generation hasn't changed during async gap
+        guard gen == recognitionGeneration else {
+            teardownRecognition()
+            return
         }
 
         if !isInTriggerMode {

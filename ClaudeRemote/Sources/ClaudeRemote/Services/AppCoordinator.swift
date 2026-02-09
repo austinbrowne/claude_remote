@@ -766,7 +766,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
         if enabled {
             do {
-                try speechService.configureAudioSession(forBackground: true)
+                speechService.configureAudioSession(forBackground: true)
                 let result = try speechService.startTriggerListening()
                 switch result {
                 case .started:
@@ -790,7 +790,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
         } else {
             speechService.stopTriggerListening()
-            try? speechService.configureAudioSession(forBackground: false)
+            speechService.configureAudioSession(forBackground: false)
         }
     }
 
@@ -837,7 +837,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         // while backgrounded) and start listening
         do {
             speechService.audioSessionConfigured = false
-            try speechService.configureAudioSession(forBackground: true)
+            speechService.configureAudioSession(forBackground: true)
             try speechService.startTriggerListening()
             print("[Trigger] Restored after foreground return")
             // Clear on success
