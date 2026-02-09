@@ -405,4 +405,86 @@ struct VoicePromptMatcherTests {
         )
         #expect(result == .noMatch)
     }
+
+    // MARK: - Voice Loop Stop Commands
+
+    @Test("'stop listening' is a stop command")
+    func stopListeningIsStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("stop listening") == true)
+    }
+
+    @Test("'that's all' is a stop command")
+    func thatsAllIsStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("that's all") == true)
+    }
+
+    @Test("'Stop Listening' is a stop command (case insensitive)")
+    func stopListeningCaseInsensitive() {
+        #expect(VoicePromptMatcher.isStopCommand("Stop Listening") == true)
+    }
+
+    @Test("'  stop listening  ' is a stop command (whitespace trimmed)")
+    func stopListeningWhitespaceTrimmed() {
+        #expect(VoicePromptMatcher.isStopCommand("  stop listening  ") == true)
+    }
+
+    @Test("'done' is NOT a stop command (removed to avoid false positives)")
+    func doneIsNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("done") == false)
+    }
+
+    @Test("'stop' alone is NOT a stop command (conflicts with trigger cancel)")
+    func stopAloneIsNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("stop") == false)
+    }
+
+    @Test("'I'm done with the tests' is NOT a stop command (partial match rejected)")
+    func doneInSentenceNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("I'm done with the tests") == false)
+    }
+
+    @Test("'please stop listening to me' is NOT a stop command (must be exact)")
+    func stopListeningInSentenceNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("please stop listening to me") == false)
+    }
+
+    @Test("empty string is NOT a stop command")
+    func emptyStringNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("") == false)
+    }
+
+    @Test("whitespace-only is NOT a stop command")
+    func whitespaceNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("   ") == false)
+    }
+
+    @Test("'check the tests' is NOT a stop command")
+    func normalCommandNotStopCommand() {
+        #expect(VoicePromptMatcher.isStopCommand("check the tests") == false)
+    }
+
+    @Test("stopPhrases constant contains expected phrases")
+    func stopPhrasesContents() {
+        #expect(VoicePromptMatcher.stopPhrases.contains("stop listening"))
+        #expect(VoicePromptMatcher.stopPhrases.contains("that's all"))
+        #expect(!VoicePromptMatcher.stopPhrases.contains("done"))
+        #expect(!VoicePromptMatcher.stopPhrases.contains("stop"))
+    }
+
+    // MARK: - Smart Quote / Locale Normalization
+
+    @Test("'that\u{2019}s all' with curly apostrophe is a stop command (iOS speech produces these)")
+    func curlyApostropheThatsAll() {
+        #expect(VoicePromptMatcher.isStopCommand("that\u{2019}s all") == true)
+    }
+
+    @Test("'that\u{2018}s all' with left single quote is a stop command")
+    func leftQuoteThatsAll() {
+        #expect(VoicePromptMatcher.isStopCommand("that\u{2018}s all") == true)
+    }
+
+    @Test("'STOP LISTENING' matches with locale-invariant lowercasing")
+    func allCapsStopListening() {
+        #expect(VoicePromptMatcher.isStopCommand("STOP LISTENING") == true)
+    }
 }

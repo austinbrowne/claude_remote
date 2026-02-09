@@ -119,4 +119,29 @@ public enum VoicePromptMatcher {
 
         return .noMatch
     }
+
+    // MARK: - Voice Loop Stop Commands
+
+    /// Stop phrases that exit the voice loop. Requires entire transcript to match exactly.
+    /// Uses straight apostrophe — iOS speech recognition smart quotes are normalized before comparison.
+    public static let stopPhrases = ["stop listening", "that's all"]
+
+    /// Check if the transcript is a voice loop stop command.
+    /// Requires the ENTIRE transcript (trimmed, lowercased) to match a stop phrase exactly.
+    /// This prevents false positives from sentences containing stop words
+    /// (e.g., "I'm done with the tests" does NOT match).
+    /// Normalizes smart quotes and uses locale-invariant lowercasing for reliability.
+    public static func isStopCommand(_ transcript: String) -> Bool {
+        let cleaned = normalizeForComparison(transcript)
+        return !cleaned.isEmpty && stopPhrases.contains(cleaned)
+    }
+
+    /// Normalize a transcript for comparison: trim whitespace, lowercase with English locale,
+    /// and replace smart/curly quotes with straight quotes (iOS speech recognition produces these).
+    private static func normalizeForComparison(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(with: Locale(identifier: "en"))
+            .replacingOccurrences(of: "\u{2018}", with: "'") // left single quote
+            .replacingOccurrences(of: "\u{2019}", with: "'") // right single quote (curly apostrophe)
+    }
 }

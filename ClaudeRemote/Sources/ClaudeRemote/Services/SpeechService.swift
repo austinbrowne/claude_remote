@@ -73,6 +73,10 @@ public final class SpeechService {
     /// Called when trigger mode captures a complete command to send.
     public var onTriggerCommand: ((String) -> Void)?
 
+    /// Called when manual mic silence timer fires — transcript ready to auto-send.
+    /// AppCoordinator decides whether to inject, suppress (prompt active), or loop.
+    public var onManualAutoSend: ((String) -> Void)?
+
     /// Called when an error occurs that should be surfaced to the user via toast.
     public var onError: ((String) -> Void)?
 
@@ -131,10 +135,13 @@ public final class SpeechService {
     /// Captured command text after trigger word detected
     private var capturedCommand = ""
 
-    /// Last transcript length used to detect silence (no new text = silence)
-    private var lastTranscriptLength = 0
+    /// Last transcript length used to detect silence (no new text = silence) — trigger mode
+    private var triggerTranscriptLength = 0
 
-    /// Timer task for 3-second silence auto-send
+    /// Last transcript length for manual mode silence detection
+    private var manualTranscriptLength = 0
+
+    /// Timer task for silence auto-send (shared by trigger capture and manual mode)
     nonisolated(unsafe) private var silenceTask: Task<Void, Never>?
 
     /// Stored cooldown task — cancellable when trigger is stopped
@@ -142,6 +149,14 @@ public final class SpeechService {
 
     /// True when trigger listening is paused for higher-priority audio
     private var triggerPaused = false
+
+    /// When true, prefer on-device recognition for privacy (set by AppCoordinator for voice loop)
+    public var preferOnDeviceRecognition = false
+
+    /// Called when trigger cooldown completes — allows AppCoordinator to decide
+    /// whether to resume trigger listening or transition to voice loop (manual mode).
+    /// If nil, defaults to resuming trigger listening.
+    public var onCooldownComplete: (() -> Void)?
 
     // MARK: - Init
 
@@ -399,6 +414,7 @@ public final class SpeechService {
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = false
+        manualTranscriptLength = 0
         beginRecognition()
     }
 
@@ -407,6 +423,8 @@ public final class SpeechService {
         isStarting = false
         restartTask?.cancel()
         restartTask = nil
+        silenceTask?.cancel()
+        silenceTask = nil
         recognitionGeneration += 1
         teardownRecognition()
         isListening = false
@@ -416,6 +434,14 @@ public final class SpeechService {
             triggerPaused = false
             _ = try? startTriggerListening()
         }
+    }
+
+    /// Cancel the manual silence timer without stopping listening.
+    /// Called by InputBarView when the user taps Send manually to prevent double-send.
+    public func cancelManualSilenceTimer() {
+        guard !isInTriggerMode else { return }
+        silenceTask?.cancel()
+        silenceTask = nil
     }
 
     /// Toggle listening on/off (manual mic)
@@ -492,7 +518,7 @@ public final class SpeechService {
         recognitionGeneration += 1
         isInTriggerMode = true
         capturedCommand = ""
-        lastTranscriptLength = 0
+        triggerTranscriptLength = 0
         triggerState = .listening
         beginRecognition()
         return .started
@@ -570,8 +596,8 @@ public final class SpeechService {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
-        if isInTriggerMode {
-            // Prefer on-device recognition for always-on trigger mode (battery, privacy).
+        if isInTriggerMode || preferOnDeviceRecognition {
+            // Prefer on-device recognition for trigger mode and voice loop (battery, privacy).
             // Fall back to server-based if on-device is unavailable on this device.
             if speechRecognizer?.supportsOnDeviceRecognition == true {
                 request.requiresOnDeviceRecognition = true
@@ -629,6 +655,15 @@ public final class SpeechService {
                         self.transcript = text
                         if !text.isEmpty {
                             self.onTranscriptUpdate?(text)
+                            // Manual mode silence detection: reset timer when text grows
+                            if text.count > self.manualTranscriptLength {
+                                self.manualTranscriptLength = text.count
+                                self.resetSilenceTimer(timeout: Self.silenceTimeout) { service in
+                                    let trimmed = service.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    guard !trimmed.isEmpty else { return }
+                                    service.onManualAutoSend?(trimmed)
+                                }
+                            }
                         }
                     }
                 }
@@ -765,18 +800,18 @@ public final class SpeechService {
             if let commandAfterTrigger = TriggerWordDetector.extractCommandAfterTrigger(text) {
                 triggerState = .capturing
                 capturedCommand = commandAfterTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
-                lastTranscriptLength = capturedCommand.count
+                triggerTranscriptLength = capturedCommand.count
 
                 if capturedCommand.isEmpty {
                     // Trigger detected but no command yet — wait for more text
-                    resetSilenceTimer()
+                    resetTriggerSilenceTimer()
                 } else {
                     // Check for cancel/stop
                     if TriggerWordDetector.isCancelCommand(capturedCommand) {
                         cancelCapture()
                         return
                     }
-                    resetSilenceTimer()
+                    resetTriggerSilenceTimer()
                 }
             }
 
@@ -790,11 +825,11 @@ public final class SpeechService {
                     return
                 }
 
-                if trimmed.count > lastTranscriptLength {
+                if trimmed.count > triggerTranscriptLength {
                     // New text arrived — update and reset silence timer
                     capturedCommand = trimmed
-                    lastTranscriptLength = trimmed.count
-                    resetSilenceTimer()
+                    triggerTranscriptLength = trimmed.count
+                    resetTriggerSilenceTimer()
                 }
             }
 
@@ -803,14 +838,24 @@ public final class SpeechService {
         }
     }
 
-    /// Reset the 3-second silence timer
-    private func resetSilenceTimer() {
+    /// Reset the silence timer with configurable timeout and action.
+    /// Used by trigger capture (3s → sendCapturedCommand) and manual auto-send (3s → onManualAutoSend).
+    /// The action receives the guarded SpeechService reference — callers must NOT capture [weak self]
+    /// separately (single-weak-self pattern eliminates fragile double-capture).
+    private func resetSilenceTimer(timeout: TimeInterval, action: @escaping (SpeechService) -> Void) {
         silenceTask?.cancel()
         silenceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.silenceTimeout))
+            try? await Task.sleep(for: .seconds(timeout))
             guard !Task.isCancelled, let self else { return }
-            guard self.triggerState == .capturing else { return }
-            self.sendCapturedCommand()
+            action(self)
+        }
+    }
+
+    /// Convenience: reset silence timer for trigger capture mode.
+    private func resetTriggerSilenceTimer() {
+        resetSilenceTimer(timeout: Self.silenceTimeout) { service in
+            guard service.triggerState == .capturing else { return }
+            service.sendCapturedCommand()
         }
     }
 
@@ -836,13 +881,17 @@ public final class SpeechService {
 
         onTriggerCommand?(command)
 
-        // Brief cooldown then resume listening
+        // Brief cooldown then resume listening (or transition to voice loop via callback)
         cooldownTask?.cancel()
         cooldownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Self.cooldownDuration))
             guard !Task.isCancelled, let self, self.triggerState == .cooldown else { return }
             self.triggerState = .idle
-            _ = try? self.startTriggerListening()
+            if let onCooldownComplete = self.onCooldownComplete {
+                onCooldownComplete()
+            } else {
+                _ = try? self.startTriggerListening()
+            }
         }
     }
 
@@ -851,7 +900,7 @@ public final class SpeechService {
         silenceTask?.cancel()
         silenceTask = nil
         capturedCommand = ""
-        lastTranscriptLength = 0
+        triggerTranscriptLength = 0
 
         // Restart recognition for trigger listening
         triggerState = .listening

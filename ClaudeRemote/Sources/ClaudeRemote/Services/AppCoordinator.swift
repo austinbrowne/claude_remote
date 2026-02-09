@@ -15,6 +15,15 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public let speechService = SpeechService()
     public let notificationService: NotificationService
     private var autoModeSpeechTask: Task<Void, Never>?
+
+    // MARK: - Voice Loop State (not persisted — loops don't survive app restarts)
+    public private(set) var isVoiceLoopActive = false
+    private var voiceLoopRetryCount = 0
+    private static let maxVoiceLoopRetries = 5
+    private var voiceLoopRetryTask: Task<Void, Never>?
+    private var lastVoiceAutoSendTime: Date?
+    private static let voiceAutoSendCooldown: TimeInterval = 0.3
+    // Stop phrases defined in VoicePromptMatcher.stopPhrases for testability
     #endif
 
     public init(state: AppState) {
@@ -44,10 +53,36 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             self?.handleTriggerCommand(command)
         }
 
+        // Wire manual auto-send callback (silence timer fired in manual mic mode)
+        speechService.onManualAutoSend = { [weak self] text in
+            self?.handleVoiceInput(text)
+        }
+
+        // Wire trigger cooldown callback — decides whether to resume trigger or voice loop
+        speechService.onCooldownComplete = { [weak self] in
+            guard let self else { return }
+            if self.isVoiceLoopActive {
+                // CONS-001 fix: transition from trigger to manual listening for voice loop
+                do {
+                    try self.speechService.startListening()
+                    self.voiceLoopRetryCount = 0
+                } catch {
+                    self.scheduleVoiceLoopRetry()
+                }
+            } else {
+                // Normal trigger flow — resume trigger listening
+                _ = try? self.speechService.startTriggerListening()
+            }
+        }
+
         // Wire error callback — surfaces SpeechService errors as toasts
         speechService.onError = { [weak self] message in
             guard let self else { return }
             self.state.showToast(message, icon: "mic.slash", style: .warning)
+            // If voice loop is active and recognition errored, retry with backoff
+            if self.isVoiceLoopActive && !self.speechService.isListening {
+                self.scheduleVoiceLoopRetry()
+            }
             // If trigger retries exhausted, reset the toggle
             if self.state.triggerEnabled && self.speechService.triggerState == .idle && !self.speechService.isAudioEngineRunning {
                 self.state.triggerEnabled = false
@@ -686,6 +721,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         speechService.onTranscriptUpdate = nil
         if speechService.isListening { speechService.stopListening() }
         if speechService.isSpeaking { speechService.stopSpeaking() }
+        // Exit voice loop on session switch / disconnect
+        if isVoiceLoopActive {
+            resetVoiceLoopState()
+        }
     }
 
     /// Build a spoken summary for a prompt card
@@ -741,6 +780,123 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         speechService.stopListening()
     }
 
+    // MARK: - Voice Input Handler
+
+    /// Unified voice input handler — processes silence-timer auto-send, stop commands,
+    /// prompt suppression, and voice loop continuation.
+    private func handleVoiceInput(_ text: String) {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return }
+        guard cleaned.count <= 10_000 else { return } // Match InputBarView's client-side limit
+        guard let sessionId = state.currentSessionId else { return }
+
+        // Check if the ENTIRE transcript is a stop command (voice loop only)
+        if isVoiceLoopActive && VoicePromptMatcher.isStopCommand(cleaned) {
+            exitVoiceLoop()
+            return
+        }
+
+        // Suppress auto-send when a permission prompt is active — prevent ambient audio
+        // from approving permissions via the auto-mode matching pipeline
+        if promptService.currentPrompt != nil {
+            // Restart listening to clear stale transcript so next utterance starts fresh
+            if isVoiceLoopActive && speechService.isListening {
+                speechService.stopListening()
+                scheduleVoiceLoopRestart()
+            }
+            return
+        }
+
+        // Enforce cooldown to prevent rapid-fire sends (parity with InputBarView)
+        if let last = lastVoiceAutoSendTime, Date().timeIntervalSince(last) < Self.voiceAutoSendCooldown {
+            return
+        }
+        lastVoiceAutoSendTime = Date()
+
+        HapticService.heavy()
+        state.trackSentMessage(cleaned)
+        injectCommand(cleaned, sessionId: sessionId)
+        speechService.stopListening()
+
+        // Voice loop: restart listening after sending (with delay for audio engine teardown)
+        if isVoiceLoopActive {
+            scheduleVoiceLoopRestart()
+        }
+    }
+
+    /// Exit the voice loop cleanly with feedback, then resume trigger if it was enabled.
+    public func exitVoiceLoop() {
+        resetVoiceLoopState()
+        speechService.stopListening()
+        HapticService.medium()
+        state.showToast("Voice loop ended", icon: "mic.slash", style: .info)
+        // Resume trigger listening — voice loop was started from trigger flow
+        if state.triggerEnabled {
+            _ = try? speechService.startTriggerListening()
+        }
+    }
+
+    /// Reset voice loop state without side effects (no stopListening, no toast).
+    /// Called from all exit paths to ensure consistent cleanup.
+    private func resetVoiceLoopState() {
+        isVoiceLoopActive = false
+        voiceLoopRetryCount = 0
+        voiceLoopRetryTask?.cancel()
+        voiceLoopRetryTask = nil
+        speechService.preferOnDeviceRecognition = false
+    }
+
+    /// Schedule a delayed restart of manual listening for the voice loop.
+    /// Brief delay (0.3s) allows audio engine to fully tear down, preventing stale audio buffers
+    /// from being re-processed by the new recognition session.
+    private func scheduleVoiceLoopRestart() {
+        voiceLoopRetryTask?.cancel()
+        voiceLoopRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(0.3))
+            guard !Task.isCancelled, let self, self.isVoiceLoopActive else { return }
+            do {
+                try self.speechService.startListening()
+                self.voiceLoopRetryCount = 0
+            } catch {
+                self.scheduleVoiceLoopRetry()
+            }
+        }
+    }
+
+    /// Schedule a retry for voice loop recognition with exponential backoff.
+    private func scheduleVoiceLoopRetry() {
+        guard voiceLoopRetryCount < Self.maxVoiceLoopRetries else {
+            resetVoiceLoopState()
+            state.showToast("Voice loop stopped — tap mic to retry", icon: "mic.slash", style: .warning)
+            // Resume trigger listening — voice loop failed but trigger may still work
+            if state.triggerEnabled {
+                _ = try? speechService.startTriggerListening()
+            }
+            return
+        }
+
+        let delay = Double(min(1 << voiceLoopRetryCount, 16)) // 1, 2, 4, 8, 16 seconds
+        voiceLoopRetryCount += 1
+        #if DEBUG
+        print("[VoiceLoop] Retry #\(voiceLoopRetryCount) in \(delay)s")
+        #endif
+
+        voiceLoopRetryTask?.cancel()
+        voiceLoopRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self, self.isVoiceLoopActive else { return }
+            do {
+                try self.speechService.startListening()
+                self.voiceLoopRetryCount = 0
+            } catch {
+                #if DEBUG
+                print("[VoiceLoop] Retry failed: \(error)")
+                #endif
+                self.scheduleVoiceLoopRetry()
+            }
+        }
+    }
+
     // MARK: - Trigger Word
 
     /// Handle a captured command from trigger word detection.
@@ -753,6 +909,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         HapticService.heavy()
         state.trackSentMessage(command)
         injectCommand(command, sessionId: sessionId)
+
+        // Start voice loop — continue listening after trigger command
+        isVoiceLoopActive = true
+        voiceLoopRetryCount = 0
+        speechService.preferOnDeviceRecognition = true
     }
 
     /// Enable or disable trigger word mode. Persists to UserDefaults,
@@ -765,6 +926,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         SettingsStore.saveTriggerEnabled(enabled)
 
         if enabled {
+            // Trigger mode implicitly enables auto-mode (TTS reads prompts, voice responds)
+            speechService.isAutoMode = true
             do {
                 speechService.configureAudioSession(forBackground: true)
                 let result = try speechService.startTriggerListening()
@@ -779,6 +942,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                     print("[Trigger] Failed to start: \(reason)")
                     state.triggerEnabled = false
                     SettingsStore.saveTriggerEnabled(false)
+                    speechService.isAutoMode = false
                     state.showToast("Trigger word unavailable: \(reason)", icon: "mic.slash", style: .warning)
                 }
             } catch {
@@ -786,11 +950,17 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 print("[Trigger] Failed to start: \(error)")
                 state.triggerEnabled = false
                 SettingsStore.saveTriggerEnabled(false)
+                speechService.isAutoMode = false
                 state.showToast("Trigger word unavailable", icon: "mic.slash", style: .warning)
             }
         } else {
             speechService.stopTriggerListening()
+            speechService.isAutoMode = false
             speechService.configureAudioSession(forBackground: false)
+            // Exit voice loop if active
+            if isVoiceLoopActive {
+                resetVoiceLoopState()
+            }
         }
     }
 
@@ -798,6 +968,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// iOS may deactivate the audio session while backgrounded; this re-establishes it.
     /// Also detects zombie state where triggerState says .listening but audio engine is dead.
     public func restoreTriggerIfNeeded() {
+        // Voice loop doesn't survive backgrounding — exit cleanly
+        if isVoiceLoopActive {
+            resetVoiceLoopState()
+            state.showToast("Voice loop ended — backgrounded", icon: "mic.slash", style: .info)
+        }
+
         guard state.triggerEnabled else { return }
 
         // Crash-loop protection: if we attempted restore within the last 10 seconds,

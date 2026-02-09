@@ -53,15 +53,26 @@ struct InputBarView: View {
 
                         #if os(iOS)
                         utilityButton(
-                            icon: speechService.isListening ? "mic.fill" : "mic",
-                            label: speechService.isListening ? "Listening" : "Mic",
-                            tint: speechService.isListening ? .red : .secondary,
+                            icon: speechService.isListening
+                                ? (coordinator.isVoiceLoopActive ? "mic.badge.xmark" : "mic.fill")
+                                : "mic",
+                            label: speechService.isListening
+                                ? (coordinator.isVoiceLoopActive ? "Voice Loop" : "Listening")
+                                : "Mic",
+                            tint: speechService.isListening
+                                ? (coordinator.isVoiceLoopActive ? .green : .red)
+                                : .secondary,
                             pulsing: speechService.isListening,
                             action: {
-                                do {
-                                    try speechService.toggleListening()
-                                } catch {
-                                    state.showToast("Mic unavailable: \(error.localizedDescription)", icon: "mic.slash", style: .warning)
+                                // Tap mic during voice loop → exit loop
+                                if coordinator.isVoiceLoopActive && speechService.isListening {
+                                    coordinator.exitVoiceLoop()
+                                } else {
+                                    do {
+                                        try speechService.toggleListening()
+                                    } catch {
+                                        state.showToast("Mic unavailable: \(error.localizedDescription)", icon: "mic.slash", style: .warning)
+                                    }
                                 }
                             }
                         )
@@ -118,6 +129,18 @@ struct InputBarView: View {
         .onChange(of: speechService.transcript) { _, newValue in
             if speechService.isListening && !newValue.isEmpty {
                 inputText = newValue
+            }
+        }
+        .onChange(of: speechService.isListening) { wasListening, isListening in
+            // Clear text field after auto-send or manual stop
+            if wasListening && !isListening && !speechService.transcript.isEmpty {
+                inputText = ""
+            }
+        }
+        .onChange(of: isFocused) { _, focused in
+            // Tapping text field exits voice loop
+            if focused && coordinator.isVoiceLoopActive {
+                coordinator.exitVoiceLoop()
             }
         }
         #endif
@@ -226,6 +249,9 @@ struct InputBarView: View {
         inputText = ""
         isFocused = false
         #if os(iOS)
+        // Cancel silence timer to prevent double-send, and stop mic
+        speechService.cancelManualSilenceTimer()
+        if speechService.isListening { speechService.stopListening() }
         HapticService.light()
         #endif
     }
