@@ -8,6 +8,7 @@ public enum SpeechError: Error, CustomStringConvertible {
     case invalidAudioFormat
     case authorizationDenied
     case authorizationPending
+    case microphoneDenied
     case onDeviceRecognitionUnavailable
 
     public var description: String {
@@ -15,6 +16,7 @@ public enum SpeechError: Error, CustomStringConvertible {
         case .invalidAudioFormat: return "Invalid audio format — no microphone available"
         case .authorizationDenied: return "Speech recognition permission denied"
         case .authorizationPending: return "Requesting speech recognition permission"
+        case .microphoneDenied: return "Microphone permission denied — enable in Settings > Privacy > Microphone"
         case .onDeviceRecognitionUnavailable: return "On-device speech recognition unavailable"
         }
     }
@@ -349,6 +351,29 @@ public final class SpeechService {
             throw SpeechError.authorizationDenied
         }
 
+        // Check microphone permission (separate from speech recognition)
+        let micStatus = AVAudioApplication.shared.recordPermission
+        if micStatus == .undetermined {
+            AVAudioApplication.requestRecordPermission { [weak self] granted in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if granted {
+                        do {
+                            try self.startListening()
+                        } catch {
+                            self.onError?("Mic failed: \(error.localizedDescription)")
+                        }
+                    } else {
+                        self.onError?(SpeechError.microphoneDenied.description)
+                    }
+                }
+            }
+            return
+        }
+        guard micStatus == .granted else {
+            throw SpeechError.microphoneDenied
+        }
+
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = false
@@ -411,6 +436,29 @@ public final class SpeechService {
         }
         guard authStatus == .authorized else {
             throw SpeechError.authorizationDenied
+        }
+
+        // Check microphone permission (separate from speech recognition)
+        let micStatus = AVAudioApplication.shared.recordPermission
+        if micStatus == .undetermined {
+            AVAudioApplication.requestRecordPermission { [weak self] granted in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if granted {
+                        do {
+                            _ = try self.startTriggerListening()
+                        } catch {
+                            self.onError?("Trigger word failed: \(error.localizedDescription)")
+                        }
+                    } else {
+                        self.onError?(SpeechError.microphoneDenied.description)
+                    }
+                }
+            }
+            return .authorizationPending
+        }
+        guard micStatus == .granted else {
+            throw SpeechError.microphoneDenied
         }
 
         teardownRecognition()
