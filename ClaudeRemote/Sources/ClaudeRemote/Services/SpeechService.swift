@@ -9,14 +9,16 @@ public enum SpeechError: Error, CustomStringConvertible {
     case authorizationDenied
     case authorizationPending
     case microphoneDenied
+    case recognizerUnavailable
     case onDeviceRecognitionUnavailable
 
     public var description: String {
         switch self {
         case .invalidAudioFormat: return "Invalid audio format — no microphone available"
-        case .authorizationDenied: return "Speech recognition permission denied"
+        case .authorizationDenied: return "Speech recognition permission denied — enable in Settings > Privacy > Speech Recognition"
         case .authorizationPending: return "Requesting speech recognition permission"
         case .microphoneDenied: return "Microphone permission denied — enable in Settings > Privacy > Microphone"
+        case .recognizerUnavailable: return "Speech recognition unavailable — check that Siri is enabled in Settings"
         case .onDeviceRecognitionUnavailable: return "On-device speech recognition unavailable"
         }
     }
@@ -81,7 +83,8 @@ public final class SpeechService {
 
     // MARK: - Private State
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private let speechRecognizer: SFSpeechRecognizer?
+    private var recognizerDelegate: RecognizerDelegate?
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -136,7 +139,21 @@ public final class SpeechService {
 
     // MARK: - Init
 
-    public init() {}
+    public init() {
+        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        self.speechRecognizer = recognizer
+        let delegate = RecognizerDelegate()
+        self.recognizerDelegate = delegate
+        recognizer?.delegate = delegate
+        delegate.onAvailabilityChanged = { [weak self] available in
+            Task { @MainActor in
+                guard let self else { return }
+                if !available && (self.isListening || self.triggerState != .idle) {
+                    self.onError?("Speech recognition became unavailable")
+                }
+            }
+        }
+    }
 
     deinit {
         // These properties are nonisolated(unsafe) — safe to access directly.
@@ -374,6 +391,11 @@ public final class SpeechService {
             throw SpeechError.microphoneDenied
         }
 
+        // Check recognizer availability (can be false if Siri is disabled, no network, etc.)
+        guard let speechRecognizer, speechRecognizer.isAvailable else {
+            throw SpeechError.recognizerUnavailable
+        }
+
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = false
@@ -461,6 +483,11 @@ public final class SpeechService {
             throw SpeechError.microphoneDenied
         }
 
+        // Check recognizer availability (can be false if Siri is disabled, no network, etc.)
+        guard let speechRecognizer, speechRecognizer.isAvailable else {
+            throw SpeechError.recognizerUnavailable
+        }
+
         teardownRecognition()
         recognitionGeneration += 1
         isInTriggerMode = true
@@ -527,7 +554,8 @@ public final class SpeechService {
                     self.scheduleRetry()
                 } else {
                     self.isListening = false
-                    self.onError?("Mic unavailable: \(error.localizedDescription)")
+                    let nsError = error as NSError
+                    self.onError?(Self.friendlyError(nsError))
                 }
             }
             self.isStarting = false
@@ -607,9 +635,25 @@ public final class SpeechService {
                         }
                     }
                 }
-                if error != nil || (result?.isFinal == true) {
+                if let error {
+                    // Surface recognition errors to the user instead of silently stopping.
+                    // kAFAssistantErrorDomain code 1 = recognizer unavailable (Siri disabled, no network)
+                    // kAFAssistantErrorDomain code 4 = recognition cancelled (normal on restart)
+                    let nsError = error as NSError
+                    let isCancellation = nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 4
+                    if !isCancellation {
+                        print("[Speech] Recognition error: \(nsError.domain) code=\(nsError.code) \(error.localizedDescription)")
+                        if !self.isInTriggerMode {
+                            self.onError?(Self.friendlyError(nsError))
+                        }
+                    }
                     if self.isInTriggerMode {
-                        // Recognition ended — restart for next trigger window
+                        self.restartTriggerRecognition()
+                    } else {
+                        self.stopListening()
+                    }
+                } else if result?.isFinal == true {
+                    if self.isInTriggerMode {
                         self.restartTriggerRecognition()
                     } else {
                         self.stopListening()
@@ -689,6 +733,19 @@ public final class SpeechService {
             // Note: retryCount is reset inside beginRecognition's success path
             // via activateAudioSession completing without error
         }
+    }
+
+    /// Map recognition NSError to user-friendly message with actionable guidance.
+    private static func friendlyError(_ error: NSError) -> String {
+        if error.domain == "kAFAssistantErrorDomain" {
+            switch error.code {
+            case 1: return "Speech recognition unavailable — check that Siri is enabled in Settings"
+            case 2: return "Speech recognition service error — try again"
+            case 3: return "Speech recognition not authorized — enable in Settings > Privacy > Speech Recognition"
+            default: return "Speech recognition error (\(error.code)) — try again"
+            }
+        }
+        return "Mic error: \(error.localizedDescription)"
     }
 
     /// Tears down audio engine and recognition without changing state.
@@ -909,6 +966,19 @@ private final class SynthesizerDelegate: NSObject, AVSpeechSynthesizerDelegate, 
         didCancel utterance: AVSpeechUtterance
     ) {
         resumeAndClear()
+    }
+}
+
+// MARK: - SFSpeechRecognizerDelegate Bridge
+
+/// Monitors speech recognizer availability changes (e.g., Siri toggled, network lost).
+/// Uses @unchecked Sendable because the delegate callback comes from an arbitrary queue.
+private final class RecognizerDelegate: NSObject, SFSpeechRecognizerDelegate, @unchecked Sendable {
+    var onAvailabilityChanged: ((Bool) -> Void)?
+
+    func speechRecognizer(_ speechRecognizer: SFSpeechRecognizer, availabilityDidChange available: Bool) {
+        print("[Speech] Recognizer availability changed: \(available)")
+        onAvailabilityChanged?(available)
     }
 }
 
