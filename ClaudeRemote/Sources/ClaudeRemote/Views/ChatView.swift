@@ -25,7 +25,7 @@ struct ChatView: View {
                     VStack(spacing: 0) {
                         TaskProgressView()
 
-                        LazyVStack(spacing: 0) {
+                        VStack(spacing: 0) {
                             ForEach(state.messages) { message in
                                 MessageView(message: message)
                                     .id(message.id)
@@ -66,7 +66,7 @@ struct ChatView: View {
                     if oldCount == 0 && newCount > 0 {
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(50))
+                            try? await Task.sleep(for: .milliseconds(150))
                             guard !Task.isCancelled else { return }
                             proxy.scrollTo("bottom", anchor: .bottom)
                             scrollDebounceTask = nil
@@ -77,7 +77,7 @@ struct ChatView: View {
                         // Debounce scroll to prevent animation stacking during rapid streaming
                         scrollDebounceTask?.cancel()
                         scrollDebounceTask = Task { @MainActor in
-                            try? await Task.sleep(for: .milliseconds(100))
+                            try? await Task.sleep(for: .milliseconds(250))
                             guard !Task.isCancelled else { return }
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("bottom", anchor: .bottom)
