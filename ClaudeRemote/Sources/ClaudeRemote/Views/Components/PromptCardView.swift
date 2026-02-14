@@ -60,6 +60,10 @@ struct PromptCardView: View {
                     isHead: isHead,
                     onRespond: { coordinator.promptService.respond(text: $0) },
                     onRespondOption: { coordinator.promptService.respondOption(index: $0) },
+                    onRespondOther: { text in
+                        let optionCount = questions.first?.options?.count ?? 0
+                        coordinator.promptService.respondOther(optionCount: optionCount, text: text)
+                    },
                     onRespondMulti: { coordinator.promptService.respondMultiSelect($0) },
                     onDismiss: { coordinator.promptService.dismiss() }
                 )
@@ -283,6 +287,7 @@ private struct QuestionCardContent: View {
     let isHead: Bool
     let onRespond: (String) -> Void
     let onRespondOption: (Int) -> Void
+    let onRespondOther: (String) -> Void
     let onRespondMulti: ([String]) -> Void
     let onDismiss: () -> Void
 
@@ -294,6 +299,7 @@ private struct QuestionCardContent: View {
                 isHead: isHead,
                 onSubmit: onRespond,
                 onSubmitOption: onRespondOption,
+                onSubmitOther: onRespondOther,
                 onSubmitMulti: onRespondMulti,
                 onDismiss: onDismiss
             )
@@ -307,6 +313,7 @@ private struct SingleQuestionView: View {
     let isHead: Bool
     let onSubmit: (String) -> Void
     let onSubmitOption: (Int) -> Void
+    let onSubmitOther: (String) -> Void
     let onSubmitMulti: ([String]) -> Void
     let onDismiss: () -> Void
 
@@ -486,7 +493,15 @@ private struct SingleQuestionView: View {
             }
             onSubmitMulti(selections)
         } else if isOtherSelected {
-            onSubmit(otherText.trimmingCharacters(in: .whitespacesAndNewlines))
+            let trimmed = otherText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if question.options != nil {
+                // Question has options → ink-based selector is active.
+                // Select "Other" by arrow keys first, then inject typed text.
+                onSubmitOther(trimmed)
+            } else {
+                // No options → plain text prompt, inject directly.
+                onSubmit(trimmed)
+            }
         } else if let index = selectedOptionIndex {
             // Use arrow-key navigation for pre-defined options (Claude Code's
             // ink-based selector ignores typed text, only responds to arrow keys)

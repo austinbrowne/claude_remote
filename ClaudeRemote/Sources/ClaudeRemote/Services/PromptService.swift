@@ -251,11 +251,24 @@ public final class PromptService {
         multiSelectTask = nil
     }
 
-    /// Respond with a single text value (for "Other" freeform input)
+    /// Respond with a single text value (for freeform-only questions with no options)
     public func respond(text: String) {
         guard let sid = sessionId else { return }
         sendHandler?(.inject(command: text, sessionId: sid))
         dismissHead()
+    }
+
+    /// Respond by selecting the "Other" option, then injecting freeform text.
+    /// Claude Code's ink-based selector requires arrow-key navigation to select "Other"
+    /// (the last item, at `optionCount`), followed by text injection after a brief delay.
+    public func respondOther(optionCount: Int, text: String) {
+        guard let sid = sessionId else { return }
+        sendHandler?(.selectOption(index: optionCount, sessionId: sid))
+        dismissHead()
+        Task { @MainActor [sendHandler] in
+            try? await Task.sleep(for: .milliseconds(300))
+            sendHandler?(.inject(command: text, sessionId: sid))
+        }
     }
 
     /// Respond by selecting a pre-defined option by its index.
