@@ -218,8 +218,10 @@ public final class PromptService {
 
         for msg in unansweredPrompts {
             if msg.type == .permissionRequest {
-                // Skip if tool is pre-allowed
-                if let tool = msg.tool, isToolAllowed(tool) { continue }
+                // Don't filter by isToolAllowed here — the server already filters
+                // permission_requests with matching tool_results. If one reached us
+                // without a tool_result, Claude Code is genuinely waiting for it,
+                // regardless of the tool's "always" grant status.
                 let prompt = PromptItem(
                     kind: .permission(
                         tool: msg.tool,
