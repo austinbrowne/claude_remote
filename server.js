@@ -1707,6 +1707,17 @@ async function handleClientMessage(ws, msg) {
             sessionId: msg.sessionId,
             status: currentStatus
           }));
+          // Send full claudeState snapshot BEFORE history so the client's
+          // allowedTools is populated before recoverFromHistory runs —
+          // otherwise already-granted permissions reappear as stale prompts.
+          const claudeState = buildClaudeState(msg.sessionId);
+          if (claudeState) {
+            ws.send(JSON.stringify({
+              type: 'claude_state',
+              sessionId: msg.sessionId,
+              state: claudeState
+            }));
+          }
           await sendRecentHistory(ws, msg.sessionId);
           await sendActiveSubagents(ws, msg.sessionId);
           // Send current context percentage so the ring starts at the right value
@@ -1715,15 +1726,6 @@ async function handleClientMessage(ws, msg) {
               type: 'context_percentage',
               sessionId: msg.sessionId,
               percentage: sessionData.contextPercentage
-            }));
-          }
-          // Send full claudeState snapshot (permissions, mode, subagents, etc.)
-          const claudeState = buildClaudeState(msg.sessionId);
-          if (claudeState) {
-            ws.send(JSON.stringify({
-              type: 'claude_state',
-              sessionId: msg.sessionId,
-              state: claudeState
             }));
           }
         } finally {
