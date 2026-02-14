@@ -846,6 +846,100 @@ struct PromptServiceTests {
         #expect(service.promptQueue[1].toolUseId == "tu-2")
     }
 
+    // MARK: - Approve All
+
+    @MainActor
+    @Test("approveAll sends always for head and clears all permissions")
+    func approveAllClearsAllPermissions() async throws {
+        let (service, capture) = Self.makeSUT()
+        // Queue 3 mixed-tool permissions
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Read", toolUseId: "tu-3"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 3)
+
+        service.approveAll()
+
+        // Should have sent exactly 1 inject with head's toolUseId
+        #expect(capture.actions.count == 1)
+        if case .inject(let command, let sessionId, let toolUseId) = capture.actions[0] {
+            #expect(command == "always")
+            #expect(sessionId == "test-session")
+            #expect(toolUseId == "tu-1")
+        } else {
+            Issue.record("Expected inject action with head toolUseId")
+        }
+        // Queue should be completely empty
+        #expect(service.promptQueue.isEmpty)
+    }
+
+    @MainActor
+    @Test("approveAll preserves non-permission prompts")
+    func approveAllPreservesNonPermissions() async throws {
+        let (service, _) = Self.makeSUT()
+        // Queue permission, then question
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        let questions = [QuestionData(question: "Pick?")]
+        service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
+        #expect(service.promptQueue.count == 3)
+
+        service.approveAll()
+
+        // Only the question should remain
+        #expect(service.promptQueue.count == 1)
+        if case .question(let qs) = service.currentPrompt?.kind {
+            #expect(qs[0].question == "Pick?")
+        } else {
+            Issue.record("Expected question prompt to survive approveAll")
+        }
+    }
+
+    @MainActor
+    @Test("approveAll clears pending permissions not yet flushed")
+    func approveAllClearsPendingPermissions() async throws {
+        let (service, _) = Self.makeSUT()
+        // One permission in queue
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1)
+
+        // Another still pending (not flushed yet)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+
+        service.approveAll()
+
+        // Wait for any pending flush
+        try await Task.sleep(for: .milliseconds(700))
+
+        // Queue should be empty — pending was cleared
+        #expect(service.promptQueue.isEmpty)
+    }
+
+    @MainActor
+    @Test("approveAll no-ops when head is not a permission")
+    func approveAllNoOpsForNonPermission() {
+        let (service, capture) = Self.makeSUT()
+        // Queue a question as head
+        let questions = [QuestionData(question: "Pick?")]
+        service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
+        #expect(service.currentPrompt != nil)
+
+        service.approveAll()
+
+        // No actions should have been sent
+        #expect(capture.actions.isEmpty)
+        // Question should still be in queue
+        #expect(service.promptQueue.count == 1)
+        if case .question = service.currentPrompt?.kind {
+            // Expected
+        } else {
+            Issue.record("Expected question to remain unchanged")
+        }
+    }
+
     // MARK: - Plan Exit Handling
 
     @MainActor

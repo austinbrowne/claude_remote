@@ -47,7 +47,9 @@ struct PromptCardView: View {
                     isStale: prompt.isStale,
                     isHead: isHead,
                     sameToolCount: isHead ? sameToolCount(for: tool) : 0,
+                    totalPermissionCount: isHead ? totalPermissionCount : 0,
                     onRespond: { coordinator.promptService.respondPermission($0) },
+                    onApproveAll: { coordinator.promptService.approveAll() },
                     onDismiss: { coordinator.promptService.dismiss() }
                 )
 
@@ -72,6 +74,14 @@ struct PromptCardView: View {
             }
         }
         .opacity(isHead ? 1.0 : 0.6)
+    }
+
+    /// Count all permission items in the queue (for cross-tool "Approve All" button).
+    private var totalPermissionCount: Int {
+        queue.filter { item in
+            if case .permission = item.kind { return true }
+            return false
+        }.count
     }
 
     /// Count all permissions in the queue (including head) for the given tool.
@@ -163,7 +173,10 @@ private struct PermissionCardContent: View {
     let isHead: Bool
     /// Total number of same-tool permissions in queue (including this one). Only meaningful for head.
     let sameToolCount: Int
+    /// Total number of all permission items in queue (for cross-tool "Approve All"). Only meaningful for head.
+    let totalPermissionCount: Int
     let onRespond: (PermissionChoice) -> Void
+    let onApproveAll: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -241,6 +254,21 @@ private struct PermissionCardContent: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.green)
+                }
+
+                // Cross-tool "Approve All" — shows only when mixed tools queued
+                if totalPermissionCount > 1, totalPermissionCount != sameToolCount {
+                    Button {
+                        onApproveAll()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.shield.fill")
+                            Text("Approve All (\(totalPermissionCount))")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
                 }
             }
         }

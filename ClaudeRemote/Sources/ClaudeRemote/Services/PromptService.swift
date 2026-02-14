@@ -267,6 +267,41 @@ public final class PromptService {
         dismissHead()
     }
 
+    /// Approve all pending permissions at once. Sends "always" for head, cascades the rest.
+    public func approveAll() {
+        guard let sid = sessionId else { return }
+        guard case .permission = currentPrompt?.kind else { return }
+
+        // Collect all unique tools from queue + pending
+        var allTools: Set<String> = []
+        for item in promptQueue {
+            if case .permission(let t, _, _) = item.kind, let t { allTools.insert(t) }
+        }
+        for (_, pending) in pendingPermissions {
+            if case .permission(let t, _, _) = pending.item.kind, let t { allTools.insert(t) }
+        }
+
+        // Send "always" for the head permission (unblocks Claude Code)
+        let headToolUseId = currentPrompt?.toolUseId
+        sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: headToolUseId))
+        dismissHead()
+
+        // Persist all tools to allowedTools (skips future prompts)
+        allowedTools.formUnion(allTools)
+
+        // Cancel all pending permissions
+        pendingPermissions.removeAll()
+        coalesceTask?.cancel()
+        coalesceTask = nil
+        firstPendingArrival = nil
+
+        // Clear remaining permissions from queue (preserve questions/planExit)
+        promptQueue.removeAll { item in
+            if case .permission = item.kind { return true }
+            return false
+        }
+    }
+
     /// Respond to a permission prompt (always applies to queue head)
     public func respondPermission(_ choice: PermissionChoice) {
         guard let sid = sessionId else { return }

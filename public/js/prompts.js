@@ -149,11 +149,14 @@ function showPromptCard(prompt) {
       // Count same-tool permissions in queue (+ current = total)
       const sameToolQueued = promptQueue.filter(p => p.type === 'permission' && p.tool === toolName).length;
       const sameToolTotal = sameToolQueued + 1; // +1 for current prompt
+      const totalPermissions = promptQueue.filter(p => p.type === 'permission').length + 1;
+      const hasMixedTools = totalPermissions > 1 && totalPermissions !== sameToolTotal;
       actions.innerHTML = `
         <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" data-action="yes">Yes</button>
         <button class="prompt-btn allow-always" data-action="always">Always Allow</button>
         <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" data-action="no">No</button>
         ${sameToolTotal > 1 && toolName ? `<button class="prompt-btn allow-all" data-action="allow-all">Allow All ${escapeHtml(toolName)} (${sameToolTotal})</button>` : ''}
+        ${hasMixedTools ? `<button class="prompt-btn approve-all" data-action="approve-all">Approve All (${totalPermissions})</button>` : ''}
       `;
       // Attach handlers programmatically to avoid inline string interpolation (XSS defense)
       actions.querySelector('[data-action="yes"]').addEventListener('click', () => respondToPrompt('1'));
@@ -161,6 +164,8 @@ function showPromptCard(prompt) {
       actions.querySelector('[data-action="no"]').addEventListener('click', () => respondToPrompt('3'));
       const allowAllBtn = actions.querySelector('[data-action="allow-all"]');
       if (allowAllBtn) allowAllBtn.addEventListener('click', () => respondToPermission(toolName, toolUseId));
+      const approveAllBtn = actions.querySelector('[data-action="approve-all"]');
+      if (approveAllBtn) approveAllBtn.addEventListener('click', () => approveAllPermissions());
       break;
 
     case 'yesNo':
@@ -308,7 +313,7 @@ function sanitizeUrl(url) {
   }
 }
 
-// Update or add the batch "Allow All" button when a same-tool permission is queued
+// Update or add the batch "Allow All" and "Approve All" buttons when a permission is queued
 function updateBatchButton() {
   if (!currentPrompt || currentPrompt.type !== 'permission' || !currentPrompt.tool) return;
   const actions = document.getElementById('promptActions');
@@ -317,15 +322,29 @@ function updateBatchButton() {
   const toolUseId = currentPrompt.toolUseId || '';
   const sameToolQueued = promptQueue.filter(p => p.type === 'permission' && p.tool === toolName).length;
   const sameToolTotal = sameToolQueued + 1;
-  // Remove existing batch button if any
-  const existing = actions.querySelector('[data-action="allow-all"]');
-  if (existing) existing.remove();
+  const totalPermissions = promptQueue.filter(p => p.type === 'permission').length + 1;
+  const hasMixedTools = totalPermissions > 1 && totalPermissions !== sameToolTotal;
+
+  // Remove existing batch buttons if any
+  const existingAllowAll = actions.querySelector('[data-action="allow-all"]');
+  if (existingAllowAll) existingAllowAll.remove();
+  const existingApproveAll = actions.querySelector('[data-action="approve-all"]');
+  if (existingApproveAll) existingApproveAll.remove();
+
   if (sameToolTotal > 1) {
     const btn = document.createElement('button');
     btn.className = 'prompt-btn allow-all';
     btn.dataset.action = 'allow-all';
     btn.textContent = `Allow All ${toolName} (${sameToolTotal})`;
     btn.addEventListener('click', () => respondToPermission(toolName, toolUseId));
+    actions.appendChild(btn);
+  }
+  if (hasMixedTools) {
+    const btn = document.createElement('button');
+    btn.className = 'prompt-btn approve-all';
+    btn.dataset.action = 'approve-all';
+    btn.textContent = `Approve All (${totalPermissions})`;
+    btn.addEventListener('click', () => approveAllPermissions());
     actions.appendChild(btn);
   }
 }
@@ -360,6 +379,37 @@ function respondToPermission(tool, toolUseId) {
     if (settings.ttsEnabled) {
       speak('Sent: always allow');
     }
+    setTimeout(() => hidePromptCard(), 300);
+  } else {
+    card.classList.remove('loading');
+    showToast('Failed to send response', 'error');
+  }
+}
+
+function approveAllPermissions() {
+  if (!currentPrompt || currentPrompt.type !== 'permission') return;
+  const allTools = new Set();
+  if (currentPrompt.tool) allTools.add(currentPrompt.tool);
+  for (const p of promptQueue) {
+    if (p.type === 'permission' && p.tool) allTools.add(p.tool);
+  }
+  for (const tool of allTools) alwaysAllowedTools.add(tool);
+  // Remove all permission prompts from queue (keep questions)
+  for (let i = promptQueue.length - 1; i >= 0; i--) {
+    if (promptQueue[i].type === 'permission') promptQueue.splice(i, 1);
+  }
+  // Send "always" for head
+  const toolUseId = currentPrompt.toolUseId || '';
+  const card = document.getElementById('promptCard');
+  card.classList.add('loading');
+  navigator.vibrate?.(50);
+  const msg = { action: 'inject', command: 'always', sessionId: currentSessionId };
+  if (toolUseId) msg.toolUseId = toolUseId;
+  const success = wsSend(msg);
+  if (success) {
+    trackSentMessage('always');
+    appendMessage({ type: 'user', content: 'always' });
+    if (settings.ttsEnabled) speak('Approved all permissions');
     setTimeout(() => hidePromptCard(), 300);
   } else {
     card.classList.remove('loading');
