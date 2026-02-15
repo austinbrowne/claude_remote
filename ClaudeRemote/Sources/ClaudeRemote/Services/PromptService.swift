@@ -82,15 +82,12 @@ public final class PromptService {
         allowedTools = tools
     }
 
-    /// Check if a tool is pre-allowed (no permission prompt needed)
+    /// Check if a tool is pre-allowed (no permission prompt needed).
+    /// Uses exact match only — domain-scoped grants like WebFetch(domain:x.com)
+    /// are handled by Claude Code internally. If Claude Code auto-approves,
+    /// the coalesce delay + tool_result suppression handles it.
     private func isToolAllowed(_ tool: String) -> Bool {
-        if allowedTools.contains(tool) { return true }
-        // Domain-scoped: WebFetch(domain:x.com) allows all WebFetch
-        if tool == "WebFetch" {
-            return allowedTools.contains(where: { $0.hasPrefix("WebFetch(") })
-        }
-        // MCP tools: already checked by exact match above
-        return false
+        allowedTools.contains(tool)
     }
 
     // MARK: - Internal State

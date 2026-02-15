@@ -252,15 +252,11 @@ function needsPermission(toolName, sessionData) {
   const allowed = sessionData.allowedTools || new Set();
   const granted = sessionData.sessionGranted || new Set();
 
-  // Exact match
+  // Exact match only — domain-scoped grants like WebFetch(domain:x.com)
+  // are handled by Claude Code internally. If Claude Code auto-approves,
+  // the batch filter (permission_request + tool_result in same batch)
+  // suppresses the prompt. If Claude Code blocks, the prompt shows.
   if (allowed.has(toolName) || granted.has(toolName)) return false;
-
-  // Domain-scoped: WebFetch(domain:github.com) allows all WebFetch
-  if (toolName === 'WebFetch') {
-    for (const entry of allowed) {
-      if (entry.startsWith('WebFetch(')) return false;
-    }
-  }
 
   // MCP tools: already checked by exact match above
   return true;
