@@ -1036,4 +1036,32 @@ struct TaskUpdateDeletedTests {
         #expect(taskId == "task-1")
         #expect(status == "deleted")
     }
+
+    // MARK: - permission_resolved
+
+    @Test("Decode permission_resolved with sessionId")
+    func permissionResolved() throws {
+        let msg = try decode("""
+        {"type": "permission_resolved", "sessionId": "sess-1", "toolUseId": "tu-123"}
+        """)
+        guard case .permissionResolved(let sessionId, let toolUseId) = msg else {
+            Issue.record("Expected permissionResolved")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(toolUseId == "tu-123")
+    }
+
+    @Test("Decode permission_resolved without sessionId")
+    func permissionResolvedNoSession() throws {
+        let msg = try decode("""
+        {"type": "permission_resolved", "toolUseId": "tu-456"}
+        """)
+        guard case .permissionResolved(let sessionId, let toolUseId) = msg else {
+            Issue.record("Expected permissionResolved")
+            return
+        }
+        #expect(sessionId == nil)
+        #expect(toolUseId == "tu-456")
+    }
 }

@@ -86,30 +86,49 @@ private struct UserMessageView: View {
     }
 }
 
-/// Subtle inline status indicator
+/// Activity indicator with tool name, elapsed time, and pulsing animation
 private struct StatusIndicatorView: View {
     let status: String
 
+    @State private var isPulsing = false
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if isProcessing {
                 ProgressView()
-                    .scaleEffect(0.6)
-                    .frame(width: 12, height: 12)
+                    .controlSize(.small)
+
+                Text(status)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.primary)
             } else {
                 Circle()
                     .fill(statusColor)
-                    .frame(width: 6, height: 6)
+                    .frame(width: 8, height: 8)
+                    .opacity(isPulsing ? 0.4 : 1.0)
+                    .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isPulsing)
+                    .onAppear { isPulsing = true }
+
+                Text(status)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            Text(status)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            isProcessing
+                ? Color.accentColor.opacity(0.08)
+                : Color.clear
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private var isProcessing: Bool {
-        status.lowercased().contains("processing") || status.lowercased().contains("working")
+        let lower = status.lowercased()
+        return lower.contains("processing") || lower.contains("working")
+            || lower.contains("thinking") || lower.contains("running")
     }
 
     private var statusColor: Color {

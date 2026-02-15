@@ -73,17 +73,17 @@ describe('permissionToolMap', () => {
     assert.equal(sd.sessionGranted.size, 0);
   });
 
-  it('TTL cleanup removes stale entries older than 60s', () => {
+  it('TTL cleanup removes stale entries older than 600s (10 min)', () => {
     const sd = makeSessionData();
     const now = Date.now();
-    // One entry from 90 seconds ago (stale)
-    sd.permissionToolMap.set('toolu_bash1', { tool: 'Bash', timestamp: now - 90000 });
+    // One entry from 700 seconds ago (stale, past 600s TTL)
+    sd.permissionToolMap.set('toolu_bash1', { tool: 'Bash', timestamp: now - 700000 });
     // One entry from 10 seconds ago (fresh)
     sd.permissionToolMap.set('toolu_write1', { tool: 'Write', timestamp: now - 10000 });
 
     // Simulate TTL cleanup (runs when adding new entries)
     for (const [id, entry] of sd.permissionToolMap) {
-      if (now - entry.timestamp > 60000) {
+      if (now - entry.timestamp > 600000) {
         sd.permissionToolMap.delete(id);
       }
     }

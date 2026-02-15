@@ -161,6 +161,15 @@ public final class PromptService {
         }
     }
 
+    /// Handle a permission_resolved message from the server.
+    /// Removes the matching prompt from the queue (or cancels a pending permission).
+    public func handlePermissionResolved(toolUseId: String) {
+        // Try cancelling from pending buffer first
+        if cancelPendingPermission(toolUseId: toolUseId) { return }
+        // Otherwise remove from the live queue
+        dismissPermission(toolUseId: toolUseId)
+    }
+
     /// Handle a session_status change
     public func handleSessionStatus(_ status: SessionStatus) {
         // Note: we intentionally do NOT clearQueue() on .processing.
@@ -184,6 +193,12 @@ public final class PromptService {
         var promptIndices: [(index: Int, msg: Message)] = []
         for (i, msg) in messages.enumerated() {
             if msg.type == .toolResult, let tuId = msg.toolUseId {
+                answeredToolUseIds.insert(tuId)
+            }
+            // tool_results are merged into tool/permissionRequest messages —
+            // if resultContent is set, the tool already completed
+            if (msg.type == .tool || msg.type == .permissionRequest), msg.resultContent != nil,
+               let tuId = msg.toolUseId {
                 answeredToolUseIds.insert(tuId)
             }
             if msg.type == .permissionRequest || msg.type == .askUserQuestion {
@@ -371,8 +386,20 @@ public final class PromptService {
     // MARK: - Private
 
     private func handlePermissionRequest(_ data: ClaudeOutputData, agentDescription: String?) {
-        // Skip if tool is pre-allowed (from claudeState permissions)
-        if let tool = data.tool, isToolAllowed(tool) { return }
+        // Auto-respond if tool is pre-allowed (from claudeState or approveAll).
+        // The terminal may still be blocked on this prompt (e.g., after approveAll cleared
+        // the queue but subagent prompts keep arriving). Injecting "always" unblocks it.
+        if let tool = data.tool, isToolAllowed(tool) {
+            if let sid = sessionId {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: data.toolUseId))
+            }
+            return
+        }
+
+        // Dedup: remove any existing prompt with the same toolUseId (e.g. from history recovery)
+        if let toolUseId = data.toolUseId {
+            promptQueue.removeAll { $0.toolUseId == toolUseId }
+        }
 
         let command = data.content ?? data.input?["command"]?.stringValue
         let pendingKey = data.toolUseId ?? UUID().uuidString
@@ -448,8 +475,10 @@ public final class PromptService {
                 pendingPermissions.removeValue(forKey: key)
                 return true
             }
+            return false // Specific ID not found — don't fallback to removing unrelated items
         }
         // Fallback: cancel the oldest pending permission (by arrival order)
+        // Only used for nil toolUseId (legacy tool_result path)
         if let oldest = pendingPermissions.min(by: { $0.value.order < $1.value.order })?.key {
             pendingPermissions.removeValue(forKey: oldest)
             return true
@@ -580,6 +609,16 @@ public final class PromptService {
         if messagesSincePrompt >= 2 {
             for i in promptQueue.indices where !promptQueue[i].isStale {
                 promptQueue[i].isStale = true
+            }
+        }
+        // Safety-net auto-removal: after 30+ messages, remove stale permission prompts.
+        // High threshold reduces risk of removing still-pending permissions.
+        // Questions and planExit prompts are NEVER auto-removed — they require explicit user action.
+        if messagesSincePrompt >= 30 {
+            promptQueue.removeAll { item in
+                guard item.isStale else { return false }
+                if case .permission = item.kind { return true }
+                return false
             }
         }
     }

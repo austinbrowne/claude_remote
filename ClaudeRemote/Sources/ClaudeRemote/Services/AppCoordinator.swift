@@ -26,6 +26,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     // Stop phrases defined in VoicePromptMatcher.stopPhrases for testability
     #endif
 
+    private var deliveredClearTask: Task<Void, Never>?
+
     public init(state: AppState) {
         self.state = state
         self.promptService = PromptService()
@@ -45,7 +47,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
         #if os(iOS)
         notificationService.onNotificationTap = { [weak self] sessionId in
-            self?.watchSession(sessionId)
+            self?.state.beginSessionSwitch(to: sessionId)
         }
 
         // Wire trigger command callback
@@ -288,7 +290,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if data.isLocalCommand { return }
             // Route spinner status_updates to the persistent activity indicator
             if data.type == "status_update" {
-                state.currentActivity = data.content
+                // Use actual tool name when available (e.g., "Reading..." instead of "Conjuring...")
+                if let tool = data.tool, !tool.isEmpty {
+                    state.currentActivity = "\(tool)..."
+                } else {
+                    state.currentActivity = data.content
+                }
                 if let status = data.status {
                     state.sessionStatus = SessionStatus(rawValue: status) ?? .unknown
                 }
@@ -490,6 +497,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.messages[msgIndex].subagentCurrentTool = nil
             }
 
+        case .permissionResolved(let sessionId, let toolUseId):
+            // Ignore from a different session
+            if let sessionId, sessionId != state.currentSessionId { break }
+            promptService.handlePermissionResolved(toolUseId: toolUseId)
+
         case .modeChange(let sessionId, let mode):
             // Ignore mode changes from a different session
             if let sessionId, sessionId != state.currentSessionId { break }
@@ -509,6 +521,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 // (avoids overwriting a spinner verb that arrived faster)
                 if state.currentActivity == "Sending..." {
                     state.currentActivity = "Delivered"
+                    // Auto-clear after 2s — handles race where session goes idle
+                    // before inject_result arrives, leaving "Delivered" stuck
+                    deliveredClearTask?.cancel()
+                    deliveredClearTask = Task { @MainActor [weak state] in
+                        try? await Task.sleep(for: .seconds(2))
+                        guard !Task.isCancelled else { return }
+                        if state?.currentActivity == "Delivered" {
+                            state?.currentActivity = nil
+                        }
+                    }
                 }
             } else {
                 state.currentActivity = nil
@@ -698,6 +720,7 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentStop(let id): return "subagent_stop id=\(id)"
         case .injectResult(let success, _): return "inject_result success=\(success)"
         case .escapeResult(let success, _): return "escape_result success=\(success)"
+        case .permissionResolved(_, let toolUseId): return "permission_resolved toolUseId=\(toolUseId)"
         case .modeChange(_, let mode): return "mode_change mode=\(mode)"
         case .modeToggleResult(let success, _): return "mode_toggle_result success=\(success)"
         case .error(let code, let msg, _): return "error code=\(code) msg=\(msg)"

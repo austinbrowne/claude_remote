@@ -150,4 +150,61 @@ struct ToolCardHelpersTests {
         let result = ToolCardHelpers.formatToolInput(input, tool: "Read")
         #expect(result == "/readme.md")
     }
+
+    // MARK: - truncateResult
+
+    @Test("truncateResult returns original content when under threshold")
+    func truncateResultShort() {
+        let content = (1...10).map { "Line \($0)" }.joined(separator: "\n")
+        let result = ToolCardHelpers.truncateResult(content)
+        #expect(result.isTruncated == false)
+        #expect(result.displayText == content)
+        #expect(result.hiddenCount == 0)
+    }
+
+    @Test("truncateResult returns original at exactly threshold")
+    func truncateResultAtThreshold() {
+        // threshold = 20 + 5 + 3 = 28
+        let content = (1...28).map { "Line \($0)" }.joined(separator: "\n")
+        let result = ToolCardHelpers.truncateResult(content)
+        #expect(result.isTruncated == false)
+        #expect(result.displayText == content)
+    }
+
+    @Test("truncateResult truncates content exceeding threshold")
+    func truncateResultLong() {
+        let lines = (1...50).map { "Line \($0)" }
+        let content = lines.joined(separator: "\n")
+        let result = ToolCardHelpers.truncateResult(content)
+        #expect(result.isTruncated == true)
+        #expect(result.hiddenCount == 25) // 50 - 20 - 5
+        #expect(result.displayText.hasPrefix("Line 1\n"))
+        #expect(result.displayText.contains("...\n"))
+        #expect(result.displayText.hasSuffix("Line 50"))
+    }
+
+    @Test("truncateResult handles empty string")
+    func truncateResultEmpty() {
+        let result = ToolCardHelpers.truncateResult("")
+        #expect(result.isTruncated == false)
+        #expect(result.displayText == "")
+        #expect(result.hiddenCount == 0)
+    }
+
+    @Test("truncateResult handles single line")
+    func truncateResultSingleLine() {
+        let result = ToolCardHelpers.truncateResult("hello world")
+        #expect(result.isTruncated == false)
+        #expect(result.displayText == "hello world")
+    }
+
+    @Test("truncateResult respects custom headLines and tailLines")
+    func truncateResultCustomParams() {
+        let lines = (1...20).map { "Line \($0)" }
+        let content = lines.joined(separator: "\n")
+        // headLines=5, tailLines=3, threshold = 5+3+3 = 11
+        let result = ToolCardHelpers.truncateResult(content, headLines: 5, tailLines: 3)
+        #expect(result.isTruncated == true)
+        #expect(result.hiddenCount == 12) // 20 - 5 - 3
+    }
 }

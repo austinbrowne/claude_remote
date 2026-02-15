@@ -26,9 +26,15 @@ struct ChatView: View {
                         TaskProgressView()
 
                         VStack(spacing: 0) {
-                            ForEach(state.messages) { message in
-                                MessageView(message: message)
-                                    .id(message.id)
+                            ForEach(groupedMessages) { item in
+                                switch item {
+                                case .single(let message):
+                                    MessageView(message: message)
+                                        .id(message.id)
+                                case .toolGroup(let messages):
+                                    ToolGroupView(messages: messages)
+                                        .id(item.id)
+                                }
                             }
                         }
                     }
@@ -109,6 +115,11 @@ struct ChatView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Messages grouped by tool runs for compact display
+    private var groupedMessages: [ChatItem] {
+        ToolGroupHelpers.groupMessages(state.messages)
     }
 
     /// Current session looked up from state

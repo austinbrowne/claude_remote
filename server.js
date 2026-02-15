@@ -55,6 +55,12 @@ const SUBAGENT_TOOL_THROTTLE_MS = 500;
 const pendingTaskIds = new Map();  // tool_use_id → pendingId
 const taskIdMap = new Map();       // realId → pendingId
 
+// Strip ANSI escape codes from strings (tool output often contains terminal colors)
+// Covers CSI sequences (\x1b[...X), OSC sequences (\x1b]...BEL/ST), and charset selection (\x1b(X)
+function stripAnsi(str) {
+  return str.replace(/\x1b(?:\[[0-9;]*[a-zA-Z]|\].*?(?:\x07|\x1b\\)|\([A-B])/g, '');
+}
+
 // Format MCP tool names for readability
 // mcp__github__create_issue -> GitHub: create_issue
 function formatMcpToolName(name) {
@@ -214,14 +220,24 @@ function getGitBranch(cwd) {
 
 // Load allowed tools from Claude Code's settings files
 async function loadAllowedTools(sessionCwd) {
-  // Only tools that Claude Code NEVER prompts for, regardless of context.
-  // Do NOT include Read, Glob, Grep, LS, WebSearch, Task, AskUserQuestion —
-  // Claude Code can prompt for those when accessing files outside the project.
+  // Tools that Claude Code never prompts the user for in any permission mode.
+  // Read-only tools (Read, Glob, Grep, WebSearch, WebFetch) never prompt — they
+  // either succeed or Claude refuses internally. Agent management tools (Task,
+  // SendMessage, TeamCreate) also never prompt. Only Bash, Edit, Write, and
+  // NotebookEdit actually block the terminal waiting for user permission.
   const allowed = new Set([
+    // Internal / meta tools
     'TodoRead', 'TodoWrite',
     'TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList',
     'EnterPlanMode', 'ExitPlanMode',
-    'Skill', 'NotebookRead'
+    'Skill', 'NotebookRead',
+    // Read-only tools — never prompt in any mode
+    'Read', 'Glob', 'Grep',
+    'WebSearch', 'WebFetch',
+    // Agent management — never prompt
+    'Task', 'TaskOutput', 'TaskStop',
+    'AskUserQuestion',
+    'SendMessage', 'TeamCreate', 'TeamDelete',
   ]);
 
   const claudeHome = path.join(os.homedir(), '.claude');
@@ -489,18 +505,20 @@ async function watchSession(sessionId) {
             }
           }
 
-          // Suppress permission_requests that have a matching tool_result in the
-          // same batch — these were auto-approved (Always Allow) and need no user input
+          // Auto-approved permission_requests (tool_result in same batch) are
+          // converted to regular 'tool' items so the client still sees the tool call
+          // and can merge the tool_result into it. Without this, the client gets
+          // orphaned tool_results that can't be matched to a parent → wrong tool count.
           const resolvedToolUseIds = new Set(
             allItems
               .filter(i => i.type === 'tool_result' && i.toolUseId)
               .map(i => i.toolUseId)
           );
-          const filteredItems = allItems.filter(item => {
+          const filteredItems = allItems.map(item => {
             if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
-              return false;
+              return { ...item, type: 'tool' };
             }
-            return true;
+            return item;
           });
 
           for (const item of filteredItems) {
@@ -524,6 +542,13 @@ async function watchSession(sessionId) {
                 sessionId: sessionId,
                 description: item.description,
                 agentType: item.agentType
+              });
+            } else if (item.type === 'permission_resolved') {
+              // Broadcast as top-level so clients can dismiss permission cards
+              broadcastToClients({
+                type: 'permission_resolved',
+                sessionId: sessionId,
+                toolUseId: item.toolUseId
               });
             } else if (item.type === 'task_create' || item.type === 'task_update' || item.type === 'task_list') {
               // Broadcast task messages as top-level so iOS decodes them as
@@ -871,15 +896,29 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
             continue; // Auto-approved, skip
           }
 
-          console.log(`[Subagent ${agentId}] ${item.type}`);
-          broadcastToClients({
-            type: 'subagent_output',
-            sessionId,
-            agentId,
-            data: item
-          });
+          // Only broadcast subagent_output for actionable types that need user interaction.
+          // Skip tool, status_update, tool_result, assistant, token_usage — the client
+          // already ignores these and they cause unnecessary re-renders.
+          if (item.type === 'permission_request' || item.type === 'ask_user_question') {
+            console.log(`[Subagent ${agentId}] ${item.type}`);
+            broadcastToClients({
+              type: 'subagent_output',
+              sessionId,
+              agentId,
+              data: item
+            });
+          }
 
-          // Emit specific events for tool usage and token tracking
+          // Broadcast permission_resolved as top-level event (same as main watcher)
+          if (item.type === 'permission_resolved') {
+            broadcastToClients({
+              type: 'permission_resolved',
+              sessionId,
+              toolUseId: item.toolUseId
+            });
+          }
+
+          // Emit specific events for tool usage (throttled activity card updates)
           if (item.type === 'tool' || item.type === 'permission_request') {
             // Update stored subagent info
             const info = sessionData.subagentInfo.get(agentId);
@@ -1054,10 +1093,10 @@ function parseLogEntry(entry, sessionData) {
           else if (needsPermission(block.name, sessionData) || (isMcpTool && needsPermission(block.name, sessionData))) {
             console.log(`[Permission] Detected ${block.name} tool call`);
             if (sessionData && block.id) {
-              // Clean stale entries (>60s) before adding new one
+              // Clean stale entries (>600s / 10 min) before adding new one
               const now = Date.now();
               for (const [id, entry] of sessionData.permissionToolMap) {
-                if (now - entry.timestamp > 60000) {
+                if (now - entry.timestamp > 600000) {
                   sessionData.permissionToolMap.delete(id);
                 }
               }
@@ -1189,7 +1228,7 @@ function parseLogEntry(entry, sessionData) {
       // Map TaskCreate tool_result to real task ID
       if (toolUseId && pendingTaskIds.has(toolUseId)) {
         const pendingId = pendingTaskIds.get(toolUseId);
-        const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+        const result = stripAnsi(entry.toolUseResult.stdout || entry.toolUseResult.stderr || '');
         // TaskCreate result text contains "Created task N: ..." or "id: N"
         const idMatch = result.match(/(?:task\s+#?|id[:\s]+)(\d+)/i);
         if (idMatch) {
@@ -1205,7 +1244,7 @@ function parseLogEntry(entry, sessionData) {
       const isTaskListResult = toolUseId && sessionData?.pendingTaskListIds?.has(toolUseId);
       if (isTaskListResult) {
         sessionData.pendingTaskListIds.delete(toolUseId);
-        const resultText = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
+        const resultText = stripAnsi(entry.toolUseResult.stdout || entry.toolUseResult.stderr || '');
         const taskListItems = parseTaskListResult(resultText);
         if (taskListItems && taskListItems.length > 0) {
           sessionData.tasks.clear();
@@ -1226,13 +1265,21 @@ function parseLogEntry(entry, sessionData) {
         }
       }
 
-      // permissionToolMap cleanup is TTL-based (60s) — not deleted here
-      // because the user may click "Always Allow" after tool_result arrives
+      // permissionToolMap cleanup is TTL-based (600s) — not deleted here
+      // because the user may click "Always Allow" after tool_result arrives.
+      // But emit permission_resolved so clients can dismiss permission cards.
+      if (toolUseId && sessionData?.permissionToolMap?.has(toolUseId)) {
+        results.push({
+          type: 'permission_resolved',
+          toolUseId,
+          timestamp
+        });
+      }
 
       const result = entry.toolUseResult.stdout || entry.toolUseResult.stderr || '';
       results.push({
         type: 'tool_result',
-        content: result.trim() || '(completed)',
+        content: stripAnsi(result.trim()) || '(completed)',
         isError: !!entry.toolUseResult.stderr && !entry.toolUseResult.stdout,
         toolUseId,
         timestamp
@@ -2226,17 +2273,17 @@ async function sendRecentHistory(ws, sessionId) {
       }
     }
 
-    // Suppress auto-approved permission_requests (same logic as live messages)
+    // Auto-approved permission_requests → convert to 'tool' (same logic as live messages)
     const resolvedToolUseIds = new Set(
       allItems
         .filter(i => i.type === 'tool_result' && i.toolUseId)
         .map(i => i.toolUseId)
     );
-    const history = allItems.filter(item => {
+    const history = allItems.map(item => {
       if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
-        return false;
+        return { ...item, type: 'tool' };
       }
-      return true;
+      return item;
     });
 
     // Set initial mode from history and notify the client
@@ -2635,7 +2682,8 @@ app.get('/health', (req, res) => {
 
 // Detailed health requires authentication
 app.get('/health/detailed', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : '';
   if (!secureCompare(token, AUTH_TOKEN)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -2645,6 +2693,214 @@ app.get('/health/detailed', async (req, res) => {
     sessions: sessions.length,
     clients: clients.size
   });
+});
+
+// ============================================
+// File Browsing API
+// ============================================
+
+// Directories to exclude from file listings
+const EXCLUDED_DIRS = new Set(['.git', 'node_modules', '.build', 'build']);
+
+// Map file extensions to language identifiers for syntax highlighting
+const EXTENSION_TO_LANGUAGE = {
+  '.swift': 'swift', '.js': 'javascript', '.ts': 'typescript',
+  '.jsx': 'jsx', '.tsx': 'tsx', '.py': 'python', '.rb': 'ruby',
+  '.go': 'go', '.rs': 'rust', '.java': 'java', '.kt': 'kotlin',
+  '.c': 'c', '.cpp': 'cpp', '.h': 'c', '.hpp': 'cpp',
+  '.cs': 'csharp', '.php': 'php', '.sh': 'bash', '.zsh': 'bash',
+  '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'toml',
+  '.xml': 'xml', '.html': 'html', '.css': 'css', '.scss': 'scss',
+  '.sql': 'sql', '.md': 'markdown', '.r': 'r', '.lua': 'lua',
+  '.dart': 'dart', '.ex': 'elixir', '.exs': 'elixir',
+  '.zig': 'zig', '.v': 'v', '.nim': 'nim',
+};
+
+// Helper: authenticate a REST request via Bearer token
+function authenticateRequest(req, res) {
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!secureCompare(token, AUTH_TOKEN)) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return false;
+  }
+  return true;
+}
+
+// Simple rate limiter for file API — 120 requests per minute per IP
+const fileApiRateLimit = new Map(); // ip -> { count, resetTime }
+function checkFileApiRate(req, res) {
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  let entry = fileApiRateLimit.get(ip);
+  if (!entry || now > entry.resetTime) {
+    entry = { count: 0, resetTime: now + 60000 };
+    fileApiRateLimit.set(ip, entry);
+  }
+  entry.count++;
+  if (entry.count > 120) {
+    res.status(429).json({ error: 'Too many requests' });
+    return false;
+  }
+  return true;
+}
+
+// Helper: resolve session cwd from sessionId
+async function resolveSessionCwd(sessionId, res) {
+  // Check active sessions first
+  const active = activeSessions.get(sessionId);
+  if (active?.session?.cwd) return active.session.cwd;
+
+  // Fall back to discovering sessions
+  const sessions = await discoverSessions();
+  const session = sessions.find(s => s.id === sessionId);
+  if (!session?.cwd) {
+    res.status(404).json({ error: 'Session not found' });
+    return null;
+  }
+  return session.cwd;
+}
+
+// Helper: validate path is within cwd (prevent traversal)
+async function validatePath(cwd, requestedPath, res) {
+  const resolved = path.resolve(cwd, requestedPath);
+  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    res.status(403).json({ error: 'Path traversal denied' });
+    return null;
+  }
+  // Resolve symlinks to prevent escaping cwd via symlink targets
+  try {
+    const realCwd = await fsp.realpath(cwd);
+    const realResolved = await fsp.realpath(resolved);
+    if (!realResolved.startsWith(realCwd + path.sep) && realResolved !== realCwd) {
+      res.status(403).json({ error: 'Path traversal denied' });
+      return null;
+    }
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      res.status(404).json({ error: 'Path not found' });
+      return null;
+    }
+    // For other errors (EACCES etc.), fall through to let the caller handle it
+  }
+  return resolved;
+}
+
+// Validate sessionId format: non-empty string, max 256 chars, no path separators
+function validateSessionId(sessionId, res) {
+  if (!sessionId || typeof sessionId !== 'string') {
+    res.status(400).json({ error: 'sessionId required' });
+    return false;
+  }
+  if (sessionId.length > 256 || /[\/\\]/.test(sessionId)) {
+    res.status(400).json({ error: 'Invalid sessionId format' });
+    return false;
+  }
+  return true;
+}
+
+// GET /api/files - List directory contents
+app.get('/api/files', async (req, res) => {
+  if (!authenticateRequest(req, res)) return;
+  if (!checkFileApiRate(req, res)) return;
+
+  const { sessionId, path: reqPath = '.' } = req.query;
+  if (!validateSessionId(sessionId, res)) return;
+
+  const cwd = await resolveSessionCwd(sessionId, res);
+  if (!cwd) return;
+
+  const resolved = await validatePath(cwd, reqPath, res);
+  if (!resolved) return;
+
+  try {
+    const dirents = await fsp.readdir(resolved, { withFileTypes: true });
+    const entries = [];
+
+    for (const dirent of dirents) {
+      // Skip excluded directories
+      if (dirent.isDirectory() && EXCLUDED_DIRS.has(dirent.name)) continue;
+      // Skip hidden files/dirs (starting with .)
+      if (dirent.name.startsWith('.')) continue;
+
+      const fullPath = path.join(resolved, dirent.name);
+      const relativePath = path.relative(cwd, fullPath);
+
+      let size = null;
+      if (!dirent.isDirectory()) {
+        try {
+          const stats = await fsp.stat(fullPath);
+          size = stats.size;
+        } catch { /* skip unreadable files */ }
+      }
+
+      entries.push({
+        name: dirent.name,
+        relativePath,
+        isDirectory: dirent.isDirectory(),
+        size
+      });
+    }
+
+    // Sort: directories first, then files, alphabetical within each group
+    entries.sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json({ path: reqPath, entries });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'Directory not found' });
+    if (err.code === 'ENOTDIR') return res.status(400).json({ error: 'Not a directory' });
+    console.error('[FileAPI] readdir error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/file - Read file content
+app.get('/api/file', async (req, res) => {
+  if (!authenticateRequest(req, res)) return;
+  if (!checkFileApiRate(req, res)) return;
+
+  const { sessionId, path: reqPath } = req.query;
+  if (!validateSessionId(sessionId, res)) return;
+  if (!reqPath) return res.status(400).json({ error: 'path required' });
+
+  const cwd = await resolveSessionCwd(sessionId, res);
+  if (!cwd) return;
+
+  const resolved = await validatePath(cwd, reqPath, res);
+  if (!resolved) return;
+
+  try {
+    const stats = await fsp.stat(resolved);
+
+    // Reject files over 1MB
+    if (stats.size > MAX_READ_SIZE) {
+      return res.json({ path: reqPath, error: 'File too large', size: stats.size });
+    }
+
+    // Read raw bytes for binary detection
+    const buffer = await fsp.readFile(resolved);
+    let content;
+    try {
+      // TextDecoder with fatal: true throws on invalid UTF-8
+      const decoder = new TextDecoder('utf-8', { fatal: true });
+      content = decoder.decode(buffer);
+    } catch {
+      return res.json({ path: reqPath, error: 'Binary file', size: stats.size });
+    }
+
+    const ext = path.extname(resolved).toLowerCase();
+    const language = EXTENSION_TO_LANGUAGE[ext] || null;
+
+    res.json({ path: reqPath, content, language, size: stats.size });
+  } catch (err) {
+    if (err.code === 'ENOENT') return res.status(404).json({ error: 'File not found' });
+    if (err.code === 'EISDIR') return res.status(400).json({ error: 'Path is a directory' });
+    console.error('[FileAPI] readFile error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ============================================

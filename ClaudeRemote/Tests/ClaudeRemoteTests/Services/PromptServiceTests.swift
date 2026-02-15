@@ -1064,6 +1064,175 @@ struct PromptServiceTests {
         }
     }
 
+    // MARK: - Permission Resolved
+
+    @MainActor
+    @Test("handlePermissionResolved removes matching prompt from queue")
+    func permissionResolvedRemovesMatching() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 2)
+
+        service.handlePermissionResolved(toolUseId: "tu-1")
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-2")
+    }
+
+    @MainActor
+    @Test("handlePermissionResolved with non-matching toolUseId does not remove anything")
+    func permissionResolvedNonMatching() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1)
+
+        service.handlePermissionResolved(toolUseId: "tu-unknown")
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-1")
+    }
+
+    @MainActor
+    @Test("handlePermissionResolved with non-matching toolUseId does not remove pending buffer items")
+    func permissionResolvedDoesNotRemovePending() async throws {
+        let (service, _) = Self.makeSUT()
+        // Add two permissions — tu-1 goes to pending buffer first
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+
+        // Before coalesce flush, resolve a non-existent toolUseId
+        // This should NOT remove tu-1 or tu-2 from pending (the old fallback bug)
+        service.handlePermissionResolved(toolUseId: "tu-nonexistent")
+
+        // Wait for coalesce flush
+        try await Task.sleep(for: .milliseconds(700))
+
+        // Both should still be in the queue
+        #expect(service.promptQueue.count == 2)
+        #expect(service.promptQueue.contains { $0.toolUseId == "tu-1" })
+        #expect(service.promptQueue.contains { $0.toolUseId == "tu-2" })
+    }
+
+    // MARK: - Fallback Auto-Removal
+
+    @MainActor
+    @Test("stale permissions auto-removed after 30+ messages")
+    func fallbackRemovalAfterThirtyMessages() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1)
+
+        // Send 30 assistant messages to trigger fallback removal
+        for i in 0..<30 {
+            service.handleClaudeOutput(ClaudeOutputData(type: "assistant", content: "msg \(i)"))
+        }
+        #expect(service.promptQueue.isEmpty, "Stale permission should be auto-removed after 30 messages")
+    }
+
+    @MainActor
+    @Test("questions are NOT auto-dismissed by fallback removal")
+    func fallbackDoesNotRemoveQuestions() {
+        let (service, _) = Self.makeSUT()
+        let questions = [QuestionData(question: "Pick?")]
+        service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
+        #expect(service.promptQueue.count == 1)
+
+        // Send 30+ messages
+        for i in 0..<32 {
+            service.handleClaudeOutput(ClaudeOutputData(type: "assistant", content: "msg \(i)"))
+        }
+        #expect(service.promptQueue.count == 1, "Questions must never be auto-removed")
+        if case .question = service.currentPrompt?.kind {
+            // Expected
+        } else {
+            Issue.record("Expected question to survive fallback removal")
+        }
+    }
+
+    // MARK: - Dedup (handlePermissionRequest)
+
+    @MainActor
+    @Test("recoverFromHistory skips permissions with merged resultContent")
+    func recoverSkipsMergedResults() {
+        let (service, _) = Self.makeSUT()
+        // Permission with merged tool_result (resultContent set by mergeOrAppendToolResult)
+        var answered = Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1")
+        answered.resultContent = "command output"
+        // Permission without result — genuinely unanswered
+        let unanswered = Message(type: .permissionRequest, tool: "Write", toolUseId: "tu-2")
+
+        service.recoverFromHistory([answered, unanswered], sessionStatus: .waiting)
+
+        // Only the unanswered permission should be recovered
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-2")
+    }
+
+    @MainActor
+    @Test("adding permission with same toolUseId replaces existing from history recovery")
+    func dedupReplacesExisting() async throws {
+        let (service, _) = Self.makeSUT()
+        // Simulate history recovery adding a stale permission
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.count == 1)
+        #expect(service.currentPrompt?.isStale == true)
+
+        // Now a fresh permission_request arrives with the same toolUseId
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+
+        // Should have exactly 1 prompt (deduped), and it should be fresh (not stale)
+        #expect(service.promptQueue.count == 1)
+        #expect(service.currentPrompt?.isStale == false)
+    }
+
+    @MainActor
+    @Test("allowed tool auto-injects 'always' instead of showing prompt")
+    func allowedToolAutoInjects() async throws {
+        let (service, actions) = Self.makeSUT()
+
+        // Grant Bash via claudeState permissions
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Bash"], sessionGranted: nil, mode: nil))
+
+        // Receive a permission_request for Bash (e.g., subagent prompt after approveAll)
+        let data = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-auto-1")
+        service.handleClaudeOutput(data)
+
+        // Should NOT show a prompt
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(service.promptQueue.isEmpty)
+        #expect(service.currentPrompt == nil)
+
+        // Should have auto-injected "always" with the correct toolUseId
+        #expect(actions.actions.count == 1)
+        if case .inject(let cmd, let sid, let tuId) = actions.actions[0] {
+            #expect(cmd == "always")
+            #expect(sid == "test-session")
+            #expect(tuId == "tu-auto-1")
+        } else {
+            Issue.record("Expected inject action")
+        }
+    }
+
+    @MainActor
+    @Test("allowed tool does not auto-inject without sessionId")
+    func allowedToolNoInjectWithoutSession() async throws {
+        let (service, actions) = Self.makeSUT()
+        service.sessionId = nil // No session
+
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Bash"], sessionGranted: nil, mode: nil))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(service.promptQueue.isEmpty) // Still skipped
+        #expect(actions.actions.isEmpty) // No inject sent
+    }
+
     @MainActor
     @Test("planExit prompt can queue alongside permission prompts")
     func planExitQueuesWithPermissions() async throws {

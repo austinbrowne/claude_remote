@@ -30,6 +30,7 @@ public enum ServerMessage: Sendable {
     case error(code: String, message: String, details: [String: AnyCodableValue]?)
     case pong(timestamp: Int)
     case claudeState(sessionId: String?, state: ClaudeState)
+    case permissionResolved(sessionId: String?, toolUseId: String)
     case sessionReplaced(oldSessionId: String, newSessionId: String, session: Session?)
     case clearAndResumeProgress(sessionId: String?, step: String, message: String)
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
@@ -242,6 +243,8 @@ extension ServerMessage: Decodable {
         case clientId, watchingSessions, settings, state
         // clear_and_resume / session_replaced
         case oldSessionId, newSessionId, step
+        // permission_resolved
+        case toolUseId
         // question
         case questions
         // permission
@@ -396,6 +399,11 @@ extension ServerMessage: Decodable {
             let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
             let claudeState = try container.decode(ClaudeState.self, forKey: .state)
             self = .claudeState(sessionId: sessionId, state: claudeState)
+
+        case "permission_resolved":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let toolUseId = try container.decode(String.self, forKey: .toolUseId)
+            self = .permissionResolved(sessionId: sessionId, toolUseId: toolUseId)
 
         case "session_replaced":
             let oldSessionId = try container.decode(String.self, forKey: .oldSessionId)

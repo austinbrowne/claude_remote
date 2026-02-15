@@ -24,6 +24,7 @@ struct MainView: View {
     @State private var selectedSessionId: String?
     @State private var showSettings = false
     @State private var showTaskList = false
+    @State private var showDocumentViewer = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
@@ -53,6 +54,9 @@ struct MainView: View {
         }
         .sheet(isPresented: $showTaskList) {
             TaskListSheet()
+        }
+        .sheet(isPresented: $showDocumentViewer) {
+            DocumentViewerSheet()
         }
         .overlay(alignment: .top) {
             ToastOverlay(toast: state.currentToast) {
@@ -170,6 +174,9 @@ struct MainView: View {
             #endif
             ToolbarItem(placement: .confirmationAction) {
                 HStack(spacing: 8) {
+                    if state.currentSessionId != nil {
+                        documentViewerButton
+                    }
                     if !state.tasks.isEmpty {
                         taskListButton
                     }
@@ -201,26 +208,63 @@ struct MainView: View {
                 .font(.subheadline)
                 .fontWeight(.semibold)
 
-            if let session = currentSession {
+            if currentSession != nil {
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(session.status.color)
+                        .fill(liveStatusColor)
                         .frame(width: 6, height: 6)
 
-                    if let branch = session.branch {
-                        Text(branch)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(session.status.rawValue)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(liveStatusText)
+                        .font(.caption2)
+                        .foregroundStyle(liveStatusTextColor)
                 }
+                .animation(.easeInOut(duration: 0.3), value: state.sessionStatus)
             }
         }
     }
+
+    /// Live session status color (uses state.sessionStatus, not the static session.status)
+    private var liveStatusColor: Color {
+        switch state.sessionStatus {
+        case .processing, .active: .blue
+        case .waiting: .orange
+        case .idle, .unknown: .gray
+        }
+    }
+
+    /// Live session status text — shows status when active, falls back to branch
+    private var liveStatusText: String {
+        switch state.sessionStatus {
+        case .processing, .active:
+            if let activity = state.currentActivity {
+                return activity
+            }
+            return "Processing"
+        case .waiting:
+            return "Waiting for input"
+        case .idle, .unknown:
+            return currentSession?.branch ?? state.sessionStatus.rawValue
+        }
+    }
+
+    /// Text color for the live status
+    private var liveStatusTextColor: Color {
+        switch state.sessionStatus {
+        case .processing, .active: .blue
+        case .waiting: .orange
+        case .idle, .unknown: .secondary
+        }
+    }
     #endif
+
+    private var documentViewerButton: some View {
+        Button {
+            showDocumentViewer = true
+        } label: {
+            Image(systemName: "doc.text")
+                .font(.caption)
+        }
+    }
 
     private var taskListButton: some View {
         Button {

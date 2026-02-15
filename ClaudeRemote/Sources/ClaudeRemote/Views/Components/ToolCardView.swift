@@ -6,6 +6,7 @@ struct ToolCardView: View {
     let message: Message
 
     @State private var isExpanded = false
+    @State private var showFullResult = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -25,11 +26,11 @@ struct ToolCardView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .background(Color.secondaryBackground.opacity(0.5))
+        .background(message.resultIsError ? Color.red.opacity(0.06) : Color.secondaryBackground.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(borderColor.opacity(0.3), lineWidth: 1)
+                .strokeBorder(borderColor.opacity(message.resultIsError ? 0.5 : 0.3), lineWidth: 1)
         )
     }
 
@@ -90,24 +91,67 @@ struct ToolCardView: View {
 
             // Standalone tool_result (not merged into a tool_use)
             if message.type == .toolResult, let content = message.content, !content.isEmpty {
-                CodeBlockView(code: content, language: message.language)
+                truncatedCodeBlock(content, isError: message.resultIsError)
             }
 
             // Merged tool result (tool_use with result attached)
             if let result = message.resultContent, !result.isEmpty {
                 Divider()
                     .padding(.vertical, 2)
-                CodeBlockView(code: result, language: message.language)
-                    .overlay(
-                        message.resultIsError
-                            ? RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
-                            : nil
-                    )
+
+                if message.resultIsError {
+                    // C6: Error label
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                        Text("Error")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                truncatedCodeBlock(result, isError: message.resultIsError)
             }
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 10)
+    }
+
+    /// Renders a code block with smart truncation: first 20 lines + "N more" + last 5 lines
+    @ViewBuilder
+    private func truncatedCodeBlock(_ content: String, isError: Bool) -> some View {
+        let truncation = ToolCardHelpers.truncateResult(content)
+
+        VStack(alignment: .leading, spacing: 0) {
+            if showFullResult || !truncation.isTruncated {
+                CodeBlockView(code: content, language: message.language)
+            } else {
+                CodeBlockView(code: truncation.displayText, language: message.language)
+            }
+
+            if truncation.isTruncated {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showFullResult.toggle()
+                    }
+                } label: {
+                    Text(showFullResult ? "Show less" : "\(truncation.hiddenCount) more lines")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .overlay(
+            isError
+                ? RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                : nil
+        )
     }
 
     // MARK: - Helpers (delegate to ToolCardHelpers for testability)
@@ -186,6 +230,29 @@ enum ToolCardHelpers {
         case "Grep": nil
         default: "json"
         }
+    }
+
+    /// Result of smart truncation
+    struct TruncationResult {
+        let displayText: String
+        let isTruncated: Bool
+        let hiddenCount: Int
+    }
+
+    /// Smart truncation: first 20 lines + last 5 lines, hiding the middle
+    static func truncateResult(_ content: String, headLines: Int = 20, tailLines: Int = 5) -> TruncationResult {
+        let lines = content.components(separatedBy: "\n")
+        let threshold = headLines + tailLines + 3 // don't truncate if barely over
+        guard lines.count > threshold else {
+            return TruncationResult(displayText: content, isTruncated: false, hiddenCount: 0)
+        }
+
+        let head = lines.prefix(headLines).joined(separator: "\n")
+        let tail = lines.suffix(tailLines).joined(separator: "\n")
+        let hidden = lines.count - headLines - tailLines
+        let display = head + "\n...\n" + tail
+
+        return TruncationResult(displayText: display, isTruncated: true, hiddenCount: hidden)
     }
 
     static func formatToolInput(_ input: [String: AnyCodableValue], tool: String?) -> String {
