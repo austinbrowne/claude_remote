@@ -459,8 +459,11 @@ function handleMessage(msg) {
       break;
 
     case 'subagent_starting': {
+      // Use memberName as display for teammates, fall back to description
+      const displayDesc = msg.memberName || msg.description;
       // Create persistent inline activity card (matches iOS SubagentActivityCard)
-      const card = createSubagentActivityCard(msg.description, msg.agentType);
+      const card = createSubagentActivityCard(displayDesc, msg.agentType);
+      if (msg.teamName) card.classList.add('teammate');
       const outputArea = document.getElementById('outputArea');
       outputArea.appendChild(card);
       outputArea.scrollTop = outputArea.scrollHeight;
@@ -493,17 +496,27 @@ function handleMessage(msg) {
         pendingSubagentCards.splice(pendingIdx, 1);
       }
 
+      const teamName = msg.teamName || null;
+      const memberName = msg.memberName || null;
+
       activeSubagents.set(msg.agentId, {
         status: 'running',
         startTime: msg.timestamp,
-        description: msg.description || info.description || msg.agentId.substring(0, 8),
+        description: memberName || msg.description || info.description || msg.agentId.substring(0, 8),
         agentType: msg.agentType || info.type || 'general',
+        teamName,
+        memberName,
         currentTool: null,
         inputTokens: 0,
         outputTokens: 0,
         lastActivity: Date.now(),
         cardElement: matchedCard
       });
+
+      // Track active team name from first teammate
+      if (teamName && !activeTeamName) {
+        activeTeamName = teamName;
+      }
       pendingSubagentInfo = null;
       updateSubagentIndicator();
       break;
@@ -544,6 +557,57 @@ function handleMessage(msg) {
       updateSubagentIndicator();
       break;
     }
+
+    case 'team_message':
+      // Inter-teammate message: { sender, recipient, content, type, timestamp }
+      teamMessages.push({
+        sender: msg.sender || 'unknown',
+        recipient: msg.recipient || null,
+        content: msg.content || '',
+        msgType: msg.msgType || 'message',
+        timestamp: msg.timestamp || new Date().toISOString()
+      });
+      // Cap at MAX_TEAM_MESSAGES
+      while (teamMessages.length > MAX_TEAM_MESSAGES) {
+        teamMessages.shift();
+      }
+      break;
+
+    case 'claude_state':
+      // Sync team state from server snapshot
+      if (msg.state) {
+        // Sync subagent team metadata
+        if (msg.state.subagents) {
+          for (const [id, info] of Object.entries(msg.state.subagents)) {
+            const existing = activeSubagents.get(id);
+            if (existing && info.teamName) {
+              existing.teamName = info.teamName;
+              existing.memberName = info.memberName;
+            }
+          }
+        }
+        // Sync team data
+        if (msg.state.team) {
+          activeTeamName = msg.state.team.name || null;
+          // Sync recent team messages
+          if (msg.state.team.recentMessages) {
+            // Only add messages we don't already have (by timestamp)
+            const existingTimestamps = new Set(teamMessages.map(m => m.timestamp));
+            for (const m of msg.state.team.recentMessages) {
+              if (!existingTimestamps.has(m.timestamp)) {
+                teamMessages.push(m);
+              }
+            }
+            while (teamMessages.length > MAX_TEAM_MESSAGES) {
+              teamMessages.shift();
+            }
+          }
+        } else {
+          activeTeamName = null;
+        }
+        updateSubagentIndicator();
+      }
+      break;
 
     case 'inject_result':
       if (pendingInjectResolve) {

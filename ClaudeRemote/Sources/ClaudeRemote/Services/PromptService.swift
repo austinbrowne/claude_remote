@@ -272,17 +272,14 @@ public final class PromptService {
         dismissHead()
     }
 
-    /// Respond by selecting the "Other" option, then injecting freeform text.
-    /// Claude Code's ink-based selector requires arrow-key navigation to select "Other"
-    /// (the last item, at `optionCount`), followed by text injection after a brief delay.
+    /// Respond with freeform "Other" text. Uses direct `inject` (typed text) rather
+    /// than `selectOption` + `inject`, matching the web client's approach. Claude Code's
+    /// AskUserQuestion accepts typed text directly — the ink Select arrow-key mechanism
+    /// is not needed for freeform responses.
     public func respondOther(optionCount: Int, text: String) {
         guard let sid = sessionId else { return }
-        sendHandler?(.selectOption(index: optionCount, sessionId: sid))
+        sendHandler?(.inject(command: text, sessionId: sid))
         dismissHead()
-        Task { @MainActor [sendHandler] in
-            try? await Task.sleep(for: .milliseconds(300))
-            sendHandler?(.inject(command: text, sessionId: sid))
-        }
     }
 
     /// Respond by selecting a pre-defined option by its index.

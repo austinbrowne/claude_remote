@@ -394,7 +394,7 @@ struct AppCoordinatorTests {
         coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
         #expect(state.pendingSubagentMessages.count == 1)
         // Now correlate via subagent_start
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil))
         #expect(state.activeSubagents["a1"] != nil)
         #expect(state.activeSubagents["a1"]?.description == "Research")
         #expect(state.activeSubagents["a1"]?.agentType == "Explore")
@@ -423,7 +423,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         // Set up: starting -> start -> stop
         coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil))
         #expect(state.messages[0].subagentStatus == "running")
         coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
         #expect(state.activeSubagents["a1"]?.status == "completed")
@@ -444,9 +444,9 @@ struct AppCoordinatorTests {
         #expect(state.messages.count == 3)
         #expect(state.pendingSubagentMessages.count == 3)
         // Correlate in different order
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b2", sessionId: nil, description: "Code analysis", agentType: "Explore"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b1", sessionId: nil, description: "Security review", agentType: "Plan"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b3", sessionId: nil, description: "Performance check", agentType: "Bash"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b3", sessionId: nil, description: "Performance check", agentType: "Bash", teamName: nil, memberName: nil))
         // All should be correlated
         #expect(state.pendingSubagentMessages.isEmpty)
         #expect(state.subagentMessageMap["b1"] == 0)
@@ -463,7 +463,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // No subagentStarting was sent first
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Mystery agent", agentType: "general"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Mystery agent", agentType: "general", teamName: nil, memberName: nil))
         #expect(state.activeSubagents["a1"] != nil)
         #expect(state.activeSubagents["a1"]?.description == "Mystery agent")
         // No message map entry since no pending message matched
@@ -477,7 +477,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         // Full lifecycle: starting -> start -> tool
         coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil))
         coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil))
         #expect(state.activeSubagents["a1"]?.currentTool == "Read")
         #expect(state.messages[0].subagentCurrentTool == "Read")
@@ -490,7 +490,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil))
         #expect(!state.subagentMessageMap.isEmpty)
         // Switch session
         state.beginSessionSwitch(to: "new-session")
@@ -594,8 +594,8 @@ struct AppCoordinatorTests {
         #expect(state.pendingSubagentMessages.count == 2)
 
         // Both correlate
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Security review", agentType: "Plan"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a2", sessionId: nil, description: "Code analysis", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil))
         #expect(state.messages[0].subagentStatus == "running")
         #expect(state.messages[0].subagentAgentId == "a1")
         #expect(state.messages[1].subagentStatus == "running")
@@ -665,7 +665,7 @@ struct AppCoordinatorTests {
         let data = ClaudeOutputData(type: "subagent_starting", content: "Research code", tool: "Explore")
         coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
         // subagent_start correlates
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research code", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research code", agentType: "Explore", teamName: nil, memberName: nil))
         #expect(state.subagentMessageMap["a1"] == 0)
         #expect(state.messages[0].subagentStatus == "running")
         #expect(state.messages[0].subagentAgentId == "a1")

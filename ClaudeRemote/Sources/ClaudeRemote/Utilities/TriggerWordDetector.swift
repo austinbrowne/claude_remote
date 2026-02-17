@@ -4,9 +4,10 @@ import Foundation
 /// Extracts trigger word matching and command parsing from SpeechService for testability.
 public enum TriggerWordDetector {
 
-    /// Variants of "Titus" that SFSpeechRecognizer may produce
+    /// Variants of "Titus" that SFSpeechRecognizer may produce.
+    /// Excludes common English words ("tightest", "tight us") to prevent false positives.
     public static let triggerVariants = [
-        "titus", "tightest", "tidus", "tidas", "titis", "tight us"
+        "titus", "tidus", "tidas", "titis"
     ]
 
     /// Check if the transcript contains a trigger word. Returns the text

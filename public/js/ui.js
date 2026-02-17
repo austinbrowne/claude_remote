@@ -72,29 +72,90 @@ function showSubagentSheet() {
   const list = document.getElementById('subagentSheetList');
   list.innerHTML = '';
 
+  // Update sheet title if team is active
+  const sheetTitle = document.querySelector('#subagentSheet .subagent-sheet-title');
+  if (sheetTitle) {
+    sheetTitle.textContent = activeTeamName ? `Team: ${activeTeamName}` : 'Active Agents';
+  }
+
   if (activeSubagents.size === 0) {
     list.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No active subagents</div>';
   } else {
+    // Separate teammates from regular subagents
+    const teammates = [];
+    const regularAgents = [];
     activeSubagents.forEach((agent, id) => {
-      const statusClass = agent.status === 'waiting' ? 'waiting' :
-                          agent.status === 'complete' ? 'complete' : 'running';
-      const toolText = agent.currentTool || 'idle';
-      const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
-
-      const item = document.createElement('div');
-      item.className = 'subagent-sheet-item';
-      item.innerHTML = `
-        <div class="subagent-sheet-item-header">
-          <span class="subagent-sheet-status ${statusClass}"></span>
-          <span class="subagent-sheet-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
-        </div>
-        <div class="subagent-sheet-meta">
-          <span class="subagent-sheet-tool">${escapeHtml(toolText)}</span>
-          <span>${tokens}</span>
-        </div>
-      `;
-      list.appendChild(item);
+      if (agent.teamName) {
+        teammates.push({ agent, id });
+      } else {
+        regularAgents.push({ agent, id });
+      }
     });
+
+    // Render teammates first (if any)
+    if (teammates.length > 0) {
+      for (const { agent, id } of teammates) {
+        const statusClass = agent.status === 'waiting' ? 'waiting' :
+                            agent.status === 'complete' ? 'complete' : 'running';
+        const toolText = agent.currentTool || 'idle';
+        const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
+        const displayName = agent.memberName || agent.description || id.substring(0, 8);
+
+        // Cross-reference tasks to find task ownership
+        let ownedTask = null;
+        tasks.forEach((task) => {
+          if (task.owner === agent.memberName && task.status !== 'completed') {
+            ownedTask = task;
+          }
+        });
+
+        const item = document.createElement('div');
+        item.className = 'subagent-sheet-item teammate';
+        item.innerHTML = `
+          <div class="subagent-sheet-item-header">
+            <span class="subagent-sheet-status ${statusClass}"></span>
+            <span class="subagent-sheet-name">${escapeHtml(displayName)}</span>
+          </div>
+          ${ownedTask ? `<div class="subagent-sheet-task">${escapeHtml(ownedTask.subject || '')}</div>` : ''}
+          <div class="subagent-sheet-meta">
+            <span class="subagent-sheet-tool">${escapeHtml(toolText)}</span>
+            <span>${tokens}</span>
+          </div>
+        `;
+        list.appendChild(item);
+      }
+    }
+
+    // Render regular subagents
+    if (regularAgents.length > 0) {
+      if (teammates.length > 0) {
+        // Add separator between teammates and regular subagents
+        const separator = document.createElement('div');
+        separator.className = 'subagent-sheet-separator';
+        separator.textContent = 'Other Agents';
+        list.appendChild(separator);
+      }
+      for (const { agent, id } of regularAgents) {
+        const statusClass = agent.status === 'waiting' ? 'waiting' :
+                            agent.status === 'complete' ? 'complete' : 'running';
+        const toolText = agent.currentTool || 'idle';
+        const tokens = `${formatTokens(agent.inputTokens || 0)} in / ${formatTokens(agent.outputTokens || 0)} out`;
+
+        const item = document.createElement('div');
+        item.className = 'subagent-sheet-item';
+        item.innerHTML = `
+          <div class="subagent-sheet-item-header">
+            <span class="subagent-sheet-status ${statusClass}"></span>
+            <span class="subagent-sheet-name">${escapeHtml(agent.description || id.substring(0, 8))}</span>
+          </div>
+          <div class="subagent-sheet-meta">
+            <span class="subagent-sheet-tool">${escapeHtml(toolText)}</span>
+            <span>${tokens}</span>
+          </div>
+        `;
+        list.appendChild(item);
+      }
+    }
   }
 
   document.getElementById('subagentSheetOverlay').classList.add('show');
@@ -736,16 +797,30 @@ function updateSubagentCardTool(card, tool) {
 
 function updateSubagentIndicator() {
   const indicator = document.getElementById('subagentIndicator');
-  const countEl = indicator.querySelector('.subagent-count');
+  const badgeEl = indicator.querySelector('.subagent-badge');
 
   const count = activeSubagents.size;
   if (count === 0) {
     indicator.classList.add('hidden');
+    activeTeamName = null;
     return;
   }
 
   indicator.classList.remove('hidden');
-  countEl.textContent = count;
+
+  // Show team name in badge when a team is active
+  let hasTeammates = false;
+  if (activeTeamName) {
+    activeSubagents.forEach(agent => { if (agent.teamName) hasTeammates = true; });
+  }
+
+  if (hasTeammates) {
+    badgeEl.innerHTML = `<span class="subagent-count">${count}</span> ${escapeHtml(activeTeamName)}`;
+    indicator.classList.add('team-active');
+  } else {
+    badgeEl.innerHTML = `<span class="subagent-count">${count}</span>`;
+    indicator.classList.remove('team-active');
+  }
 }
 
 function handleSubagentOutput(agentId, data) {

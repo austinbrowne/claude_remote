@@ -13,10 +13,10 @@ struct TriggerWordDetectorTests {
         #expect(result == "show me the logs")
     }
 
-    @Test("detects 'tightest' variant and extracts command")
-    func tightestVariant() {
+    @Test("'tightest' no longer triggers (removed — false positive)")
+    func tightestRemoved() {
         let result = TriggerWordDetector.extractCommandAfterTrigger("tightest check the status")
-        #expect(result == "check the status")
+        #expect(result == nil)
     }
 
     @Test("detects 'tidus' variant and extracts command")
@@ -37,10 +37,10 @@ struct TriggerWordDetectorTests {
         #expect(result == "deploy now")
     }
 
-    @Test("detects 'tight us' variant and extracts command")
-    func tightUsVariant() {
+    @Test("'tight us' no longer triggers (removed — false positive)")
+    func tightUsRemoved() {
         let result = TriggerWordDetector.extractCommandAfterTrigger("tight us build the project")
-        #expect(result == "build the project")
+        #expect(result == nil)
     }
 
     @Test("returns empty string when trigger is at end of text")

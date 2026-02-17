@@ -79,6 +79,8 @@ function switchSession() {
   resetSessionTokens();
   clearTasks();
   activeSubagents.clear();
+  activeTeamName = null;
+  teamMessages.length = 0;
   // Clear pending subagent card timeouts
   pendingSubagentCards.forEach(p => clearTimeout(p.timeout));
   pendingSubagentCards.length = 0;
@@ -171,6 +173,8 @@ function clearDisplay() {
   hidePromptCard();
   clearTasks();
   activeSubagents.clear();
+  activeTeamName = null;
+  teamMessages.length = 0;
   updateSubagentIndicator();
   document.getElementById('statusBar')?.classList.add('hidden');
 
@@ -347,6 +351,8 @@ function refreshSessions() {
     resetSessionTokens();
     clearTasks();
     activeSubagents.clear();
+    activeTeamName = null;
+    teamMessages.length = 0;
     updateSubagentIndicator();
     document.getElementById('outputArea').innerHTML = '';
     document.getElementById('statusBar')?.classList.add('hidden');

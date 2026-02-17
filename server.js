@@ -554,12 +554,84 @@ async function watchSession(sessionId) {
               // Broadcast task messages as top-level so iOS decodes them as
               // .taskCreate / .taskUpdate / .taskList (not wrapped in claude_output)
               broadcastToClients(Object.assign({}, item, { sessionId }));
+            } else if (item.type === 'team_create') {
+              const sd = activeSessions.get(sessionId);
+              if (sd) {
+                // Clear any previous team before setting new one
+                sd.activeTeam = {
+                  name: item.teamName,
+                  members: new Map(),
+                  createdAt: item.timestamp
+                };
+                sd.teamMessages = [];
+              }
+              broadcastToClients({
+                type: 'team_create',
+                sessionId,
+                teamName: item.teamName,
+                timestamp: item.timestamp
+              });
+            } else if (item.type === 'team_delete') {
+              const sd = activeSessions.get(sessionId);
+              if (sd) {
+                sd.activeTeam = null;
+                sd.teamMessages = [];
+              }
+              broadcastToClients({
+                type: 'team_delete',
+                sessionId,
+                timestamp: item.timestamp
+              });
+            } else if (item.type === 'team_message') {
+              const sd = activeSessions.get(sessionId);
+              if (sd) {
+                const msg = {
+                  sender: item.sender,
+                  recipient: item.recipient,
+                  content: item.content,
+                  messageType: item.messageType,
+                  timestamp: item.timestamp
+                };
+                sd.teamMessages.push(msg);
+                // Cap at 50 messages
+                if (sd.teamMessages.length > 50) {
+                  sd.teamMessages = sd.teamMessages.slice(-50);
+                }
+              }
+              broadcastToClients({
+                type: 'team_message',
+                sessionId,
+                sender: item.sender,
+                recipient: item.recipient,
+                content: item.content,
+                messageType: item.messageType,
+                timestamp: item.timestamp
+              });
             } else {
               broadcastToClients({
                 type: 'claude_output',
                 sessionId: sessionId,
                 data: item
               });
+            }
+          }
+
+          // Milestone detection — run after broadcast loop
+          {
+            const sd = activeSessions.get(sessionId);
+            if (sd) {
+              for (const item of filteredItems) {
+                const milestone = detectMilestone(item, sd);
+                if (milestone) {
+                  broadcastToClients({
+                    type: 'session_milestone',
+                    sessionId: sessionId,
+                    text: milestone.text,
+                    timestamp: milestone.timestamp,
+                    toolCount: milestone.toolCount
+                  });
+                }
+              }
             }
           }
 
@@ -644,7 +716,11 @@ async function watchSession(sessionId) {
     sessionGranted: new Set(),    // Tools granted "always" during this session
     permissionToolMap: new Map(), // toolUseId -> {tool, timestamp} for accurate "always" tracking
     tasks: new Map(),             // Accumulated task state: taskId -> {id, subject, status, description, activeForm}
-    pendingTaskListIds: new Set() // tool_use IDs for TaskList calls — gates parseTaskListResult to only run on TaskList results
+    pendingTaskListIds: new Set(), // tool_use IDs for TaskList calls — gates parseTaskListResult to only run on TaskList results
+    milestones: [],               // Ring buffer of milestone objects (max 20)
+    toolBurstCount: 0,            // Running count of consecutive tool calls for milestone detection
+    activeTeam: null,             // Active team: { name, members: Map, createdAt }
+    teamMessages: []              // Inter-teammate messages (capped at 50)
   });
 
   // Poll /tmp/claude-ctx-{sessionId} for context percentage updates
@@ -789,11 +865,15 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   // Try to correlate with pending subagent description (within 10 seconds)
   let description = null;
   let agentType = null;
+  let teamName = null;
+  let memberName = null;
   const now = Date.now();
   for (const [timestamp, info] of pendingSubagentDescriptions) {
     if (now - timestamp < 10000) { // Within 10 seconds
       description = info.description;
       agentType = info.type;
+      teamName = info.teamName || null;
+      memberName = info.memberName || null;
       pendingSubagentDescriptions.delete(timestamp);
       break;
     } else if (now - timestamp > 30000) {
@@ -809,18 +889,32 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
     startTime: Date.now(),
     inputTokens: 0,
     outputTokens: 0,
-    currentTool: null
+    currentTool: null,
+    teamName,
+    memberName
   };
   sessionData.subagentInfo.set(agentId, subagentData);
 
-  broadcastToClients({
+  // If this subagent is a teammate, register it in the active team
+  if (teamName && sessionData.activeTeam) {
+    sessionData.activeTeam.members.set(memberName || agentId, {
+      agentId,
+      name: memberName || agentId,
+      startTime: subagentData.startTime
+    });
+  }
+
+  const broadcastMsg = {
     type: 'subagent_start',
     sessionId,
     agentId,
     description: subagentData.description,
     agentType: subagentData.agentType,
     timestamp: subagentData.startTime
-  });
+  };
+  if (teamName) broadcastMsg.teamName = teamName;
+  if (memberName) broadcastMsg.memberName = memberName;
+  broadcastToClients(broadcastMsg);
 
   // Set up file watcher
   const watcher = chokidar.watch(logFile, {
@@ -829,6 +923,11 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
     interval: 500,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 }
   });
+
+  // Deferred permission broadcast: hold permission_requests for one poll cycle
+  // to let auto-approved tool_results arrive in the next batch. This prevents
+  // flooding clients with stale permission prompts from bypassPermissions agents.
+  const pendingPermissions = new Map(); // toolUseId -> item
 
   // Handler for processing file content
   // Lock prevents concurrent reads (immediate read + chokidar change can race)
@@ -883,23 +982,50 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
           }
         }
 
-        // Suppress permission_requests that have a matching tool_result in the
-        // same batch — these were auto-approved (Always Allow) and need no user input
+        // Collect resolved toolUseIds from this batch (same-batch filter)
         const resolvedToolUseIds = new Set(
           allItems
             .filter(i => i.type === 'tool_result' && i.toolUseId)
             .map(i => i.toolUseId)
         );
 
+        // Resolve any deferred permissions from the PREVIOUS batch that now have
+        // a tool_result — these were auto-approved between poll cycles
+        for (const [toolUseId] of pendingPermissions) {
+          if (resolvedToolUseIds.has(toolUseId)) {
+            pendingPermissions.delete(toolUseId);
+          }
+        }
+
+        // Broadcast any deferred permissions that survived — they're genuinely
+        // waiting for user input (no tool_result after a full poll cycle)
+        for (const [toolUseId, deferredItem] of pendingPermissions) {
+          console.log(`[Subagent ${agentId}] deferred ${deferredItem.type} (confirmed pending)`);
+          broadcastToClients({
+            type: 'subagent_output',
+            sessionId,
+            agentId,
+            data: deferredItem
+          });
+          pendingPermissions.delete(toolUseId);
+        }
+
         for (const item of allItems) {
+          // Same-batch auto-approved — skip entirely
           if (item.type === 'permission_request' && item.toolUseId && resolvedToolUseIds.has(item.toolUseId)) {
-            continue; // Auto-approved, skip
+            continue;
           }
 
-          // Only broadcast subagent_output for actionable types that need user interaction.
-          // Skip tool, status_update, tool_result, assistant, token_usage — the client
-          // already ignores these and they cause unnecessary re-renders.
-          if (item.type === 'permission_request' || item.type === 'ask_user_question') {
+          // Permission requests: defer broadcast to next poll cycle to catch
+          // cross-batch auto-approvals (e.g. bypassPermissions agents where
+          // tool_result arrives milliseconds after permission_request)
+          if (item.type === 'permission_request' && item.toolUseId) {
+            pendingPermissions.set(item.toolUseId, item);
+            continue;
+          }
+
+          // ask_user_question: broadcast immediately (not permission-gated)
+          if (item.type === 'ask_user_question') {
             console.log(`[Subagent ${agentId}] ${item.type}`);
             broadcastToClients({
               type: 'subagent_output',
@@ -915,6 +1041,36 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
               type: 'permission_resolved',
               sessionId,
               toolUseId: item.toolUseId
+            });
+          }
+
+          // Capture team messages from teammate subagents
+          if (item.type === 'team_message') {
+            const sd = activeSessions.get(sessionId);
+            if (sd) {
+              // Use the teammate's memberName as sender instead of generic 'lead'
+              const info = sd.subagentInfo.get(agentId);
+              const senderName = info?.memberName || agentId.substring(0, 8);
+              const msg = {
+                sender: senderName,
+                recipient: item.recipient,
+                content: item.content,
+                messageType: item.messageType,
+                timestamp: item.timestamp
+              };
+              sd.teamMessages.push(msg);
+              if (sd.teamMessages.length > 50) {
+                sd.teamMessages = sd.teamMessages.slice(-50);
+              }
+            }
+            broadcastToClients({
+              type: 'team_message',
+              sessionId,
+              sender: activeSessions.get(sessionId)?.subagentInfo.get(agentId)?.memberName || agentId.substring(0, 8),
+              recipient: item.recipient,
+              content: item.content,
+              messageType: item.messageType,
+              timestamp: item.timestamp
             });
           }
 
@@ -1027,6 +1183,65 @@ function stopSubagent(sessionId, agentId, reason) {
       timestamp: Date.now()
     });
   }
+}
+
+// ============================================
+// Milestone Detection
+// ============================================
+// Detects "milestones" — assistant messages that follow a burst of 2+ tool calls.
+// These represent moments where Claude pauses to report progress after doing work.
+const MAX_MILESTONES = 20;
+
+/**
+ * Process a single parsed item for milestone detection.
+ * Mutates sessionData.toolBurstCount and sessionData.milestones.
+ * Returns a milestone object if one was detected, null otherwise.
+ */
+function detectMilestone(item, sessionData) {
+  if (!sessionData) return null;
+
+  // Tool-like items increment the burst counter
+  if (item.type === 'tool' || item.type === 'permission_request' ||
+      (item.type === 'status_update' && item.tool)) {
+    sessionData.toolBurstCount++;
+    return null;
+  }
+
+  // Assistant text after 2+ tool calls = milestone
+  if (item.type === 'assistant' && sessionData.toolBurstCount >= 2) {
+    const milestone = {
+      text: item.content || '',
+      timestamp: item.timestamp || new Date().toISOString(),
+      toolCount: sessionData.toolBurstCount
+    };
+    sessionData.milestones.push(milestone);
+    // Evict oldest if over capacity
+    while (sessionData.milestones.length > MAX_MILESTONES) {
+      sessionData.milestones.shift();
+    }
+    sessionData.toolBurstCount = 0;
+    return milestone;
+  }
+
+  // Assistant with < 2 tools, or user message — reset burst
+  if (item.type === 'assistant' || item.type === 'user') {
+    sessionData.toolBurstCount = 0;
+  }
+
+  return null;
+}
+
+/**
+ * Scan an array of parsed items and extract all milestones.
+ * Returns an array of milestone objects. Mutates sessionData.toolBurstCount.
+ */
+function extractMilestones(items, sessionData) {
+  const milestones = [];
+  for (const item of items) {
+    const m = detectMilestone(item, sessionData);
+    if (m) milestones.push(m);
+  }
+  return milestones;
 }
 
 // parseTaskListResult imported from ./lib/parsers.js
@@ -1173,9 +1388,13 @@ function parseLogEntry(entry, sessionData) {
             // Subagent being spawned - track description for correlation
             const agentDescription = block.input?.description || 'Subagent';
             const agentType = block.input?.subagent_type || 'general';
+            const teamName = block.input?.team_name || null;
+            const memberName = block.input?.name || null;
             pendingSubagentDescriptions.set(Date.now(), {
               description: agentDescription,
-              type: agentType
+              type: agentType,
+              teamName,
+              memberName
             });
             results.push({
               type: 'subagent_starting',
@@ -1183,8 +1402,46 @@ function parseLogEntry(entry, sessionData) {
               tool: agentType,
               description: agentDescription,
               agentType: agentType,
+              teamName,
+              memberName,
               timestamp
             });
+          }
+          else if (block.name === 'TeamCreate') {
+            const teamName = block.input?.team_name || 'unnamed-team';
+            results.push({
+              type: 'team_create',
+              teamName,
+              timestamp
+            });
+          }
+          else if (block.name === 'TeamDelete') {
+            results.push({
+              type: 'team_delete',
+              timestamp
+            });
+          }
+          else if (block.name === 'SendMessage') {
+            const msgType = block.input?.type;
+            if (msgType === 'message' || msgType === 'broadcast') {
+              results.push({
+                type: 'team_message',
+                sender: 'lead',
+                recipient: block.input?.recipient || null,
+                content: block.input?.content || '',
+                messageType: msgType,
+                timestamp
+              });
+            } else {
+              // Other SendMessage types (shutdown_request, etc.) - emit as generic tool
+              results.push({
+                type: 'tool',
+                tool: block.name,
+                input: block.input || {},
+                toolUseId: block.id || null,
+                timestamp
+              });
+            }
           }
           // Other tools
           else {
@@ -1533,7 +1790,7 @@ function buildClaudeState(sessionId) {
 
   const subagents = {};
   for (const [id, info] of sd.subagentInfo) {
-    subagents[id] = {
+    const entry = {
       status: info.status,
       description: info.description,
       agentType: info.agentType,
@@ -1543,6 +1800,9 @@ function buildClaudeState(sessionId) {
       startTime: info.startTime,
       lastActivity: info.lastActivity
     };
+    if (info.teamName) entry.teamName = info.teamName;
+    if (info.memberName) entry.memberName = info.memberName;
+    subagents[id] = entry;
   }
 
   return {
@@ -1564,6 +1824,11 @@ function buildClaudeState(sessionId) {
     },
     subagents,
     tasks: Array.from(sd.tasks?.values() || []),
+    team: sd.activeTeam ? {
+      name: sd.activeTeam.name,
+      members: Object.fromEntries(sd.activeTeam.members),
+      recentMessages: sd.teamMessages?.slice(-10) || []
+    } : null,
     lastActivity: new Date().toISOString()
   };
 }
@@ -1908,6 +2173,52 @@ async function handleClientMessage(ws, msg) {
       break;
     }
 
+    case 'select_other': {
+      // Combined action: select the "Other" option in an ink Select, then inject
+      // freeform text. This avoids the race condition of separate select_option +
+      // inject messages where the inject can arrive before ink transitions to TextInput.
+      const otherIndex = parseInt(msg.index, 10);
+      const otherText = msg.text;
+      if (isNaN(otherIndex) || otherIndex < 0 || otherIndex > 20) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Invalid option index' }));
+        break;
+      }
+      if (typeof otherText !== 'string' || otherText.length === 0) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Text required' }));
+        break;
+      }
+      if (otherText.length > 10000) {
+        ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Text too long (max 10000 chars)' }));
+        break;
+      }
+      (async () => {
+        try {
+          let otherTty = activeSessions.get(msg.sessionId)?.session?.tty;
+          if (!otherTty && msg.sessionId) {
+            const sessions = await discoverSessions();
+            const found = sessions.find(s => s.id === msg.sessionId);
+            otherTty = found?.tty;
+          }
+
+          if (otherTty) {
+            // Step 1: Navigate to "Other" and press Enter
+            await selectOptionInTty(otherIndex, otherTty);
+            // Step 2: Wait for ink to transition from Select to TextInput
+            await new Promise(r => setTimeout(r, 600));
+            // Step 3: Inject the freeform text
+            await injectCommandToTty(otherText, otherTty);
+            ws.send(JSON.stringify({ type: 'inject_result', success: true }));
+          } else {
+            ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Session TTY not found' }));
+          }
+        } catch (err) {
+          console.error(`[SelectOther] Failed: ${err.message}`);
+          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
+        }
+      })();
+      break;
+    }
+
     case 'escape':
       // Use cached session first (fast), fall back to discovery (slow) if needed
       (async () => {
@@ -2224,18 +2535,27 @@ async function sendRecentHistory(ws, sessionId) {
       // File may not exist yet — context percentage stays at 0
     }
 
-    // Scan lines BEFORE the history window for task state — tasks created early
-    // in the session may be outside the HISTORY_LINE_LIMIT display window.
+    // Scan lines BEFORE the history window for task state and milestones —
+    // tasks/milestones created early in the session may be outside the
+    // HISTORY_LINE_LIMIT display window.
     // parseLogEntry accumulates task_create/task_update into sessionData.tasks.
     const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
     if (sessionData && lines.length > HISTORY_LINE_LIMIT) {
       sessionData.tasks.clear();
+      sessionData.milestones = [];
+      sessionData.toolBurstCount = 0;
       const olderLines = lines.slice(0, -HISTORY_LINE_LIMIT);
       for (const line of olderLines) {
         try {
           const entry = JSON.parse(line);
           if (entry.type === 'user' && entry.toolUseResult?.agentId) continue;
-          parseLogEntry(entry, sessionData);
+          const parsed = parseLogEntry(entry, sessionData);
+          if (parsed) {
+            const items = Array.isArray(parsed) ? parsed : [parsed];
+            for (const item of items) {
+              detectMilestone(item, sessionData);
+            }
+          }
         } catch (e) {
           // Skip invalid JSON
         }
@@ -2286,6 +2606,12 @@ async function sendRecentHistory(ws, sessionId) {
       return item;
     });
 
+    // Extract milestones from the history window items
+    // (milestones from older lines were already extracted above)
+    if (sessionData) {
+      extractMilestones(history, sessionData);
+    }
+
     // Set initial mode from history and notify the client
     // sessionData already declared at top of function
     if (lastMode && sessionData) {
@@ -2301,6 +2627,16 @@ async function sendRecentHistory(ws, sessionId) {
       const tasks = Array.from(sessionData.tasks.values());
       console.log(`[HISTORY] Sending ${tasks.length} accumulated tasks for session ${sessionId.substring(0, 8)}`);
       ws.send(JSON.stringify({ type: 'task_list', sessionId, tasks }));
+    }
+
+    // Send accumulated milestones after tasks
+    if (sessionData?.milestones?.length > 0) {
+      console.log(`[HISTORY] Sending ${sessionData.milestones.length} milestones for session ${sessionId.substring(0, 8)}`);
+      ws.send(JSON.stringify({
+        type: 'session_milestones',
+        sessionId,
+        milestones: sessionData.milestones
+      }));
     }
 
     // Send current mode after history so client knows the session's mode

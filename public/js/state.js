@@ -120,12 +120,17 @@ let currentMode = 'default';
 // Slash commands from server (replaces hardcoded COMMANDS array)
 let slashCommands = [];
 
-// Active subagents: agentId -> { status, startTime, description, lastActivity }
+// Active subagents: agentId -> { status, startTime, description, lastActivity, teamName?, memberName? }
 const activeSubagents = new Map();
 // Pending subagent descriptions for correlation with subagent_start (FIFO queue, matches iOS)
 const pendingSubagentCards = []; // { description, element, timeout }
 // Pending subagent permissions: agentId -> { timeout, card }
 const pendingSubagentPermissions = new Map();
+
+// Team state
+let activeTeamName = null; // Name of the currently active team (null when no team)
+const teamMessages = []; // Inter-teammate messages (capped at 50)
+const MAX_TEAM_MESSAGES = 50;
 
 // ============================================
 // Reconnection State

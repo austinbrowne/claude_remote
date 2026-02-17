@@ -18,11 +18,12 @@ public enum ServerMessage: Sendable {
     case taskUpdate(taskId: String, status: String, subject: String?, activeForm: String?, description: String?)
     case taskList(tasks: [TaskItem])
     case subagentStarting(description: String, agentType: String?)
-    case subagentStart(agentId: String, sessionId: String?, description: String?, agentType: String?)
+    case subagentStart(agentId: String, sessionId: String?, description: String?, agentType: String?, teamName: String?, memberName: String?)
     case subagentOutput(agentId: String, sessionId: String?, data: ClaudeOutputData?)
     case subagentTool(agentId: String, tool: String, input: String?)
     case subagentTokens(agentId: String, input: Int?, output: Int?)
     case subagentStop(agentId: String)
+    case teamMessage(sender: String, recipient: String?, content: String, messageType: String?)
     case injectResult(success: Bool, error: String?)
     case escapeResult(success: Bool, error: String?)
     case modeToggleResult(success: Bool, error: String?)
@@ -33,6 +34,8 @@ public enum ServerMessage: Sendable {
     case permissionResolved(sessionId: String?, toolUseId: String)
     case sessionReplaced(oldSessionId: String, newSessionId: String, session: Session?)
     case clearAndResumeProgress(sessionId: String?, step: String, message: String)
+    case milestone(sessionId: String?, text: String, timestamp: String, toolCount: Int)
+    case milestones(sessionId: String?, milestones: [MilestoneData])
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
     case unknown(type: String, raw: [String: AnyCodableValue])
 }
@@ -170,6 +173,7 @@ public enum ClientAction: Sendable {
     case refreshSessions
     case inject(command: String, sessionId: String, toolUseId: String? = nil)
     case selectOption(index: Int, sessionId: String)
+    case selectOther(index: Int, text: String, sessionId: String)
     case escape(sessionId: String)
     case modeToggle(sessionId: String)
     case updateSettings(settings: [String: AnyCodableValue])
@@ -193,6 +197,8 @@ public enum ClientAction: Sendable {
             return dict
         case .selectOption(let index, let sessionId):
             return ["action": "select_option", "index": index, "sessionId": sessionId]
+        case .selectOther(let index, let text, let sessionId):
+            return ["action": "select_other", "index": index, "text": text, "sessionId": sessionId]
         case .escape(let sessionId):
             return ["action": "escape", "sessionId": sessionId]
         case .modeToggle(let sessionId):
@@ -234,7 +240,9 @@ extension ServerMessage: Decodable {
         // task_*
         case id, taskId, subject, description, activeForm, tasks
         // subagent
-        case agentId, agentType, tool
+        case agentId, agentType, tool, teamName, memberName
+        // team_message
+        case sender, recipient, messageType
         // error
         case code, message, details
         // pong
@@ -245,6 +253,8 @@ extension ServerMessage: Decodable {
         case oldSessionId, newSessionId, step
         // permission_resolved
         case toolUseId
+        // milestones
+        case milestones, toolCount, text
         // question
         case questions
         // permission
@@ -341,7 +351,9 @@ extension ServerMessage: Decodable {
             let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
             let description = try container.decodeIfPresent(String.self, forKey: .description)
             let agentType = try container.decodeIfPresent(String.self, forKey: .agentType)
-            self = .subagentStart(agentId: agentId, sessionId: sessionId, description: description, agentType: agentType)
+            let teamName = try container.decodeIfPresent(String.self, forKey: .teamName)
+            let memberName = try container.decodeIfPresent(String.self, forKey: .memberName)
+            self = .subagentStart(agentId: agentId, sessionId: sessionId, description: description, agentType: agentType, teamName: teamName, memberName: memberName)
 
         case "subagent_output":
             let agentId = try container.decode(String.self, forKey: .agentId)
@@ -364,6 +376,13 @@ extension ServerMessage: Decodable {
         case "subagent_stop":
             let agentId = try container.decode(String.self, forKey: .agentId)
             self = .subagentStop(agentId: agentId)
+
+        case "team_message":
+            let sender = try container.decode(String.self, forKey: .sender)
+            let recipient = try container.decodeIfPresent(String.self, forKey: .recipient)
+            let content = try container.decode(String.self, forKey: .content)
+            let messageType = try container.decodeIfPresent(String.self, forKey: .messageType)
+            self = .teamMessage(sender: sender, recipient: recipient, content: content, messageType: messageType)
 
         case "inject_result":
             let success = try container.decode(Bool.self, forKey: .success)
@@ -416,6 +435,18 @@ extension ServerMessage: Decodable {
             let step = try container.decode(String.self, forKey: .step)
             let message = try container.decode(String.self, forKey: .message)
             self = .clearAndResumeProgress(sessionId: sessionId, step: step, message: message)
+
+        case "session_milestone":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let text = try container.decode(String.self, forKey: .text)
+            let timestamp = try container.decode(String.self, forKey: .timestamp)
+            let toolCount = try container.decode(Int.self, forKey: .toolCount)
+            self = .milestone(sessionId: sessionId, text: text, timestamp: timestamp, toolCount: toolCount)
+
+        case "session_milestones":
+            let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+            let milestones = try container.decode([MilestoneData].self, forKey: .milestones)
+            self = .milestones(sessionId: sessionId, milestones: milestones)
 
         case "state":
             let clientId = try container.decodeIfPresent(String.self, forKey: .clientId)

@@ -1,7 +1,7 @@
 ---
 type: standard
 name: document-viewer
-status: in_progress
+status: complete
 date: 2026-02-15
 tags: [ios, ui, feature, file-viewer, markdown]
 security_sensitive: false

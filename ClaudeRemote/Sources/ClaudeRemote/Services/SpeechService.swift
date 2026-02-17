@@ -80,6 +80,9 @@ public final class SpeechService {
     /// Called when an error occurs that should be surfaced to the user via toast.
     public var onError: ((String) -> Void)?
 
+    /// Called when on-device recognition is unavailable and we fall back to server-based.
+    public var onServerFallback: (() -> Void)?
+
     /// Whether the audio engine is currently running (for external liveness checks)
     public var isAudioEngineRunning: Bool { audioEngine.isRunning }
 
@@ -603,6 +606,7 @@ public final class SpeechService {
                 request.requiresOnDeviceRecognition = true
             } else {
                 print("[Speech] On-device recognition unavailable — falling back to server-based for trigger mode")
+                onServerFallback?()
             }
         }
         recognitionRequest = request

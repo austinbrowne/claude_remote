@@ -2,7 +2,7 @@
 title: "Voice Auto-Send + Continuous Voice Loop"
 date: 2026-02-08
 tier: standard
-status: REVISED
+status: complete
 brainstorm_ref: docs/brainstorms/2026-02-08-voice-auto-send-loop-brainstorm.md
 tags: [voice, auto-send, continuous-loop, auto-mode, trigger-word, speech]
 ---

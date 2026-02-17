@@ -2,7 +2,7 @@
 type: standard
 title: "Approve All Pending Permission Requests"
 date: 2026-02-09
-status: draft
+status: complete
 security_sensitive: false
 priority: medium
 ---

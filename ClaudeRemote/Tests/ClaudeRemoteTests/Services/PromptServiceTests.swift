@@ -254,8 +254,8 @@ struct PromptServiceTests {
     // MARK: - Response Actions
 
     @MainActor
-    @Test("respondOther selects Other option then injects text")
-    func respondOtherSelectsThenInjects() async throws {
+    @Test("respondOther injects freeform text directly")
+    func respondOtherInjectsDirectly() async throws {
         let (service, capture) = Self.makeSUT()
         let questions = [QuestionData(question: "Pick?", options: [
             QuestionOption(label: "A"),
@@ -267,24 +267,16 @@ struct PromptServiceTests {
 
         service.respondOther(optionCount: 3, text: "my custom answer")
 
-        // First action: selectOption to navigate to "Other" (index 3)
-        #expect(capture.actions.count >= 1)
-        if case .selectOption(let index, let sessionId) = capture.actions[0] {
-            #expect(index == 3)
-            #expect(sessionId == "test-session")
-        } else {
-            Issue.record("Expected selectOption action first")
-        }
-        #expect(service.currentPrompt == nil, "Prompt should be dismissed")
-
-        // Wait for delayed text inject
-        try await Task.sleep(for: .milliseconds(400))
-        #expect(capture.actions.count == 2)
-        if case .inject(let command, _, _) = capture.actions[1] {
+        // Single inject action with the freeform text (no selectOption needed —
+        // Claude Code's AskUserQuestion accepts typed text directly)
+        #expect(capture.actions.count == 1)
+        if case .inject(let command, let sessionId, _) = capture.actions[0] {
             #expect(command == "my custom answer")
+            #expect(sessionId == "test-session")
         } else {
             Issue.record("Expected inject action with typed text")
         }
+        #expect(service.currentPrompt == nil, "Prompt should be dismissed")
     }
 
     @MainActor

@@ -26,11 +26,21 @@ struct InputBarView: View {
         InputBarHelpers.suggestions(text: inputText, commands: state.slashCommands, maxCount: Self.maxSuggestions)
     }
 
+    /// Suggestion chips from the current AskUserQuestion prompt
+    private var questionChips: [QuestionOption] {
+        InputBarHelpers.questionChips(from: coordinator.promptService.currentPrompt)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Autocomplete suggestions
             if !suggestions.isEmpty && isFocused {
                 suggestionList
+            }
+
+            // Question suggestion chips
+            if !questionChips.isEmpty {
+                suggestionChipRow
             }
 
             VStack(spacing: 6) {
@@ -144,6 +154,42 @@ struct InputBarView: View {
             }
         }
         #endif
+    }
+
+    // MARK: - Question Suggestion Chips
+
+    private var suggestionChipRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Suggestions")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 14)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(questionChips.enumerated()), id: \.offset) { _, option in
+                        Button {
+                            inputText = option.value ?? option.label
+                            isFocused = true
+                            #if os(iOS)
+                            HapticService.light()
+                            #endif
+                        } label: {
+                            Text(InputBarHelpers.truncatedLabel(option.label))
+                                .font(.subheadline)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.secondary.opacity(0.15))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(option.label)
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+        }
+        .padding(.top, 6)
     }
 
     // MARK: - Autocomplete
@@ -287,5 +333,21 @@ enum InputBarHelpers {
             .filter { $0.name.lowercased().contains(query) }
             .prefix(maxCount)
             .map { $0 }
+    }
+
+    /// Extract question options as suggestion chips from the current prompt.
+    /// Returns empty for non-question prompts, permissions, plan exits, or questions without options.
+    static func questionChips(from prompt: PromptItem?) -> [QuestionOption] {
+        guard let prompt, case .question(let questions) = prompt.kind,
+              let options = questions.first?.options, !options.isEmpty else {
+            return []
+        }
+        return options
+    }
+
+    /// Truncate long option labels for chip display.
+    static func truncatedLabel(_ label: String, maxLength: Int = 40) -> String {
+        if label.count <= maxLength { return label }
+        return String(label.prefix(maxLength - 1)) + "\u{2026}"
     }
 }

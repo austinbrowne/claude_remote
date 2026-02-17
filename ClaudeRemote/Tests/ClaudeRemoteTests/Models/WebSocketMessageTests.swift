@@ -508,7 +508,7 @@ struct ServerMessageDecodingTests {
             "agentType": "Explore"
         }
         """)
-        guard case .subagentStart(let agentId, let sessionId, let description, let agentType) = msg else {
+        guard case .subagentStart(let agentId, let sessionId, let description, let agentType, let teamName, let memberName) = msg else {
             Issue.record("Expected subagentStart")
             return
         }
@@ -516,6 +516,31 @@ struct ServerMessageDecodingTests {
         #expect(sessionId == "sess-1")
         #expect(description == "Exploring codebase")
         #expect(agentType == "Explore")
+        #expect(teamName == nil)
+        #expect(memberName == nil)
+    }
+
+    @Test("Decode subagent_start with team fields")
+    func subagentStartWithTeam() throws {
+        let msg = try decode("""
+        {
+            "type": "subagent_start",
+            "agentId": "agent-team-1",
+            "sessionId": "sess-1",
+            "description": "Implementing iOS changes",
+            "agentType": "general",
+            "teamName": "team-ui",
+            "memberName": "ios-impl"
+        }
+        """)
+        guard case .subagentStart(let agentId, _, let description, _, let teamName, let memberName) = msg else {
+            Issue.record("Expected subagentStart")
+            return
+        }
+        #expect(agentId == "agent-team-1")
+        #expect(description == "Implementing iOS changes")
+        #expect(teamName == "team-ui")
+        #expect(memberName == "ios-impl")
     }
 
     @Test("Decode subagent_output")
@@ -732,6 +757,49 @@ struct ServerMessageDecodingTests {
         #expect(settings?["ttsEnabled"]?.boolValue == true)
     }
 
+    // MARK: - team_message
+
+    @Test("Decode team_message")
+    func teamMessage() throws {
+        let msg = try decode("""
+        {
+            "type": "team_message",
+            "sender": "ios-impl",
+            "recipient": "team-lead",
+            "content": "iOS changes complete",
+            "messageType": "message"
+        }
+        """)
+        guard case .teamMessage(let sender, let recipient, let content, let messageType) = msg else {
+            Issue.record("Expected teamMessage")
+            return
+        }
+        #expect(sender == "ios-impl")
+        #expect(recipient == "team-lead")
+        #expect(content == "iOS changes complete")
+        #expect(messageType == "message")
+    }
+
+    @Test("Decode team_message broadcast (no recipient)")
+    func teamMessageBroadcast() throws {
+        let msg = try decode("""
+        {
+            "type": "team_message",
+            "sender": "team-lead",
+            "content": "All tasks assigned",
+            "messageType": "broadcast"
+        }
+        """)
+        guard case .teamMessage(let sender, let recipient, let content, let messageType) = msg else {
+            Issue.record("Expected teamMessage")
+            return
+        }
+        #expect(sender == "team-lead")
+        #expect(recipient == nil)
+        #expect(content == "All tasks assigned")
+        #expect(messageType == "broadcast")
+    }
+
     // MARK: - unknown / forward-compat
 
     @Test("Decode unknown message type as .unknown")
@@ -825,6 +893,16 @@ struct ClientActionEncodingTests {
         let action = ClientAction.modeToggle(sessionId: "sess-1")
         let json = action.toJSON()
         #expect(json["action"] as? String == "mode_toggle")
+        #expect(json["sessionId"] as? String == "sess-1")
+    }
+
+    @Test("Encode select_other action")
+    func encodeSelectOther() throws {
+        let action = ClientAction.selectOther(index: 3, text: "my custom answer", sessionId: "sess-1")
+        let json = action.toJSON()
+        #expect(json["action"] as? String == "select_other")
+        #expect(json["index"] as? Int == 3)
+        #expect(json["text"] as? String == "my custom answer")
         #expect(json["sessionId"] as? String == "sess-1")
     }
 
@@ -1063,5 +1141,153 @@ struct TaskUpdateDeletedTests {
         }
         #expect(sessionId == nil)
         #expect(toolUseId == "tu-456")
+    }
+}
+
+// MARK: - Milestone Messages
+
+@Suite("Milestone Message Decoding")
+struct MilestoneMessageTests {
+
+    private func decode(_ json: String) throws -> ServerMessage {
+        let data = json.data(using: .utf8)!
+        return try JSONDecoder().decode(ServerMessage.self, from: data)
+    }
+
+    @Test("Decode session_milestone")
+    func sessionMilestone() throws {
+        let msg = try decode("""
+        {
+            "type": "session_milestone",
+            "sessionId": "sess-1",
+            "text": "Implemented authentication module",
+            "timestamp": "2026-02-15T10:30:00Z",
+            "toolCount": 5
+        }
+        """)
+        guard case .milestone(let sessionId, let text, let timestamp, let toolCount) = msg else {
+            Issue.record("Expected milestone")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(text == "Implemented authentication module")
+        #expect(timestamp == "2026-02-15T10:30:00Z")
+        #expect(toolCount == 5)
+    }
+
+    @Test("Decode session_milestone without sessionId")
+    func sessionMilestoneNoSession() throws {
+        let msg = try decode("""
+        {
+            "type": "session_milestone",
+            "text": "Fixed bug in parser",
+            "timestamp": "2026-02-15T11:00:00Z",
+            "toolCount": 3
+        }
+        """)
+        guard case .milestone(let sessionId, let text, _, let toolCount) = msg else {
+            Issue.record("Expected milestone")
+            return
+        }
+        #expect(sessionId == nil)
+        #expect(text == "Fixed bug in parser")
+        #expect(toolCount == 3)
+    }
+
+    @Test("Decode session_milestones batch")
+    func sessionMilestonesBatch() throws {
+        let msg = try decode("""
+        {
+            "type": "session_milestones",
+            "sessionId": "sess-1",
+            "milestones": [
+                {"text": "Started project setup", "timestamp": "2026-02-15T09:00:00Z", "toolCount": 2},
+                {"text": "Added database layer", "timestamp": "2026-02-15T09:30:00Z", "toolCount": 8},
+                {"text": "Wrote unit tests", "timestamp": "2026-02-15T10:00:00Z", "toolCount": 4}
+            ]
+        }
+        """)
+        guard case .milestones(let sessionId, let milestones) = msg else {
+            Issue.record("Expected milestones")
+            return
+        }
+        #expect(sessionId == "sess-1")
+        #expect(milestones.count == 3)
+        #expect(milestones[0].text == "Started project setup")
+        #expect(milestones[0].toolCount == 2)
+        #expect(milestones[1].text == "Added database layer")
+        #expect(milestones[2].text == "Wrote unit tests")
+    }
+
+    @Test("Decode session_milestones empty array")
+    func sessionMilestonesEmpty() throws {
+        let msg = try decode("""
+        {"type": "session_milestones", "sessionId": "sess-1", "milestones": []}
+        """)
+        guard case .milestones(_, let milestones) = msg else {
+            Issue.record("Expected milestones")
+            return
+        }
+        #expect(milestones.isEmpty)
+    }
+}
+
+@Suite("MilestoneData Decoding")
+struct MilestoneDataTests {
+
+    @Test("Decode MilestoneData with all fields")
+    func decodeFullMilestoneData() throws {
+        let json = """
+        {
+            "text": "Implemented feature X",
+            "timestamp": "2026-02-15T10:30:00Z",
+            "toolCount": 7
+        }
+        """.data(using: .utf8)!
+        let data = try JSONDecoder().decode(MilestoneData.self, from: json)
+        #expect(data.text == "Implemented feature X")
+        #expect(data.timestamp == "2026-02-15T10:30:00Z")
+        #expect(data.toolCount == 7)
+    }
+
+    @Test("MilestoneData converts to Milestone with parsed date")
+    func milestoneDataToMilestone() {
+        let data = MilestoneData(
+            text: "Test milestone",
+            timestamp: "2026-02-15T12:00:00Z",
+            toolCount: 3
+        )
+        let milestone = data.toMilestone()
+        #expect(milestone.text == "Test milestone")
+        #expect(milestone.toolCount == 3)
+        // Verify the date was parsed (not the fallback Date())
+        let calendar = Calendar(identifier: .gregorian)
+        let components = calendar.dateComponents(in: TimeZone(identifier: "UTC")!, from: milestone.timestamp)
+        #expect(components.year == 2026)
+        #expect(components.month == 2)
+        #expect(components.day == 15)
+        #expect(components.hour == 12)
+    }
+
+    @Test("MilestoneData with invalid timestamp falls back to now")
+    func milestoneDataInvalidTimestamp() {
+        let data = MilestoneData(
+            text: "Bad timestamp",
+            timestamp: "not-a-date",
+            toolCount: 0
+        )
+        let milestone = data.toMilestone()
+        #expect(milestone.text == "Bad timestamp")
+        // Should be approximately now (within 5 seconds)
+        #expect(abs(milestone.timestamp.timeIntervalSinceNow) < 5)
+    }
+
+    @Test("MilestoneData with zero tool count")
+    func milestoneDataZeroTools() throws {
+        let json = """
+        {"text": "Planning phase", "timestamp": "2026-02-15T08:00:00Z", "toolCount": 0}
+        """.data(using: .utf8)!
+        let data = try JSONDecoder().decode(MilestoneData.self, from: json)
+        #expect(data.toolCount == 0)
     }
 }

@@ -36,5 +36,22 @@ public struct ClaudeState: Decodable, Sendable {
         public let outputTokens: Int?
         public let startTime: String?
         public let lastActivity: String?
+        public let teamName: String?
+        public let memberName: String?
+    }
+
+    public let team: TeamState?
+
+    public struct TeamState: Decodable, Sendable {
+        public let name: String?
+        public let members: [String: String]?
+        public let recentMessages: [TeamMessageData]?
+    }
+
+    public struct TeamMessageData: Decodable, Sendable {
+        public let sender: String?
+        public let recipient: String?
+        public let content: String?
+        public let timestamp: String?
     }
 }

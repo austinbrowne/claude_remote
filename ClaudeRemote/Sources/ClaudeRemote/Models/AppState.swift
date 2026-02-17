@@ -41,6 +41,10 @@ public struct SubagentInfo: Sendable {
     public var inputTokens: Int
     public var outputTokens: Int
     public var lastActivity: Date
+    /// Team name if this subagent is a teammate (nil for regular subagents)
+    public var teamName: String?
+    /// Member name assigned by the team lead (nil for regular subagents)
+    public var memberName: String?
 
     public init(
         status: String = "running",
@@ -50,7 +54,9 @@ public struct SubagentInfo: Sendable {
         currentTool: String? = nil,
         inputTokens: Int = 0,
         outputTokens: Int = 0,
-        lastActivity: Date = Date()
+        lastActivity: Date = Date(),
+        teamName: String? = nil,
+        memberName: String? = nil
     ) {
         self.status = status
         self.startTime = startTime
@@ -60,6 +66,23 @@ public struct SubagentInfo: Sendable {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.lastActivity = lastActivity
+        self.teamName = teamName
+        self.memberName = memberName
+    }
+}
+
+/// A message between teammates in a team session
+public struct TeamMessage: Sendable {
+    public let sender: String
+    public let recipient: String?
+    public let content: String
+    public let timestamp: Date
+
+    public init(sender: String, recipient: String? = nil, content: String, timestamp: Date = Date()) {
+        self.sender = sender
+        self.recipient = recipient
+        self.content = content
+        self.timestamp = timestamp
     }
 }
 
@@ -90,6 +113,14 @@ public final class AppState {
     // MARK: - Subagents & Tasks
     public var activeSubagents: [String: SubagentInfo] = [:]
     public var tasks: [TaskItem] = []
+
+    // MARK: - Milestones
+    public var milestones: [Milestone] = []
+
+    // MARK: - Team
+    public var activeTeamName: String?
+    public var teamMessages: [TeamMessage] = []
+    public static let maxTeamMessages = 50
 
     // MARK: - Toast
     public var currentToast: ToastItem?
@@ -167,6 +198,7 @@ public final class AppState {
     public func clearMessages() {
         messages.removeAll()
         tasks.removeAll()
+        milestones.removeAll()
         pendingSubagentMessages.removeAll()
         subagentMessageMap.removeAll()
     }
@@ -224,9 +256,12 @@ public final class AppState {
         // Clear stale data from previous session immediately
         messages.removeAll()
         tasks.removeAll()
+        milestones.removeAll()
         activeSubagents.removeAll()
         pendingSubagentMessages.removeAll()
         subagentMessageMap.removeAll()
+        activeTeamName = nil
+        teamMessages.removeAll()
         contextPercentage = 0
         sessionStatus = .idle
         sessionMode = .defaultMode

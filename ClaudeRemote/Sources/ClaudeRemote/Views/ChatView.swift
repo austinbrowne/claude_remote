@@ -24,6 +24,7 @@ struct ChatView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         TaskProgressView()
+                        MilestoneTimelineView()
 
                         VStack(spacing: 0) {
                             ForEach(groupedMessages) { item in

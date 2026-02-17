@@ -2,7 +2,7 @@
 type: standard
 title: "Fix ExitPlanMode to present question and process response"
 date: 2026-02-04
-status: approved
+status: complete
 security_sensitive: false
 priority: medium
 issue: 9

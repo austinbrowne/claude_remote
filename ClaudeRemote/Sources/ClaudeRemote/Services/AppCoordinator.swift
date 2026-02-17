@@ -91,6 +91,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 SettingsStore.saveTriggerEnabled(false)
             }
         }
+        speechService.onServerFallback = { [weak self] in
+            self?.state.showToast("Using server-based speech (on-device unavailable)", icon: "icloud", style: .info)
+        }
         #endif
     }
 
@@ -441,11 +444,17 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             let index = state.messages.count - 1
             state.pendingSubagentMessages.append((description: description, messageIndex: index))
 
-        case .subagentStart(let agentId, _, let description, let agentType):
+        case .subagentStart(let agentId, _, let description, let agentType, let teamName, let memberName):
             state.activeSubagents[agentId] = SubagentInfo(
                 description: description ?? "",
-                agentType: agentType ?? "general"
+                agentType: agentType ?? "general",
+                teamName: teamName,
+                memberName: memberName
             )
+            // If this subagent belongs to a team, track the active team name
+            if let teamName, !teamName.isEmpty {
+                state.activeTeamName = teamName
+            }
             // Correlate to pending subagentStarting message (FIFO by description match)
             if let idx = state.pendingSubagentMessages.firstIndex(where: { $0.description == (description ?? "") }) {
                 let msgIndex = state.pendingSubagentMessages[idx].messageIndex
@@ -495,6 +504,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.updateSubagentMessage(at: msgIndex, status: "completed", tool: nil)
                 // Explicitly clear stale tool name on completion
                 state.messages[msgIndex].subagentCurrentTool = nil
+            }
+
+        case .teamMessage(let sender, let recipient, let content, _):
+            let msg = TeamMessage(sender: sender, recipient: recipient, content: content)
+            state.teamMessages.append(msg)
+            if state.teamMessages.count > AppState.maxTeamMessages {
+                state.teamMessages.removeFirst(state.teamMessages.count - AppState.maxTeamMessages)
             }
 
         case .permissionResolved(let sessionId, let toolUseId):
@@ -615,6 +631,36 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if let tasks = claudeState.tasks {
                 state.tasks = tasks
             }
+            // Sync team data from server state snapshot
+            if let team = claudeState.team, let name = team.name {
+                state.activeTeamName = name
+                // Populate team member names on existing subagents
+                if let members = team.members {
+                    for (agentId, memberName) in members {
+                        state.activeSubagents[agentId]?.memberName = memberName
+                        state.activeSubagents[agentId]?.teamName = name
+                    }
+                }
+            } else if claudeState.team == nil {
+                // Server explicitly has no team — clear local team state
+                state.activeTeamName = nil
+                state.teamMessages.removeAll()
+            }
+
+        case .milestone(let sessionId, let text, let timestamp, let toolCount):
+            // Ignore from a different session
+            if let sessionId, sessionId != state.currentSessionId { break }
+            let data = MilestoneData(text: text, timestamp: timestamp, toolCount: toolCount)
+            state.milestones.append(data.toMilestone())
+            // Cap at 20 milestones, drop oldest
+            if state.milestones.count > 20 {
+                state.milestones.removeFirst(state.milestones.count - 20)
+            }
+
+        case .milestones(let sessionId, let milestoneDataList):
+            // Ignore from a different session
+            if let sessionId, sessionId != state.currentSessionId { break }
+            state.milestones = milestoneDataList.map { $0.toMilestone() }
 
         case .pong:
             break // Handled by WebSocketService
@@ -713,11 +759,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .taskUpdate(let id, let status, _, _, _): return "task_update id=\(id) status=\(status)"
         case .taskList(let tasks): return "task_list count=\(tasks.count)"
         case .subagentStarting(let desc, _): return "subagent_starting desc=\(desc.prefix(40))"
-        case .subagentStart(let id, _, _, _): return "subagent_start id=\(id)"
+        case .subagentStart(let id, _, _, _, let team, let member): return "subagent_start id=\(id)\(team.map { " team=\($0)" } ?? "")\(member.map { " member=\($0)" } ?? "")"
         case .subagentOutput(let id, _, _): return "subagent_output id=\(id)"
         case .subagentTool(let id, let tool, _): return "subagent_tool id=\(id) tool=\(tool)"
         case .subagentTokens(let id, _, _): return "subagent_tokens id=\(id)"
         case .subagentStop(let id): return "subagent_stop id=\(id)"
+        case .teamMessage(let sender, _, _, _): return "team_message from=\(sender)"
         case .injectResult(let success, _): return "inject_result success=\(success)"
         case .escapeResult(let success, _): return "escape_result success=\(success)"
         case .permissionResolved(_, let toolUseId): return "permission_resolved toolUseId=\(toolUseId)"
@@ -728,6 +775,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .sessionReplaced(let old, let new, _): return "session_replaced \(old.prefix(8)) → \(new.prefix(8))"
         case .clearAndResumeProgress(_, let step, _): return "clear_and_resume_progress step=\(step)"
         case .claudeState(let sid, _): return "claude_state session=\(sid ?? "nil")"
+        case .milestone(_, let text, _, _): return "session_milestone text=\(text.prefix(40))"
+        case .milestones(_, let milestones): return "session_milestones count=\(milestones.count)"
         case .state: return "state"
         case .unknown(let type, _): return "unknown type=\(type)"
         }
@@ -999,11 +1048,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
         guard state.triggerEnabled else { return }
 
-        // Crash-loop protection: if we attempted restore within the last 10 seconds,
+        // Crash-loop protection: if we attempted restore within the last 3 seconds,
         // we likely crashed during it (setActive hanging). Break the loop.
+        // 3s is generous — real crash loops restart in <1s. 10s was too aggressive
+        // and triggered during normal multitasking (switching apps and back).
         let restoreKey = "triggerRestoreTimestamp"
         let lastAttempt = UserDefaults.standard.double(forKey: restoreKey)
-        if lastAttempt > 0 && Date().timeIntervalSince1970 - lastAttempt < 10 {
+        if lastAttempt > 0 && Date().timeIntervalSince1970 - lastAttempt < 3 {
             print("[Trigger] Recent restore attempt (\(Int(Date().timeIntervalSince1970 - lastAttempt))s ago) — skipping to break crash loop")
             UserDefaults.standard.set(0.0, forKey: restoreKey)
             state.triggerEnabled = false

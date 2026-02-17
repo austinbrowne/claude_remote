@@ -25,9 +25,10 @@ struct ClaudeRemoteApp: App {
                 .task {
                     // Check notification authorization status on launch
                     await coordinator.notificationService.checkAuthorizationStatus()
-                    // Audio session is configured lazily when trigger/mic is first used
-                    // via setTriggerEnabled or startListening — NOT on launch.
-                    // Calling setActive on MainActor at startup hangs the UI after crashes.
+                    // Restore trigger listening if it was enabled before app quit.
+                    // scenePhase .onChange doesn't fire on initial launch (already .active),
+                    // so we must call this here to start the audio pipeline.
+                    coordinator.restoreTriggerIfNeeded()
                 }
                 #endif
                 .onChange(of: scenePhase) { _, newPhase in
