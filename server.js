@@ -616,8 +616,12 @@ async function watchSession(sessionId) {
             }
           }
 
+          // Advance position BEFORE milestone detection so an error in
+          // milestone logic never stalls the watcher (messages still flow).
+          lastPosition += consumedBytes;
+
           // Milestone detection — run after broadcast loop
-          {
+          try {
             const sd = activeSessions.get(sessionId);
             if (sd) {
               for (const item of filteredItems) {
@@ -633,9 +637,9 @@ async function watchSession(sessionId) {
                 }
               }
             }
+          } catch (e) {
+            console.error('[Milestone] Detection error (non-fatal):', e.message);
           }
-
-          lastPosition += consumedBytes;
 
           if (linesProcessed) {
             const newStatus = await getSessionStatus(session.logFile);
@@ -1262,6 +1266,9 @@ function parseLogEntry(entry, sessionData) {
   // Skip system entries
   if (entry.type === 'system') return null;
 
+  // Note: compaction is detected via <local-command-stdout> containing "Compacted"
+  // in the user entry handler below (not via a top-level type)
+
   // Assistant messages - extract text and tool uses from message.content
   if (entry.type === 'assistant' && entry.message?.content) {
     const content = entry.message.content;
@@ -1551,8 +1558,15 @@ function parseLogEntry(entry, sessionData) {
     else if (entry.message?.content) {
       const content = entry.message.content;
       if (typeof content === 'string') {
-        // Skip command invocation wrappers (e.g. <command-message>commit</command-message>)
+        // Skip command invocation wrappers (e.g. /compact, /help)
         if (content.includes('<command-message>') || content.includes('<command-name>')) {
+          return null;
+        }
+        // Local command output — detect compaction completion
+        if (content.includes('<local-command-stdout>')) {
+          if (content.includes('Compacted')) {
+            return [{ type: 'compaction_complete', content: 'Context compacted', timestamp }];
+          }
           return null;
         }
         results.push({
@@ -1777,7 +1791,11 @@ function broadcastToClients(message) {
   clients.forEach((clientData, ws) => {
     if (ws.readyState === WebSocket.OPEN && !clientData.pauseBroadcast) {
       if (!message.sessionId || clientData.watchingSessions.has(message.sessionId)) {
-        ws.send(data);
+        try {
+          ws.send(data);
+        } catch (e) {
+          // Send failed (connection closing) — skip this client
+        }
       }
     }
   });
@@ -1963,6 +1981,10 @@ wss.on('connection', (ws, req) => {
     } catch (e) {
       console.error('WebSocket message error:', e);
     }
+  });
+
+  ws.on('error', (err) => {
+    console.error(`[Client] WebSocket error for ${clientId}:`, err.message);
   });
 
   ws.on('close', () => {
