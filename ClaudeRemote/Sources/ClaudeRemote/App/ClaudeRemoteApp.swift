@@ -33,11 +33,12 @@ struct ClaudeRemoteApp: App {
                 #endif
                 .onChange(of: scenePhase) { _, newPhase in
                     appState.isInForeground = newPhase == .active
-                    #if os(iOS)
                     if newPhase == .active {
+                        coordinator.reconnectIfNeeded()
+                        #if os(iOS)
                         coordinator.restoreTriggerIfNeeded()
+                        #endif
                     }
-                    #endif
                 }
         }
     }

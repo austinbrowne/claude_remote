@@ -57,7 +57,7 @@ public struct ClaudeOutputData: Decodable, Sendable, Equatable {
     /// that should not be displayed in the message list.
     public var isLocalCommand: Bool {
         guard type == "user", let content else { return false }
-        return content.contains("<command-name>") || content.contains("<command-message>")
+        return content.contains("<command-name>") || content.contains("<command-message>") || content.contains("<local-command-stdout>")
     }
 
     public init(

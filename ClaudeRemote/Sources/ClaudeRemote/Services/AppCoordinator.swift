@@ -108,6 +108,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         ws.connect()
     }
 
+    /// Reconnect only if the WebSocket connection has dropped (e.g. after iOS backgrounding)
+    public func reconnectIfNeeded() {
+        guard webSocket != nil, !(webSocket?.isConnected ?? false) else { return }
+        reconnect()
+    }
+
     /// Reconnect using the stored server URL and Keychain token
     public func reconnect() {
         let keychain = KeychainService()
@@ -291,6 +297,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if sessionId != state.currentSessionId { break }
             // Skip local CLI commands (/compact, /help, etc.)
             if data.isLocalCommand { return }
+            // Compaction complete — show toast and skip chat
+            if data.type == "compaction_complete" {
+                state.showToast("Context compacted", icon: "arrow.triangle.2.circlepath", style: .info)
+                return
+            }
             // Route spinner status_updates to the persistent activity indicator
             if data.type == "status_update" {
                 // Use actual tool name when available (e.g., "Reading..." instead of "Conjuring...")

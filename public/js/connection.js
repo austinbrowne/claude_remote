@@ -397,6 +397,11 @@ function handleMessage(msg) {
         mergeOrAppendToolResult(msg.data);
         break;
       }
+      // Compaction complete — show toast and skip chat
+      if (msg.data.type === 'compaction_complete') {
+        showToast('Context compacted', 'success');
+        break;
+      }
       // Dedupe user messages we just sent
       if (msg.data.type === 'user') {
         if (shouldDedupeMessage(msg.data.content)) {

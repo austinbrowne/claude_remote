@@ -1035,6 +1035,12 @@ struct IsLocalCommandTests {
         #expect(data.isLocalCommand == false)
     }
 
+    @Test("Detects local-command-stdout tag (compaction output)")
+    func localCommandStdoutTag() {
+        let data = ClaudeOutputData(type: "user", content: "<local-command-stdout>compaction output</local-command-stdout>")
+        #expect(data.isLocalCommand == true)
+    }
+
     @Test("User message with nil content is not a command")
     func nilContent() {
         let data = ClaudeOutputData(type: "user", content: nil)
