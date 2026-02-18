@@ -84,7 +84,7 @@ public final class SpeechService {
     public var onServerFallback: (() -> Void)?
 
     /// Whether the audio engine is currently running (for external liveness checks)
-    public var isAudioEngineRunning: Bool { audioEngine.isRunning }
+    public var isAudioEngineRunning: Bool { audioEngineValid && audioEngine.isRunning }
 
     // MARK: - Trigger Word Config
 
@@ -98,7 +98,7 @@ public final class SpeechService {
 
     private let speechRecognizer: SFSpeechRecognizer?
     private var recognizerDelegate: RecognizerDelegate?
-    private let audioEngine = AVAudioEngine()
+    private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let synthesizer = AVSpeechSynthesizer()
@@ -129,6 +129,12 @@ public final class SpeechService {
     /// Guard against concurrent restart cycles
     private var isRestarting = false
 
+    /// Whether the current audio engine instance is valid (false after media services reset)
+    private var audioEngineValid = true
+
+    /// Whether a tap is currently installed on the audio engine's input node
+    private var hasTapInstalled = false
+
     /// Guard against double-tap during async audio session activation
     private var isStarting = false
 
@@ -149,6 +155,9 @@ public final class SpeechService {
 
     /// Stored cooldown task — cancellable when trigger is stopped
     nonisolated(unsafe) private var cooldownTask: Task<Void, Never>?
+
+    /// Debounce task for rapid route changes (Bluetooth handoffs fire multiple notifications)
+    nonisolated(unsafe) private var routeChangeTask: Task<Void, Never>?
 
     /// True when trigger listening is paused for higher-priority audio
     private var triggerPaused = false
@@ -186,6 +195,7 @@ public final class SpeechService {
         restartTask?.cancel()
         cooldownTask?.cancel()
         retryTask?.cancel()
+        routeChangeTask?.cancel()
         if let observer = interruptionObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -311,6 +321,10 @@ public final class SpeechService {
     /// Handle iOS media services reset — the audio engine is now invalid and must be recreated.
     private func handleMediaServicesReset() {
         print("[Speech] Media services were reset — recreating audio engine")
+        // Mark engine as invalid BEFORE teardown so teardownRecognition
+        // skips inputNode access on the dead engine (prevents ObjC exceptions).
+        audioEngineValid = false
+        hasTapInstalled = false
         teardownRecognition()
 
         // The old audio engine is dead. Create a new one.
@@ -325,27 +339,42 @@ public final class SpeechService {
 
     /// Replace the audio engine after media services reset.
     /// AVAudioEngine is invalidated when media services reset — it cannot be reused.
+    /// Creates a new instance rather than calling reset() on the dead one, since
+    /// accessing inputNode on an invalidated engine can throw ObjC exceptions.
     private func recreateAudioEngine() {
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.reset()
+        // Don't access the old engine's inputNode — it may throw ObjC exceptions.
+        // Just create a fresh instance and let the old one be deallocated.
+        audioEngine = AVAudioEngine()
+        audioEngineValid = true
+        hasTapInstalled = false
     }
 
     /// Handle audio route changes (headphones, Bluetooth, etc.)
+    /// Covers all Bluetooth-relevant reasons: device connect/disconnect, category
+    /// changes from HFP profile switches, overrides, and route reconfigurations.
+    /// Debounces rapid changes (Bluetooth handoffs fire multiple notifications).
     private func handleRouteChange(reasonValue: UInt?) {
-        guard let reasonValue,
-              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+        guard let reasonValue else { return }
 
-        switch reason {
-        case .oldDeviceUnavailable, .newDeviceAvailable:
-            print("[Speech] Audio route changed (reason: \(reason.rawValue)) — restarting recognition")
-            if isInTriggerMode && (triggerState == .listening || triggerState == .capturing) {
-                restartTriggerRecognition()
-            } else if isListening {
-                restartRecognition()
+        let action = AudioRoutePolicy.classify(reasonValue: reasonValue)
+        guard action == .restartWithReactivation else { return }
+
+        // Force audio session reactivation to pick up new input route
+        audioSessionConfigured = false
+
+        // Debounce: Bluetooth handoffs (especially AirPods) fire multiple route
+        // change notifications over 300-500ms. Wait for them to settle.
+        routeChangeTask?.cancel()
+        routeChangeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            print("[Speech] Audio route changed (reason: \(reasonValue)) — restarting recognition")
+            if self.isInTriggerMode && (self.triggerState == .listening || self.triggerState == .capturing) {
+                self.restartTriggerRecognition()
+            } else if self.isListening {
+                self.restartRecognition()
             }
-        default:
-            break
         }
     }
 
@@ -424,6 +453,8 @@ public final class SpeechService {
     /// Stop listening for speech input (manual mic mode)
     public func stopListening() {
         isStarting = false
+        routeChangeTask?.cancel()
+        routeChangeTask = nil
         restartTask?.cancel()
         restartTask = nil
         silenceTask?.cancel()
@@ -530,6 +561,8 @@ public final class SpeechService {
     /// Stop trigger word listening
     public func stopTriggerListening() {
         isStarting = false
+        routeChangeTask?.cancel()
+        routeChangeTask = nil
         cooldownTask?.cancel()
         cooldownTask = nil
         retryTask?.cancel()
@@ -636,6 +669,9 @@ public final class SpeechService {
             engine.value.prepare()
             try engine.value.start()
         }.value
+
+        // Tap was installed successfully — track it for safe teardown
+        hasTapInstalled = true
 
         // Back on MainActor — check generation hasn't changed during async gap
         guard gen == recognitionGeneration else {
@@ -785,9 +821,16 @@ public final class SpeechService {
     }
 
     /// Tears down audio engine and recognition without changing state.
+    /// Guards inputNode access — after media services reset, the engine is invalid
+    /// and accessing inputNode can throw ObjC exceptions that Swift can't catch.
     private func teardownRecognition() {
-        if audioEngine.isRunning { audioEngine.stop() }
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngineValid {
+            if audioEngine.isRunning { audioEngine.stop() }
+            if hasTapInstalled {
+                audioEngine.inputNode.removeTap(onBus: 0)
+                hasTapInstalled = false
+            }
+        }
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()
