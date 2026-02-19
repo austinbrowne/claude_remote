@@ -966,6 +966,166 @@ struct PromptServiceTests {
         }
     }
 
+    // MARK: - Always Allowed Tools (local grant persistence)
+
+    @MainActor
+    @Test("alwaysAllowedTools survives claudeState update")
+    func alwaysAllowedToolsSurvivesClaudeState() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // Grant Bash via Allow Always
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // Simulate claudeState update that does NOT include Bash
+        // (e.g. stale 30s sync before server records the grant)
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Read"], sessionGranted: nil, mode: nil))
+
+        // New Bash permission should still be auto-skipped via alwaysAllowedTools
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.isEmpty, "Bash should remain auto-approved via alwaysAllowedTools after claudeState update")
+    }
+
+    @MainActor
+    @Test("updateAllowedTools revocation removes from alwaysAllowedTools")
+    func updateAllowedToolsRevocation() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // First, set Bash as allowed via claudeState
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Bash"], sessionGranted: nil, mode: nil))
+
+        // Grant Bash locally via Allow Always
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // Now server revokes Bash (it was in allowedTools, now it's not)
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: nil, sessionGranted: nil, mode: nil))
+
+        // New Bash permission should prompt (revocation removed from alwaysAllowedTools too)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1, "Bash should prompt after server revocation")
+    }
+
+    @MainActor
+    @Test("clearQueue clears alwaysAllowedTools")
+    func clearQueueClearsAlwaysAllowed() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // Grant Bash via Allow Always
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // Clear queue (simulates session disconnect)
+        service.clearQueue()
+
+        // New Bash permission should prompt (alwaysAllowedTools cleared)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1, "Bash should prompt after clearQueue")
+    }
+
+    @MainActor
+    @Test("clearLocalGrants clears alwaysAllowedTools at session-start")
+    func clearLocalGrantsClearsAlwaysAllowed() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // Grant Bash via Allow Always
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // Clear local grants (called at session-start)
+        service.clearLocalGrants()
+
+        // New Bash permission should prompt
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 1, "Bash should prompt after clearLocalGrants")
+    }
+
+    @MainActor
+    @Test("cascadeAlwaysAllow adds to alwaysAllowedTools")
+    func cascadeAddsToAlwaysAllowed() async throws {
+        let (service, actions) = Self.makeSUT()
+
+        // Grant Write via Allow Always
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+        #expect(actions.actions.count == 1)
+
+        // Verify Write is now auto-approved (via alwaysAllowedTools)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.isEmpty, "Write should be auto-approved after Allow Always")
+        // Auto-inject should have fired
+        #expect(actions.actions.count == 2)
+        if case .inject(let cmd, _, _) = actions.actions[1] {
+            #expect(cmd == "always")
+        } else {
+            Issue.record("Expected auto-inject for allowed tool")
+        }
+    }
+
+    @MainActor
+    @Test("MCP tool with formatted name survives updateAllowedTools with raw names")
+    func mcpToolFormattedNameSurvives() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // Permission arrives with formatted MCP name (as sent by server in permission_request.tool)
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request",
+            tool: "Server: tool",
+            toolUseId: "tu-1"
+        ))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // claudeState update has raw MCP name in sessionGranted (not formatted name)
+        service.updateAllowedTools(ClaudeState.Permissions(
+            allowedTools: nil,
+            sessionGranted: ["mcp__server__tool"],
+            mode: nil
+        ))
+
+        // New permission with formatted name should still be auto-skipped
+        // because alwaysAllowedTools stores the formatted name and claudeState
+        // never had the formatted name to revoke it
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request",
+            tool: "Server: tool",
+            toolUseId: "tu-2"
+        ))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.isEmpty, "MCP tool with formatted name should remain auto-approved")
+    }
+
+    @MainActor
+    @Test("alwaysAllowedTools not affected by claudeState for tools never in allowedTools")
+    func alwaysAllowedNotAffectedByUnrelatedClaudeState() async throws {
+        let (service, _) = Self.makeSUT()
+
+        // Grant Bash via Allow Always (Bash was never in server's allowedTools)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
+        try await Task.sleep(for: .milliseconds(700))
+        service.respondPermission(.allowAlways)
+
+        // Multiple claudeState updates with different tools — none include Bash
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Read"], sessionGranted: nil, mode: nil))
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Read", "Write"], sessionGranted: nil, mode: nil))
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: nil, sessionGranted: nil, mode: nil))
+
+        // Bash should still be auto-approved (never was in allowedTools, so no revocation detected)
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-2"))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.isEmpty, "Bash should remain auto-approved across unrelated claudeState changes")
+    }
+
     // MARK: - Plan Exit Handling
 
     @MainActor

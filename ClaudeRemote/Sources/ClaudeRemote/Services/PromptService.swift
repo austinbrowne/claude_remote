@@ -75,11 +75,32 @@ public final class PromptService {
     /// Tools that are pre-allowed and should never show permission prompts
     private var allowedTools: Set<String> = []
 
-    /// Update allowed tools from a claudeState permissions payload
+    /// Tools the user has locally granted "always" during this session.
+    /// Survives claudeState updates (unlike allowedTools which is replaced each sync).
+    /// SECURITY: Do not persist this set across app launches. Grants are session-scoped only.
+    private var alwaysAllowedTools: Set<String> = []
+
+    /// Update allowed tools from a claudeState permissions payload.
+    /// Defensively detects revocations: if a tool was previously in allowedTools
+    /// but is now absent, remove it from alwaysAllowedTools too.
     public func updateAllowedTools(_ permissions: ClaudeState.Permissions) {
-        var tools = Set(permissions.allowedTools ?? [])
-        tools.formUnion(permissions.sessionGranted ?? [])
-        allowedTools = tools
+        var newTools = Set(permissions.allowedTools ?? [])
+        newTools.formUnion(permissions.sessionGranted ?? [])
+
+        // Defensive revocation detection: remove locally-granted tools
+        // that the server has actively removed from the allowed set
+        let revoked = allowedTools.subtracting(newTools)
+        if !revoked.isEmpty {
+            alwaysAllowedTools.subtract(revoked)
+        }
+
+        allowedTools = newTools
+    }
+
+    /// Clear locally-granted "always" tools. Called at session-start to prevent
+    /// cross-session grant leakage.
+    public func clearLocalGrants() {
+        alwaysAllowedTools.removeAll()
     }
 
     /// Check if a tool is pre-allowed (no permission prompt needed).
@@ -87,7 +108,7 @@ public final class PromptService {
     /// are handled by Claude Code internally. If Claude Code auto-approves,
     /// the coalesce delay + tool_result suppression handles it.
     private func isToolAllowed(_ tool: String) -> Bool {
-        allowedTools.contains(tool)
+        allowedTools.contains(tool) || alwaysAllowedTools.contains(tool)
     }
 
     // MARK: - Internal State
@@ -371,13 +392,14 @@ public final class PromptService {
         }
     }
 
-    /// Clear the entire queue (used on session switch)
+    /// Clear the entire queue and local grants (used on session switch/disconnect)
     public func clearQueue() {
         promptQueue.removeAll()
         messagesSincePrompt = 0
         cancelAllPendingPermissions()
         multiSelectTask?.cancel()
         multiSelectTask = nil
+        alwaysAllowedTools.removeAll()
     }
 
     // MARK: - Private
@@ -584,8 +606,10 @@ public final class PromptService {
     /// After "Allow Always", proactively remove other permissions for the same tool
     /// and persist the grant so future requests are auto-skipped without a server round-trip.
     private func cascadeAlwaysAllow(tool: String) {
-        // Persist grant client-side so handlePermissionRequest → isToolAllowed skips future prompts
-        allowedTools.insert(tool)
+        // Persist grant client-side so handlePermissionRequest → isToolAllowed skips future prompts.
+        // Only add to alwaysAllowedTools (not allowedTools) so that updateAllowedTools revocation
+        // detection doesn't falsely treat locally-granted tools as server-revoked.
+        alwaysAllowedTools.insert(tool)
 
         // Cancel pending permissions for the same tool
         for (key, pending) in pendingPermissions {
