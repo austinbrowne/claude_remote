@@ -1,49 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-
-// Replicate detectMilestone and extractMilestones from server.js
-// (server.js can't be imported directly due to side effects)
-
-const MAX_MILESTONES = 20;
-
-function detectMilestone(item, sessionData) {
-  if (!sessionData) return null;
-
-  if (item.type === 'tool' || item.type === 'permission_request' ||
-      (item.type === 'status_update' && item.tool)) {
-    sessionData.toolBurstCount++;
-    return null;
-  }
-
-  if (item.type === 'assistant' && sessionData.toolBurstCount >= 2) {
-    const milestone = {
-      text: item.content || '',
-      timestamp: item.timestamp || new Date().toISOString(),
-      toolCount: sessionData.toolBurstCount
-    };
-    sessionData.milestones.push(milestone);
-    while (sessionData.milestones.length > MAX_MILESTONES) {
-      sessionData.milestones.shift();
-    }
-    sessionData.toolBurstCount = 0;
-    return milestone;
-  }
-
-  if (item.type === 'assistant' || item.type === 'user') {
-    sessionData.toolBurstCount = 0;
-  }
-
-  return null;
-}
-
-function extractMilestones(items, sessionData) {
-  const milestones = [];
-  for (const item of items) {
-    const m = detectMilestone(item, sessionData);
-    if (m) milestones.push(m);
-  }
-  return milestones;
-}
+const { MAX_MILESTONES, detectMilestone, extractMilestones } = require('../lib/log-parser');
 
 function createSessionData() {
   return { milestones: [], toolBurstCount: 0 };

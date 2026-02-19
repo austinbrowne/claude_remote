@@ -4,29 +4,10 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
+const { EXCLUDED_DIRS, EXTENSION_TO_LANGUAGE, validatePath: validatePathAsync } = require('../lib/file-api');
+const { MAX_READ_SIZE } = require('../lib/utils');
 
-// Test the file browsing helper functions in isolation.
-// Since server.js has side effects (starts HTTP server), we replicate
-// the core logic directly, matching the implementation in server.js.
-
-const EXCLUDED_DIRS = new Set(['.git', 'node_modules', '.build', 'build']);
-
-const EXTENSION_TO_LANGUAGE = {
-  '.swift': 'swift', '.js': 'javascript', '.ts': 'typescript',
-  '.jsx': 'jsx', '.tsx': 'tsx', '.py': 'python', '.rb': 'ruby',
-  '.go': 'go', '.rs': 'rust', '.java': 'java', '.kt': 'kotlin',
-  '.c': 'c', '.cpp': 'cpp', '.h': 'c', '.hpp': 'cpp',
-  '.cs': 'csharp', '.php': 'php', '.sh': 'bash', '.zsh': 'bash',
-  '.json': 'json', '.yaml': 'yaml', '.yml': 'yaml', '.toml': 'toml',
-  '.xml': 'xml', '.html': 'html', '.css': 'css', '.scss': 'scss',
-  '.sql': 'sql', '.md': 'markdown', '.r': 'r', '.lua': 'lua',
-  '.dart': 'dart', '.ex': 'elixir', '.exs': 'elixir',
-  '.zig': 'zig', '.v': 'v', '.nim': 'nim',
-};
-
-const MAX_READ_SIZE = 1024 * 1024; // 1MB
-
-// Replicate validatePath from server.js
+// Synchronous wrapper matching the test's expected signature (no res parameter)
 function validatePath(cwd, requestedPath) {
   const resolved = path.resolve(cwd, requestedPath);
   if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {

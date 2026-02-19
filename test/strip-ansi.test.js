@@ -1,10 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-
-// Replicate stripAnsi from server.js (can't import directly due to side effects)
-function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-}
+const { stripAnsi } = require('../lib/utils');
 
 describe('stripAnsi', () => {
   it('passes through plain text unchanged', () => {
