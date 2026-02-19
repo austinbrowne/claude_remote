@@ -144,4 +144,75 @@ struct InputBarHelpersTests {
         let exact = String(repeating: "x", count: 40)
         #expect(InputBarHelpers.truncatedLabel(exact) == exact)
     }
+
+    @Test("truncatedLabel handles emoji at boundary correctly")
+    func truncatedLabelEmojiBoundary() {
+        // 38 chars + family emoji (single grapheme cluster but multi-codepoint)
+        let label = String(repeating: "a", count: 38) + "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}" + "extra"
+        let result = InputBarHelpers.truncatedLabel(label, maxLength: 40)
+        // Swift String.prefix operates on Character (grapheme clusters), so this is safe
+        #expect(result.count == 40)
+        #expect(result.hasSuffix("\u{2026}"))
+    }
+
+    // MARK: - shouldShowFallbackApproval
+
+    @Test("fallback shows when waiting + no prompt + has session")
+    func fallbackShowsWhenConditionsMet() {
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .waiting,
+            currentPrompt: nil,
+            currentSessionId: "s1"
+        ) == true)
+    }
+
+    @Test("fallback hidden when status is idle")
+    func fallbackHiddenWhenIdle() {
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .idle,
+            currentPrompt: nil,
+            currentSessionId: "s1"
+        ) == false)
+    }
+
+    @Test("fallback hidden when status is processing")
+    func fallbackHiddenWhenProcessing() {
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .processing,
+            currentPrompt: nil,
+            currentSessionId: "s1"
+        ) == false)
+    }
+
+    @Test("fallback hidden when prompt card is visible")
+    func fallbackHiddenWhenPromptVisible() {
+        let prompt = PromptItem(kind: .permission(tool: "Bash", command: "ls", isDestructive: false))
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .waiting,
+            currentPrompt: prompt,
+            currentSessionId: "s1"
+        ) == false)
+    }
+
+    @Test("fallback hidden when no session")
+    func fallbackHiddenWhenNoSession() {
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .waiting,
+            currentPrompt: nil,
+            currentSessionId: nil
+        ) == false)
+    }
+
+    @Test("fallback hidden when question prompt is visible")
+    func fallbackHiddenWhenQuestionVisible() {
+        let questions = [QuestionData(question: "Pick?", options: [
+            QuestionOption(label: "A", value: "a"),
+        ])]
+        let prompt = PromptItem(kind: .question(questions: questions))
+        #expect(InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: .waiting,
+            currentPrompt: prompt,
+            currentSessionId: "s1"
+        ) == false)
+    }
 }

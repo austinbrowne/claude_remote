@@ -9,10 +9,13 @@ const PROMPT_STYLES = {
 };
 
 const DESTRUCTIVE_KEYWORDS = ['delete', 'remove', 'drop', 'destroy', 'reset', 'force', 'overwrite', 'erase'];
+const VALID_APPROVAL_COMMANDS = ['y', 'n', 'always'];
+const FALLBACK_DEBOUNCE_MS = 2000; // Must match Swift fallbackDebounceSeconds
 
 let currentPrompt = null;
 let promptMessageIndex = 0;
 const promptQueue = [];
+let fallbackApprovalTimer = null;
 
 function isDestructivePrompt(text) {
   const lower = text.toLowerCase();
@@ -120,6 +123,7 @@ function showPromptCard(prompt) {
 
   currentPrompt = prompt;
   promptMessageIndex = document.querySelectorAll('.message').length;
+  hideFallbackApproval();
 
   // Apply styling based on prompt type
   const style = PROMPT_STYLES[prompt.type];
@@ -534,6 +538,7 @@ function hidePromptCard() {
   card.classList.remove('show', 'loading', 'stale');
   currentPrompt = null;
   updateActionButtons();
+  checkFallbackApproval();
 
   // Show next queued prompt if any
   if (promptQueue.length > 0) {
@@ -553,5 +558,54 @@ function checkPromptStaleness() {
   const currentCount = document.querySelectorAll('.message').length;
   if (currentCount > promptMessageIndex + 2) {
     document.getElementById('promptCard').classList.add('stale');
+  }
+}
+
+// ============================================
+// Fallback Approval (when prompt card fails)
+// ============================================
+
+function getCurrentSessionStatus() {
+  if (!currentSessionId) return null;
+  const option = document.querySelector(`#sessionSelector option[value="${CSS.escape(currentSessionId)}"]`);
+  return option?.dataset.status || null;
+}
+
+function checkFallbackApproval() {
+  const isWaiting = getCurrentSessionStatus() === 'waiting';
+  const hasPrompt = currentPrompt !== null;
+
+  if (isWaiting && !hasPrompt && currentSessionId) {
+    // Start 2s timer if not already running
+    if (!fallbackApprovalTimer) {
+      fallbackApprovalTimer = setTimeout(() => {
+        const el = document.getElementById('fallbackApproval');
+        if (el) el.classList.remove('hidden');
+        fallbackApprovalTimer = null;
+      }, FALLBACK_DEBOUNCE_MS);
+    }
+  } else {
+    hideFallbackApproval();
+  }
+}
+
+function hideFallbackApproval() {
+  if (fallbackApprovalTimer) {
+    clearTimeout(fallbackApprovalTimer);
+    fallbackApprovalTimer = null;
+  }
+  const el = document.getElementById('fallbackApproval');
+  if (el) el.classList.add('hidden');
+}
+
+function fallbackApprove(command) {
+  if (!currentSessionId) return;
+  if (!VALID_APPROVAL_COMMANDS.includes(command)) return;
+  navigator.vibrate?.(50);
+  const success = wsSend({ action: 'inject', command, sessionId: currentSessionId });
+  if (success) {
+    trackSentMessage(command);
+    appendMessage({ type: 'user', content: command });
+    hideFallbackApproval();
   }
 }

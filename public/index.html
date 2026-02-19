@@ -148,6 +148,15 @@
     </div>
 
     <div class="input-area">
+      <!-- Fallback Approval Row (shown when session is waiting but prompt card didn't appear) -->
+      <div class="fallback-approval hidden" id="fallbackApproval">
+        <span class="fallback-label">&#x26A0;&#xFE0F; Waiting for approval</span>
+        <div class="fallback-actions">
+          <button class="prompt-btn primary" onclick="fallbackApprove('y')">Allow</button>
+          <button class="prompt-btn allow-always" onclick="fallbackApprove('always')">Always</button>
+          <button class="prompt-btn secondary" onclick="fallbackApprove('n')">Deny</button>
+        </div>
+      </div>
       <!-- Mode Indicator (matches iOS InputBarView utility row) -->
       <div class="mode-bar" id="modeBar">
         <button class="mode-btn" id="modeBtn" onclick="sendModeToggle()" title="Toggle mode">

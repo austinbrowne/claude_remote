@@ -13,8 +13,14 @@ struct InputBarView: View {
     @State private var lastSendTime: Date?
     @FocusState private var isFocused: Bool
 
+    /// Fallback approval row state (shown when session is waiting but no prompt card appeared)
+    @State private var showFallbackApproval = false
+    @State private var fallbackDebounceTask: Task<Void, Never>?
+
     /// Minimum interval between sends to prevent double-tap
     private static let sendCooldown: TimeInterval = 0.3
+    /// Debounce delay before showing fallback approval row. Must match JS FALLBACK_DEBOUNCE_MS.
+    private static let fallbackDebounceSeconds: Int = 2
     static let maxSuggestions = 6
 
     private var canSend: Bool {
@@ -41,6 +47,11 @@ struct InputBarView: View {
             // Question suggestion chips
             if !questionChips.isEmpty {
                 suggestionChipRow
+            }
+
+            // Fallback approval row (when prompt card system fails)
+            if showFallbackApproval {
+                fallbackApprovalRow
             }
 
             VStack(spacing: 6) {
@@ -154,6 +165,11 @@ struct InputBarView: View {
             }
         }
         #endif
+        .onAppear { updateFallbackApproval() }
+        .onDisappear { fallbackDebounceTask?.cancel(); fallbackDebounceTask = nil }
+        .onChange(of: state.sessionStatus) { _, _ in updateFallbackApproval() }
+        .onChange(of: coordinator.promptService.currentPrompt) { _, _ in updateFallbackApproval() }
+        .onChange(of: state.currentSessionId) { _, _ in updateFallbackApproval() }
     }
 
     // MARK: - Question Suggestion Chips
@@ -190,6 +206,75 @@ struct InputBarView: View {
             }
         }
         .padding(.top, 6)
+    }
+
+    // MARK: - Fallback Approval
+
+    private var fallbackApprovalRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.subheadline)
+
+            Text("Waiting for approval")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("Allow") { injectFallback("y") }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
+                .controlSize(.small)
+
+            Button("Always") { injectFallback("always") }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+            Button("Deny") { injectFallback("n") }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.08))
+    }
+
+    private func injectFallback(_ command: String) {
+        guard let sessionId = state.currentSessionId else { return }
+        coordinator.injectCommand(command, sessionId: sessionId)
+        showFallbackApproval = false
+        fallbackDebounceTask?.cancel()
+        fallbackDebounceTask = nil
+        #if os(iOS)
+        HapticService.medium()
+        #endif
+    }
+
+    private func updateFallbackApproval() {
+        let conditionsMet = InputBarHelpers.shouldShowFallbackApproval(
+            sessionStatus: state.sessionStatus,
+            currentPrompt: coordinator.promptService.currentPrompt,
+            currentSessionId: state.currentSessionId
+        )
+
+        if conditionsMet {
+            // Start 2s debounce timer only if not already showing or timing
+            if !showFallbackApproval && fallbackDebounceTask == nil {
+                fallbackDebounceTask = Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(Self.fallbackDebounceSeconds))
+                    guard !Task.isCancelled else { return }
+                    showFallbackApproval = true
+                    fallbackDebounceTask = nil
+                }
+            }
+        } else {
+            // Cancel timer and hide immediately
+            fallbackDebounceTask?.cancel()
+            fallbackDebounceTask = nil
+            showFallbackApproval = false
+        }
     }
 
     // MARK: - Autocomplete
@@ -349,5 +434,17 @@ enum InputBarHelpers {
     static func truncatedLabel(_ label: String, maxLength: Int = 40) -> String {
         if label.count <= maxLength { return label }
         return String(label.prefix(maxLength - 1)) + "\u{2026}"
+    }
+
+    /// Check if fallback approval conditions are met:
+    /// session is waiting, no prompt card visible, and a session is active.
+    static func shouldShowFallbackApproval(
+        sessionStatus: SessionStatus,
+        currentPrompt: PromptItem?,
+        currentSessionId: String?
+    ) -> Bool {
+        sessionStatus == .waiting
+        && currentPrompt == nil
+        && currentSessionId != nil
     }
 }

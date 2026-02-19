@@ -53,12 +53,15 @@ function updateSessionStatus(sessionId, status) {
   // Update header label dot if this is the current session
   if (sessionId === currentSessionId) {
     updateSessionLabel();
+    checkFallbackApproval();
   }
 }
 
 function switchSession() {
   const sessionId = document.getElementById('sessionSelector').value;
   if (!sessionId) return;
+
+  hideFallbackApproval();
 
   // Set switching state to prevent race conditions with in-flight messages
   sessionState = SESSION_STATE.SWITCHING;

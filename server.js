@@ -713,6 +713,7 @@ async function watchSession(sessionId) {
     contextPercentage: 0,        // Latest context % from statusline file
     contextPollInterval: null,   // Interval handle for /tmp/claude-ctx-* polling
     subagentWatchers: new Map(),  // Track subagent file watchers
+    subagentPollIntervals: new Map(), // Fallback poll intervals per subagent
     subagentPositions: new Map(), // Track read positions per subagent
     subagentTimeouts: new Map(),  // Track inactivity timeouts per subagent
     subagentInfo: new Map(),      // Track subagent metadata for sync to new clients
@@ -775,6 +776,7 @@ function unwatchSession(sessionId) {
       watcher.close();
       console.log(`[Subagent] Stopped watching: ${agentId}`);
     });
+    sessionData.subagentPollIntervals?.forEach(interval => clearInterval(interval));
     sessionData.subagentTimeouts?.forEach(timeout => clearTimeout(timeout));
 
     activeSessions.delete(sessionId);
@@ -938,6 +940,8 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   let processing = false;
   const processFileContent = async (filePath) => {
     if (processing) return;
+    // Guard against post-stopSubagent poll ticks (interval may fire once after clearInterval)
+    if (!sessionData.subagentWatchers.has(agentId)) return;
     processing = true;
     try {
       const stats = await fsp.stat(filePath);
@@ -1131,6 +1135,14 @@ async function watchSubagent(sessionId, agentId, logFile, isNew = true) {
   // Bind handler to change events
   watcher.on('change', processFileContent);
 
+  // Fallback poll: ensures deferred pendingPermissions are flushed even when
+  // the subagent writes no new content (e.g., waiting for user permission).
+  // Without this, permissions can be trapped in the pendingPermissions Map
+  // forever if all arrive in one batch and the agent goes idle.
+  const SUBAGENT_FALLBACK_POLL_MS = 2000;
+  const subagentFallbackPoll = setInterval(() => processFileContent(logFile), SUBAGENT_FALLBACK_POLL_MS);
+  sessionData.subagentPollIntervals.set(agentId, subagentFallbackPoll);
+
   sessionData.subagentWatchers.set(agentId, watcher);
 
   // IMMEDIATELY read existing content (fixes race condition where subagent
@@ -1171,6 +1183,12 @@ function stopSubagent(sessionId, agentId, reason) {
     sessionData.subagentPositions.delete(agentId);
     sessionData.subagentInfo.delete(agentId);
     subagentToolThrottles.delete(agentId);
+
+    const pollInterval = sessionData.subagentPollIntervals.get(agentId);
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      sessionData.subagentPollIntervals.delete(agentId);
+    }
 
     const timeout = sessionData.subagentTimeouts.get(agentId);
     if (timeout) {
