@@ -327,7 +327,7 @@ struct AppCoordinatorTests {
     func taskCreate() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.taskCreate(id: "t1", subject: "Do stuff", description: "Details", activeForm: "Doing stuff", status: "pending"))
+        coordinator.webSocketDidReceiveMessage(.taskCreate(id: "t1", subject: "Do stuff", description: "Details", activeForm: "Doing stuff", status: "pending", owner: nil))
         #expect(state.tasks.count == 1)
         #expect(state.tasks[0].id == "t1")
         #expect(state.tasks[0].subject == "Do stuff")
@@ -339,7 +339,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         state.tasks.append(TaskItem(id: "t1", subject: "Old", status: "pending"))
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New", activeForm: "Doing new", description: "New desc"))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New", activeForm: "Doing new", description: "New desc", owner: nil))
         #expect(state.tasks[0].subject == "New")
         #expect(state.tasks[0].status == "completed")
         #expect(state.tasks[0].activeForm == "Doing new")
@@ -351,7 +351,7 @@ struct AppCoordinatorTests {
     func taskUpdateUnknownId() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil, activeForm: nil, description: nil))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil, activeForm: nil, description: nil, owner: nil))
         #expect(state.tasks.isEmpty)
     }
 
@@ -529,22 +529,24 @@ struct AppCoordinatorTests {
     }
 
     @MainActor
-    @Test("subagentOutput routes permission_request to prompt queue")
+    @Test("subagentOutput routes permission_request to prompt queue (server auto-approve fallback)")
     func subagentOutputRoutesPermission() async throws {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        // Register an active subagent so description lookup works
         state.activeSubagents["a1"] = SubagentInfo(description: "Security review", agentType: "general")
         let data = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-sub-1")
         coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
-        // Should NOT add a chat message
-        #expect(state.messages.isEmpty)
-        // Wait for 500ms delay
+        // Wait for coalescing timer to flush
         try await Task.sleep(for: .milliseconds(700))
-        // Should be in prompt queue with agent description
+        // Permission_request should be in prompt queue — server broadcasts as fallback when auto-approve fails
         #expect(coordinator.promptService.promptQueue.count == 1)
+        if case .permission(let tool, _, _) = coordinator.promptService.currentPrompt?.kind {
+            #expect(tool == "Bash")
+        } else {
+            Issue.record("Expected permission prompt")
+        }
+        // Agent description should be attached
         #expect(coordinator.promptService.currentPrompt?.agentDescription == "Security review")
-        #expect(coordinator.promptService.currentPrompt?.toolUseId == "tu-sub-1")
     }
 
     @MainActor
@@ -835,5 +837,91 @@ struct AppCoordinatorTests {
         coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad"))
         #expect(state.currentToast != nil)
         #expect(state.currentToast?.style == .error)
+    }
+
+    // MARK: - History + Status Ordering (#35)
+
+    @MainActor
+    @Test("history arrives before session_status: prompts recover when status later becomes waiting")
+    func historyBeforeStatusRecovery() {
+        // Reproduces #35: history arrives first (status still .idle), then session_status = waiting
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+
+        // Step 1: history arrives — includes unanswered permission_request
+        let historyData: [ClaudeOutputData] = [
+            ClaudeOutputData(type: "assistant", content: "Let me run that"),
+            ClaudeOutputData(type: "permission_request", tool: "Bash",
+                            input: ["command": .string("git status")], toolUseId: "tu-1"),
+        ]
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+
+        // At this point status is still .idle — recoverFromHistory should not restore yet
+        #expect(coordinator.promptService.promptQueue.isEmpty,
+                "Prompt should not appear before session status is known")
+
+        // Step 2: session_status = waiting arrives (normal server ordering)
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil))
+
+        // Now the prompt should be recovered
+        #expect(coordinator.promptService.promptQueue.count == 1,
+                "Permission should be recovered after session_status = waiting")
+        if case .permission(let tool, _, _) = coordinator.promptService.currentPrompt?.kind {
+            #expect(tool == "Bash")
+        } else {
+            Issue.record("Expected Bash permission to be recovered")
+        }
+    }
+
+    @MainActor
+    @Test("history arrives before claude_state: prompts recover when claude_state reports waiting")
+    func historyBeforeClaudeStateRecovery() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+
+        // History arrives first
+        let historyData: [ClaudeOutputData] = [
+            ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"),
+        ]
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+        #expect(coordinator.promptService.promptQueue.isEmpty)
+
+        // claude_state reports waiting status
+        let claudeState = ClaudeState(session: nil, status: "waiting", mode: nil,
+                                       contextPercentage: nil, permissions: nil, subagents: nil,
+                                       tasks: nil, lastActivity: nil, team: nil)
+        coordinator.webSocketDidReceiveMessage(.claudeState(sessionId: "s1", state: claudeState))
+
+        #expect(coordinator.promptService.promptQueue.count == 1,
+                "Permission should be recovered via claude_state status=waiting")
+        if case .permission(let tool, _, _) = coordinator.promptService.currentPrompt?.kind {
+            #expect(tool == "Write")
+        } else {
+            Issue.record("Expected Write permission to be recovered")
+        }
+    }
+
+    @MainActor
+    @Test("session_status waiting when no pending prompts in history: does not add spurious prompts")
+    func sessionStatusWaitingNoPrompts() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+
+        // History with only answered permission (tool_result follows)
+        let historyData: [ClaudeOutputData] = [
+            ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"),
+            ClaudeOutputData(type: "tool_result", content: "done", toolUseId: "tu-1"),
+        ]
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+
+        // session_status = waiting arrives
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil))
+
+        // No prompts should appear (the permission was answered)
+        #expect(coordinator.promptService.promptQueue.isEmpty,
+                "No prompt should be recovered for answered permission")
     }
 }
