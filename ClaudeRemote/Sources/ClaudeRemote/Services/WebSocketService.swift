@@ -241,7 +241,10 @@ public final class WebSocketService {
             let message = try decoder.decode(ServerMessage.self, from: data)
             handleServerMessage(message)
         } catch {
-            // Log decode error but don't crash
+            // Log decode error with the raw JSON for debugging.
+            // Truncate to 500 chars to avoid flooding logs with large messages.
+            let preview = jsonString.prefix(500)
+            print("[WebSocket] Decode error: \(error.localizedDescription) — raw: \(preview)")
             delegate?.webSocketDidFailWithError(error)
         }
     }

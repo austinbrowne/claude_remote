@@ -70,6 +70,10 @@ public final class PromptService {
     /// The active prompt being displayed — queue head (nil when queue is empty).
     public var currentPrompt: PromptItem? { promptQueue.first }
 
+    /// Last permission request seen (tool name + command). Used by fallback approval row
+    /// to show context about what's waiting when the prompt card system misses a prompt.
+    public private(set) var lastSeenPermission: (tool: String?, command: String?)?
+
     // MARK: - Allowed Tools (from claudeState)
 
     /// Tools that are pre-allowed and should never show permission prompts
@@ -193,27 +197,45 @@ public final class PromptService {
 
     /// Handle a session_status change
     public func handleSessionStatus(_ status: SessionStatus) {
-        // Note: we intentionally do NOT clearQueue() on .processing.
-        // In multi-agent mode, one agent starting to process doesn't mean
-        // others are done waiting. Each prompt is properly dismissed by its
-        // own tool_result event via dismissPermission(toolUseId:).
-        // Session disconnect/switch still calls clearQueue() explicitly.
+        // When the session starts processing, mark existing QUESTIONS as stale
+        // (Claude moved past them). Don't mark PERMISSIONS stale — multiple
+        // permissions can be queued simultaneously (e.g. 3 WebFetch prompts).
+        // Claude processes permissions sequentially, so going to "processing"
+        // after approving permission 1 doesn't mean permissions 2 and 3 are
+        // resolved. Marking them stale would cause auto-removal and stall the
+        // session waiting for approval that the user can't give.
+        if status == .processing && !promptQueue.isEmpty {
+            for i in promptQueue.indices {
+                if case .permission = promptQueue[i].kind { continue }
+                promptQueue[i].isStale = true
+            }
+            // Only bump message counter if we actually marked something stale
+            let hasStale = promptQueue.contains { $0.isStale }
+            if hasStale {
+                messagesSincePrompt = max(messagesSincePrompt, 2)
+            }
+        }
     }
 
     /// Recover prompts from history (called after loading history messages).
-    /// Finds ALL unmatched permission_request/ask_user_question entries.
+    /// Only recovers the LAST unanswered prompt — Claude Code blocks on one
+    /// prompt at a time, so older "unanswered" entries are almost certainly
+    /// already resolved (the evidence just isn't in our message history).
     public func recoverFromHistory(_ messages: [Message], sessionStatus: SessionStatus) {
         guard sessionStatus == .waiting else { return }
         clearQueue() // Prevent duplicates on reconnect
 
         // Collect all prompt messages and track which have been answered
         var answeredToolUseIds: Set<String> = []
-        var unansweredPrompts: [Message] = []
 
         // Forward scan: find prompts and track which are answered
         var promptIndices: [(index: Int, msg: Message)] = []
         for (i, msg) in messages.enumerated() {
             if msg.type == .toolResult, let tuId = msg.toolUseId {
+                answeredToolUseIds.insert(tuId)
+            }
+            // permission_resolved entries signal that a permission was already handled
+            if msg.type == .permissionResolved, let tuId = msg.toolUseId {
                 answeredToolUseIds.insert(tuId)
             }
             // tool_results are merged into tool/permissionRequest messages —
@@ -227,58 +249,69 @@ public final class PromptService {
             }
         }
 
-        // A prompt is unanswered if:
-        // - Permission: no matching tool_result and no immediately following user message
-        // - Question: no subsequent user message (answer injection)
-        for (idx, msg) in promptIndices {
+        // Find the LAST unanswered prompt only (reverse scan).
+        // Claude Code processes prompts sequentially — only one is active.
+        var lastUnanswered: Message?
+        for (idx, msg) in promptIndices.reversed() {
             if msg.type == .permissionRequest {
                 if let tuId = msg.toolUseId, answeredToolUseIds.contains(tuId) {
                     continue
                 }
-                // Also skip if a user message follows it (manual answer)
+                // Skip if a user message follows it (manual answer)
                 if idx + 1 < messages.count && messages[idx + 1].type == .user {
                     continue
                 }
+                // Skip if ANY assistant/tool message follows (Claude moved on)
+                let hasSubsequentProgress = ((idx + 1)..<messages.count).contains {
+                    messages[$0].type == .assistant || messages[$0].type == .tool
+                }
+                if hasSubsequentProgress { continue }
             } else if msg.type == .askUserQuestion {
                 // Question answered if followed by a user message anywhere after it
                 let hasFollowingUserMsg = ((idx + 1)..<messages.count).contains {
                     messages[$0].type == .user
                 }
                 if hasFollowingUserMsg { continue }
+                // Also skip if Claude continued working after the question
+                let hasSubsequentProgress = ((idx + 1)..<messages.count).contains {
+                    messages[$0].type == .assistant || messages[$0].type == .tool
+                }
+                if hasSubsequentProgress { continue }
             }
-            unansweredPrompts.append(msg)
+            lastUnanswered = msg
+            break // Only need the last one
         }
 
-        for msg in unansweredPrompts {
-            if msg.type == .permissionRequest {
-                // Don't filter by isToolAllowed here — the server already filters
-                // permission_requests with matching tool_results. If one reached us
-                // without a tool_result, Claude Code is genuinely waiting for it,
-                // regardless of the tool's "always" grant status.
-                let prompt = PromptItem(
-                    kind: .permission(
-                        tool: msg.tool,
-                        command: extractCommand(from: msg),
-                        isDestructive: msg.isDestructive
-                    ),
-                    arrivedAt: msg.timestamp,
-                    isStale: true,
-                    toolUseId: msg.toolUseId
-                )
-                enqueuePrompt(prompt)
-            } else if msg.type == .askUserQuestion, let questions = msg.questions, !questions.isEmpty {
-                let prompt = PromptItem(
-                    kind: .question(questions: questions),
-                    arrivedAt: msg.timestamp,
-                    isStale: true
-                )
-                enqueuePrompt(prompt)
-            }
+        guard let msg = lastUnanswered else { return }
+
+        if msg.type == .permissionRequest {
+            let prompt = PromptItem(
+                kind: .permission(
+                    tool: msg.tool,
+                    command: extractCommand(from: msg),
+                    isDestructive: msg.isDestructive
+                ),
+                arrivedAt: msg.timestamp,
+                isStale: false, // Only prompt recovered — it's the current one
+                toolUseId: msg.toolUseId
+            )
+            enqueuePrompt(prompt)
+        } else if msg.type == .askUserQuestion, let questions = msg.questions, !questions.isEmpty {
+            let prompt = PromptItem(
+                kind: .question(questions: questions),
+                arrivedAt: msg.timestamp,
+                isStale: false // Only prompt recovered — it's the current one
+            )
+            enqueuePrompt(prompt)
         }
     }
 
-    /// Dismiss the current (head) prompt
+    /// Dismiss the current (head) prompt.
+    /// For permissions, sends 'n' to prevent server-side deadlock (#41).
     public func dismiss() {
+        if let sid = sessionId, case .permission = currentPrompt?.kind {
+            sendHandler?(.inject(command: "n", sessionId: sid, toolUseId: currentPrompt?.toolUseId))
+        }
         dismissHead()
         // Cancel multi-select even if queue was already empty
         // (respondMultiSelect dismisses head before starting its task)
@@ -293,13 +326,16 @@ public final class PromptService {
         dismissHead()
     }
 
-    /// Respond with freeform "Other" text. Uses direct `inject` (typed text) rather
-    /// than `selectOption` + `inject`, matching the web client's approach. Claude Code's
-    /// AskUserQuestion accepts typed text directly — the ink Select arrow-key mechanism
-    /// is not needed for freeform responses.
+    /// Respond with freeform "Other" text.
+    /// Uses `selectOther` (arrow-key navigation to "Other" + inject text) because
+    /// Claude Code's ink-based AskUserQuestion selector ignores typed text — only
+    /// arrow keys work to move between options. The server `select_other` handler
+    /// navigates to the "Other" index, waits for ink to transition to TextInput,
+    /// then injects the freeform text.
     public func respondOther(optionCount: Int, text: String) {
         guard let sid = sessionId else { return }
-        sendHandler?(.inject(command: text, sessionId: sid))
+        // "Other" appears after all defined options (0-indexed)
+        sendHandler?(.selectOther(index: optionCount, text: text, sessionId: sid))
         dismissHead()
     }
 
@@ -312,7 +348,7 @@ public final class PromptService {
         dismissHead()
     }
 
-    /// Approve all pending permissions at once. Sends "always" for head, cascades the rest.
+    /// Approve all pending permissions at once. Sends "always" for each queued permission.
     public func approveAll() {
         guard let sid = sessionId else { return }
         guard case .permission = currentPrompt?.kind else { return }
@@ -330,6 +366,20 @@ public final class PromptService {
         let headToolUseId = currentPrompt?.toolUseId
         sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: headToolUseId))
         dismissHead()
+
+        // Send "always" for each remaining queued permission so server unblocks them
+        for item in promptQueue {
+            if case .permission = item.kind {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: item.toolUseId))
+            }
+        }
+
+        // Send "always" for each pending (buffered) permission
+        for (_, pending) in pendingPermissions {
+            if case .permission = pending.item.kind {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: pending.item.toolUseId))
+            }
+        }
 
         // Persist all tools to allowedTools (skips future prompts)
         allowedTools.formUnion(allTools)
@@ -400,11 +450,17 @@ public final class PromptService {
         multiSelectTask?.cancel()
         multiSelectTask = nil
         alwaysAllowedTools.removeAll()
+        lastSeenPermission = nil
     }
 
     // MARK: - Private
 
     private func handlePermissionRequest(_ data: ClaudeOutputData, agentDescription: String?) {
+        let command = data.content ?? data.input?["command"]?.stringValue
+
+        // Track last permission for fallback approval context (#42)
+        lastSeenPermission = (tool: data.tool, command: command)
+
         // Auto-respond if tool is pre-allowed (from claudeState or approveAll).
         // The terminal may still be blocked on this prompt (e.g., after approveAll cleared
         // the queue but subagent prompts keep arriving). Injecting "always" unblocks it.
@@ -420,7 +476,6 @@ public final class PromptService {
             promptQueue.removeAll { $0.toolUseId == toolUseId }
         }
 
-        let command = data.content ?? data.input?["command"]?.stringValue
         let pendingKey = data.toolUseId ?? UUID().uuidString
         arrivalCounter += 1
         let order = arrivalCounter
@@ -437,7 +492,18 @@ public final class PromptService {
 
         // Store as pending and schedule coalesced flush
         pendingPermissions[pendingKey] = (item: prompt, order: order)
-        scheduleCoalescedEnqueue()
+
+        // Anti-starvation: if we've been holding permissions longer than maxHoldTime,
+        // flush immediately instead of scheduling another debounce timer.
+        // This prevents rapid arrivals from starving the coalesce timer indefinitely.
+        if let firstArrival = firstPendingArrival,
+           Date().timeIntervalSince(firstArrival) >= Self.maxHoldTime {
+            coalesceTask?.cancel()
+            coalesceTask = nil
+            flushPendingPermissions()
+        } else {
+            scheduleCoalescedEnqueue()
+        }
     }
 
     private func handleQuestion(_ data: ClaudeOutputData, agentDescription: String?) {
@@ -513,23 +579,16 @@ public final class PromptService {
     }
 
     /// Schedule a coalesced flush of all pending permissions.
-    /// Resets on each new arrival (debounce), but forces flush after maxHoldTime
-    /// to prevent starvation when permissions arrive continuously.
+    /// Resets on each new arrival (debounce). The caller handles anti-starvation
+    /// via synchronous maxHoldTime check before calling this method.
     private func scheduleCoalescedEnqueue() {
         if firstPendingArrival == nil {
             firstPendingArrival = Date()
         }
         coalesceTask?.cancel()
 
-        // Compute delay: use coalesceDelay or remaining maxHoldTime, whichever is shorter
-        let elapsed = Date().timeIntervalSince(firstPendingArrival!)
-        let remaining = max(0, Self.maxHoldTime - elapsed)
-        let delayMs = min(Double(Self.coalesceDelay.components.seconds) * 1000
-                         + Double(Self.coalesceDelay.components.attoseconds) / 1e15,
-                         remaining * 1000)
-
         coalesceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(delayMs)))
+            try? await Task.sleep(for: Self.coalesceDelay)
             guard !Task.isCancelled, let self else { return }
             self.flushPendingPermissions()
         }
@@ -587,7 +646,7 @@ public final class PromptService {
         multiSelectTask = nil
     }
 
-    /// Dismiss a specific queued permission matching a tool_result's toolUseId
+    /// Dismiss a specific queued prompt matching a tool_result's toolUseId
     private func dismissPermission(toolUseId: String?) {
         if let toolUseId {
             if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
@@ -597,27 +656,40 @@ public final class PromptService {
             // (the item may have already been dismissed by user or cascadeAlwaysAllow)
             return
         }
-        // Fallback ONLY when no toolUseId provided (legacy path)
-        if case .permission = promptQueue.first?.kind {
+        // Fallback ONLY when no toolUseId provided (legacy path).
+        // Dismiss head if it's a permission (original behavior) or if it's stale
+        // (catches stale questions that should have been dismissed).
+        guard let head = promptQueue.first else { return }
+        if case .permission = head.kind {
+            dismissHead()
+        } else if head.isStale {
             dismissHead()
         }
     }
 
-    /// After "Allow Always", proactively remove other permissions for the same tool
+    /// After "Allow Always", proactively approve and remove other permissions for the same tool
     /// and persist the grant so future requests are auto-skipped without a server round-trip.
     private func cascadeAlwaysAllow(tool: String) {
+        guard let sid = sessionId else { return }
+
         // Persist grant client-side so handlePermissionRequest → isToolAllowed skips future prompts.
         // Only add to alwaysAllowedTools (not allowedTools) so that updateAllowedTools revocation
         // detection doesn't falsely treat locally-granted tools as server-revoked.
         alwaysAllowedTools.insert(tool)
 
-        // Cancel pending permissions for the same tool
+        // Send "always" for each pending permission of the same tool, then cancel
         for (key, pending) in pendingPermissions {
             if case .permission(let t, _, _) = pending.item.kind, t == tool {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: pending.item.toolUseId))
                 pendingPermissions.removeValue(forKey: key)
             }
         }
-        // Remove queued permissions for the same tool
+        // Send "always" for each queued permission of the same tool, then remove
+        for item in promptQueue {
+            if case .permission(let t, _, _) = item.kind, t == tool {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: item.toolUseId))
+            }
+        }
         promptQueue.removeAll { item in
             if case .permission(let t, _, _) = item.kind { return t == tool }
             return false
@@ -632,15 +704,24 @@ public final class PromptService {
                 promptQueue[i].isStale = true
             }
         }
-        // Safety-net auto-removal: after 30+ messages, remove stale permission prompts.
-        // High threshold reduces risk of removing still-pending permissions.
-        // Questions and planExit prompts are NEVER auto-removed — they require explicit user action.
-        if messagesSincePrompt >= 30 {
+        // Auto-remove stale prompts after 5 messages. If Claude has produced 5 more
+        // messages since a prompt, it was clearly resolved (user answered it or it
+        // timed out). Applies to permissions AND questions — both can go stale.
+        // Only planExit is excluded (requires explicit user action).
+        if messagesSincePrompt >= 5 {
             promptQueue.removeAll { item in
                 guard item.isStale else { return false }
-                if case .permission = item.kind { return true }
-                return false
+                if case .planExit = item.kind { return false }
+                return true
             }
+        }
+        // Time-based cleanup: remove any prompt older than 60 seconds that is stale.
+        // Catches prompts that went stale but fewer than 5 messages followed.
+        let now = Date()
+        promptQueue.removeAll { item in
+            guard item.isStale else { return false }
+            if case .planExit = item.kind { return false }
+            return now.timeIntervalSince(item.arrivedAt) > 60
         }
     }
 

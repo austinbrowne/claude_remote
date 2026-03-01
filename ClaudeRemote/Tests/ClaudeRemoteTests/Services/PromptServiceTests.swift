@@ -240,21 +240,22 @@ struct PromptServiceTests {
     }
 
     @MainActor
-    @Test("recovered prompts are marked stale")
-    func recoveredPromptsAreStale() {
+    @Test("single recovered prompt is NOT marked stale (it's the current prompt)")
+    func recoveredSinglePromptNotStale() {
         let (service, _) = Self.makeSUT()
         let messages = [
             Message(type: .permissionRequest, tool: "Bash"),
         ]
         service.recoverFromHistory(messages, sessionStatus: .waiting)
         #expect(service.currentPrompt != nil)
-        #expect(service.currentPrompt?.isStale == true)
+        // Single recovered prompt is the current one — not stale
+        #expect(service.currentPrompt?.isStale == false)
     }
 
     // MARK: - Response Actions
 
     @MainActor
-    @Test("respondOther injects freeform text directly")
+    @Test("respondOther uses selectOther to navigate ink selector then inject freetext")
     func respondOtherInjectsDirectly() async throws {
         let (service, capture) = Self.makeSUT()
         let questions = [QuestionData(question: "Pick?", options: [
@@ -267,14 +268,16 @@ struct PromptServiceTests {
 
         service.respondOther(optionCount: 3, text: "my custom answer")
 
-        // Single inject action with the freeform text (no selectOption needed —
-        // Claude Code's AskUserQuestion accepts typed text directly)
+        // selectOther navigates ink selector to "Other" via arrow keys, waits 600ms for
+        // ink to transition to TextInput mode, then injects the freeform text.
+        // Claude Code's ink-based selector ignores typed text — only arrow keys work.
         #expect(capture.actions.count == 1)
-        if case .inject(let command, let sessionId, _) = capture.actions[0] {
-            #expect(command == "my custom answer")
+        if case .selectOther(let index, let text, let sessionId) = capture.actions[0] {
+            #expect(index == 3)
+            #expect(text == "my custom answer")
             #expect(sessionId == "test-session")
         } else {
-            Issue.record("Expected inject action with typed text")
+            Issue.record("Expected selectOther action, got: \(capture.actions[0])")
         }
         #expect(service.currentPrompt == nil, "Prompt should be dismissed")
     }
@@ -623,6 +626,29 @@ struct PromptServiceTests {
     }
 
     @MainActor
+    @Test("session_status processing marks questions stale but NOT permissions")
+    func processingMarksQuestionsStaleNotPermissions() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "WebFetch", toolUseId: "tu-1"))
+        service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "WebFetch", toolUseId: "tu-2"))
+        let questions = [QuestionData(question: "Pick?")]
+        service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(service.promptQueue.count == 3)
+
+        service.handleSessionStatus(.processing)
+        #expect(service.promptQueue.count == 3, "All items should remain in queue")
+
+        // Permissions should NOT be marked stale (Claude still needs approval)
+        let permissions = service.promptQueue.filter { if case .permission = $0.kind { return true }; return false }
+        #expect(permissions.allSatisfy { !$0.isStale }, "Permissions should not be marked stale on processing")
+
+        // Questions SHOULD be marked stale (Claude moved past them)
+        let questions2 = service.promptQueue.filter { if case .question = $0.kind { return true }; return false }
+        #expect(questions2.allSatisfy { $0.isStale }, "Questions should be marked stale on processing")
+    }
+
+    @MainActor
     @Test("dismiss removes head, next item becomes currentPrompt")
     func dismissRemovesHead() async throws {
         let (service, _) = Self.makeSUT()
@@ -668,8 +694,8 @@ struct PromptServiceTests {
     }
 
     @MainActor
-    @Test("history recovery finds multiple unmatched permissions")
-    func recoverMultiplePermissions() {
+    @Test("history recovery recovers only the last unmatched permission")
+    func recoverLastPermission() {
         let (service, _) = Self.makeSUT()
         let messages = [
             Message(type: .assistant, content: "Running tools..."),
@@ -678,10 +704,9 @@ struct PromptServiceTests {
             Message(type: .permissionRequest, tool: "Edit", toolUseId: "tu-3"),
         ]
         service.recoverFromHistory(messages, sessionStatus: .waiting)
-        #expect(service.promptQueue.count == 3)
-        #expect(service.promptQueue[0].toolUseId == "tu-1")
-        #expect(service.promptQueue[1].toolUseId == "tu-2")
-        #expect(service.promptQueue[2].toolUseId == "tu-3")
+        // Only the LAST unanswered permission is recovered
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-3")
     }
 
     @MainActor
@@ -726,8 +751,8 @@ struct PromptServiceTests {
     }
 
     @MainActor
-    @Test("recovers multiple questions past user messages")
-    func recoverMultipleQuestionsPastUserMessages() {
+    @Test("recovers only the last unanswered question")
+    func recoverLastUnansweredQuestion() {
         let (service, _) = Self.makeSUT()
         let q1 = [QuestionData(question: "Q1?")]
         let q2 = [QuestionData(question: "Q2?")]
@@ -739,14 +764,9 @@ struct PromptServiceTests {
             Message(type: .askUserQuestion, questions: q3),
         ]
         service.recoverFromHistory(messages, sessionStatus: .waiting)
-        // Q1 answered, Q2 and Q3 unanswered
-        #expect(service.promptQueue.count == 2)
+        // Only the LAST unanswered question is recovered (Q3)
+        #expect(service.promptQueue.count == 1)
         if case .question(let qs) = service.promptQueue[0].kind {
-            #expect(qs[0].question == "Q2?")
-        } else {
-            Issue.record("Expected Q2")
-        }
-        if case .question(let qs) = service.promptQueue[1].kind {
             #expect(qs[0].question == "Q3?")
         } else {
             Issue.record("Expected Q3")
@@ -775,11 +795,12 @@ struct PromptServiceTests {
             Message(type: .askUserQuestion, questions: [QuestionData(question: "Q?")]),
         ]
         service.recoverFromHistory(messages, sessionStatus: .waiting)
-        #expect(service.promptQueue.count == 2)
+        // Only recovers the LAST unanswered prompt (Q?)
+        #expect(service.promptQueue.count == 1)
 
-        // Call again with same data — should still have exactly 2, not 4
+        // Call again with same data — should still have exactly 1, not 2
         service.recoverFromHistory(messages, sessionStatus: .waiting)
-        #expect(service.promptQueue.count == 2)
+        #expect(service.promptQueue.count == 1)
     }
 
     @MainActor
@@ -887,8 +908,9 @@ struct PromptServiceTests {
 
         service.approveAll()
 
-        // Should have sent exactly 1 inject with head's toolUseId
-        #expect(capture.actions.count == 1)
+        // Should have sent "always" for each permission (head + 2 remaining)
+        #expect(capture.actions.count == 3)
+        // First action: head permission (tu-1)
         if case .inject(let command, let sessionId, let toolUseId) = capture.actions[0] {
             #expect(command == "always")
             #expect(sessionId == "test-session")
@@ -896,6 +918,15 @@ struct PromptServiceTests {
         } else {
             Issue.record("Expected inject action with head toolUseId")
         }
+        // Remaining actions: one inject per queued permission (tu-2, tu-3)
+        let remainingToolUseIds = capture.actions.dropFirst().compactMap { action -> String? in
+            if case .inject(let command, _, let toolUseId) = action {
+                #expect(command == "always")
+                return toolUseId
+            }
+            return nil
+        }
+        #expect(Set(remainingToolUseIds) == Set(["tu-2", "tu-3"]))
         // Queue should be completely empty
         #expect(service.promptQueue.isEmpty)
     }
@@ -1269,37 +1300,51 @@ struct PromptServiceTests {
     // MARK: - Fallback Auto-Removal
 
     @MainActor
-    @Test("stale permissions auto-removed after 30+ messages")
-    func fallbackRemovalAfterThirtyMessages() async throws {
+    @Test("stale prompts auto-removed after 5+ messages")
+    func fallbackRemovalAfterFiveMessages() async throws {
         let (service, _) = Self.makeSUT()
         service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
         try await Task.sleep(for: .milliseconds(700))
         #expect(service.promptQueue.count == 1)
 
-        // Send 30 assistant messages to trigger fallback removal
-        for i in 0..<30 {
+        // Send 5 assistant messages to trigger fallback removal (marks stale after 2, removes after 5)
+        for i in 0..<5 {
             service.handleClaudeOutput(ClaudeOutputData(type: "assistant", content: "msg \(i)"))
         }
-        #expect(service.promptQueue.isEmpty, "Stale permission should be auto-removed after 30 messages")
+        #expect(service.promptQueue.isEmpty, "Stale permission should be auto-removed after 5 messages")
     }
 
     @MainActor
-    @Test("questions are NOT auto-dismissed by fallback removal")
-    func fallbackDoesNotRemoveQuestions() {
+    @Test("stale questions also auto-removed after 5+ messages")
+    func staleQuestionsAutoRemoved() {
         let (service, _) = Self.makeSUT()
         let questions = [QuestionData(question: "Pick?")]
         service.handleClaudeOutput(ClaudeOutputData(type: "ask_user_question", questions: questions))
         #expect(service.promptQueue.count == 1)
 
-        // Send 30+ messages
-        for i in 0..<32 {
+        // Send 5+ messages — stale questions are now auto-removed too
+        for i in 0..<6 {
             service.handleClaudeOutput(ClaudeOutputData(type: "assistant", content: "msg \(i)"))
         }
-        #expect(service.promptQueue.count == 1, "Questions must never be auto-removed")
-        if case .question = service.currentPrompt?.kind {
+        #expect(service.promptQueue.isEmpty, "Stale questions should be auto-removed after 5 messages")
+    }
+
+    @MainActor
+    @Test("planExit is NOT auto-dismissed by fallback removal")
+    func fallbackDoesNotRemovePlanExit() {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(type: "exit_plan_mode"))
+        #expect(service.promptQueue.count == 1)
+
+        // Send 10+ messages — planExit should survive
+        for i in 0..<10 {
+            service.handleClaudeOutput(ClaudeOutputData(type: "assistant", content: "msg \(i)"))
+        }
+        #expect(service.promptQueue.count == 1, "PlanExit must never be auto-removed")
+        if case .planExit = service.currentPrompt?.kind {
             // Expected
         } else {
-            Issue.record("Expected question to survive fallback removal")
+            Issue.record("Expected planExit to survive fallback removal")
         }
     }
 
@@ -1326,19 +1371,20 @@ struct PromptServiceTests {
     @Test("adding permission with same toolUseId replaces existing from history recovery")
     func dedupReplacesExisting() async throws {
         let (service, _) = Self.makeSUT()
-        // Simulate history recovery adding a stale permission
+        // Simulate history recovery adding a permission
         let messages = [
             Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
         ]
         service.recoverFromHistory(messages, sessionStatus: .waiting)
         #expect(service.promptQueue.count == 1)
-        #expect(service.currentPrompt?.isStale == true)
+        // Only prompt recovered — not marked stale
+        #expect(service.currentPrompt?.isStale == false)
 
         // Now a fresh permission_request arrives with the same toolUseId
         service.handleClaudeOutput(ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"))
         try await Task.sleep(for: .milliseconds(700))
 
-        // Should have exactly 1 prompt (deduped), and it should be fresh (not stale)
+        // Should have exactly 1 prompt (deduped)
         #expect(service.promptQueue.count == 1)
         #expect(service.currentPrompt?.isStale == false)
     }
@@ -1410,6 +1456,114 @@ struct PromptServiceTests {
         } else {
             Issue.record("Expected planExit as second")
         }
+    }
+
+    // MARK: - History Recovery: Status Timing (#35)
+
+    @MainActor
+    @Test("recoverFromHistory returns early when sessionStatus is .idle (status arrives after history)")
+    func recoverDoesNothingWhenStatusIsIdle() {
+        let (service, _) = Self.makeSUT()
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+        ]
+        // Simulate: history arrives before session_status — status is still .idle
+        service.recoverFromHistory(messages, sessionStatus: .idle)
+        #expect(service.promptQueue.isEmpty, "Should not recover when status is idle")
+    }
+
+    @MainActor
+    @Test("recoverFromHistory with waiting status recovers prompts (second call after status update)")
+    func recoverSucceedsWhenCalledAfterStatusUpdate() {
+        let (service, _) = Self.makeSUT()
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+        ]
+        // First call with idle status (simulates history arriving before session_status)
+        service.recoverFromHistory(messages, sessionStatus: .idle)
+        #expect(service.promptQueue.isEmpty)
+
+        // Second call with waiting status (simulates AppCoordinator re-calling when status changes)
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        #expect(service.promptQueue.count == 1)
+        if case .permission(let tool, _, _) = service.currentPrompt?.kind {
+            #expect(tool == "Bash")
+        } else {
+            Issue.record("Expected Bash permission to be recovered")
+        }
+    }
+
+    @MainActor
+    @Test("recoverFromHistory skips permission_request matching a permission_resolved in history")
+    func recoverSkipsPermissionResolved() {
+        let (service, _) = Self.makeSUT()
+        let messages = [
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-1"),
+            Message(type: .permissionResolved, toolUseId: "tu-1"),  // Already resolved
+            Message(type: .permissionRequest, tool: "Write", toolUseId: "tu-2"),  // Still pending
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        // Only Write should be recovered — Bash was resolved
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-2")
+    }
+
+    @MainActor
+    @Test("recoverFromHistory handles cross-boundary: permission_resolved earlier in history")
+    func recoverHandlesCrossBoundaryResolution() {
+        let (service, _) = Self.makeSUT()
+        // Both resolve AND request in the history — resolved should win
+        let messages = [
+            Message(type: .permissionResolved, toolUseId: "tu-stale"),
+            Message(type: .permissionRequest, tool: "Bash", toolUseId: "tu-stale"),  // Shows up after resolved due to log ordering
+            Message(type: .permissionRequest, tool: "Write", toolUseId: "tu-pending"),
+        ]
+        service.recoverFromHistory(messages, sessionStatus: .waiting)
+        // Only Write should be recovered — Bash's toolUseId was in permission_resolved
+        #expect(service.promptQueue.count == 1)
+        #expect(service.promptQueue[0].toolUseId == "tu-pending")
+    }
+
+    // MARK: - lastSeenPermission (#42)
+
+    @MainActor
+    @Test("lastSeenPermission is set on permission_request")
+    func lastSeenPermissionSet() {
+        let (service, _) = Self.makeSUT()
+        #expect(service.lastSeenPermission == nil)
+
+        let data = ClaudeOutputData(type: "permission_request", tool: "Bash", input: ["command": .string("rm -rf /")])
+        service.handleClaudeOutput(data)
+
+        #expect(service.lastSeenPermission?.tool == "Bash")
+        #expect(service.lastSeenPermission?.command == "rm -rf /")
+    }
+
+    @MainActor
+    @Test("lastSeenPermission is set even for auto-approved tools")
+    func lastSeenPermissionSetForAutoApproved() {
+        let (service, _) = Self.makeSUT()
+        // Pre-allow tool
+        service.updateAllowedTools(ClaudeState.Permissions(allowedTools: ["Read"], sessionGranted: nil, mode: nil))
+
+        let data = ClaudeOutputData(type: "permission_request", content: "/some/file.txt", tool: "Read")
+        service.handleClaudeOutput(data)
+
+        // Should still track it even though auto-approved
+        #expect(service.lastSeenPermission?.tool == "Read")
+        #expect(service.lastSeenPermission?.command == "/some/file.txt")
+    }
+
+    @MainActor
+    @Test("lastSeenPermission is cleared on clearQueue")
+    func lastSeenPermissionClearedOnClearQueue() {
+        let (service, _) = Self.makeSUT()
+        let data = ClaudeOutputData(type: "permission_request", tool: "Bash", input: ["command": .string("ls")])
+        service.handleClaudeOutput(data)
+        #expect(service.lastSeenPermission != nil)
+
+        service.clearQueue()
+        #expect(service.lastSeenPermission == nil)
     }
 }
 

@@ -167,6 +167,23 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         webSocket?.send(.escape(sessionId: sessionId))
     }
 
+    /// Refresh the current session by unwatching and re-watching.
+    /// Clears all local state and reloads history from the server — manual "unfreeze".
+    public func refreshCurrentSession(_ sessionId: String) {
+        webSocket?.send(.unwatchSession(sessionId: sessionId))
+        state.messages.removeAll()
+        state.activeSubagents.removeAll()
+        state.tasks.removeAll()
+        state.sessionStatus = .unknown
+        state.currentActivity = nil
+        state.contextPercentage = 0
+        promptService.clearQueue()
+        // Re-watch to get fresh history and state
+        webSocket?.send(.watchSession(sessionId: sessionId))
+        webSocket?.setLastWatchedSession(sessionId)
+        promptService.sessionId = sessionId
+    }
+
     /// Toggle plan/act mode for a session
     public func toggleMode(_ sessionId: String) {
         webSocket?.send(.modeToggle(sessionId: sessionId))
@@ -174,7 +191,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     /// Trigger a clear & resume cycle for the given session
     public func clearAndResume(_ sessionId: String) {
-        state.clearAndResumeState = .clearing
+        // First server step is "saving_state" — set that as initial state
+        state.clearAndResumeState = .savingState
         webSocket?.send(.clearAndResume(sessionId: sessionId))
     }
 
@@ -198,6 +216,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public func webSocketDidConnect() {
         state.isConnected = true
         state.showToast("Connected", icon: "wifi", style: .success)
+        // Re-watch the current session after reconnect.
+        // When AppCoordinator.reconnect() creates a new WebSocketService,
+        // the old lastWatchedSessionId is lost. Explicitly re-watch here
+        // so output continues flowing after connection recovery.
+        if let sessionId = state.currentSessionId {
+            watchSession(sessionId)
+        }
     }
 
     public func webSocketDidDisconnect(code: Int?) {
@@ -206,7 +231,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     }
 
     public func webSocketDidFailWithError(_ error: Error) {
-        // Errors during connection are surfaced via disconnect
+        // Log errors for debugging (decode failures, connection issues)
+        print("[AppCoordinator] WebSocket error: \(error.localizedDescription)")
     }
 
     public func webSocketDidReceiveMessage(_ message: ServerMessage) {
@@ -225,6 +251,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .authResult(let success, let error):
             if success {
                 state.isAuthenticated = true
+                // If a notification tap triggered a session switch while disconnected,
+                // retry it now that we're authenticated
+                if let pendingId = state.pendingSessionId, state.sessionSwitchState == .switching {
+                    watchSession(pendingId)
+                }
             } else {
                 state.isAuthenticated = false
                 state.isConnected = false
@@ -293,12 +324,23 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
 
         case .claudeOutput(let sessionId, let data):
-            // Ignore output from a different session (prevents cross-session message leaks)
-            if sessionId != state.currentSessionId { break }
+            // Ignore output from a different session (prevents cross-session message leaks).
+            // Also accept messages for a session we're actively switching to (pendingSessionId)
+            // to avoid dropping output during the brief switch window.
+            if sessionId != state.currentSessionId && sessionId != state.pendingSessionId {
+                print("[AppCoordinator] Dropped claude_output: sessionId \(sessionId.prefix(8)) != current \(state.currentSessionId?.prefix(8) ?? "nil")")
+                break
+            }
             // Skip local CLI commands (/compact, /help, etc.)
             if data.isLocalCommand { return }
-            // Compaction complete — show toast and skip chat
+            // Compaction starting — show full-screen overlay
+            if data.type == "compaction_starting" {
+                state.isCompacting = true
+                return
+            }
+            // Compaction complete — dismiss overlay and show toast
             if data.type == "compaction_complete" {
+                state.isCompacting = false
                 state.showToast("Context compacted", icon: "arrow.triangle.2.circlepath", style: .info)
                 return
             }
@@ -389,6 +431,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             state.sessionStatus = parsed
             if parsed == .idle || parsed == .waiting { state.currentActivity = nil }
             promptService.handleSessionStatus(parsed)
+            // #35: session_status often arrives AFTER history. If the queue is still empty
+            // and the session is now waiting, attempt history recovery with the correct status.
+            if parsed == .waiting && promptService.promptQueue.isEmpty && !state.messages.isEmpty {
+                promptService.recoverFromHistory(state.messages, sessionStatus: .waiting)
+            }
             #if os(iOS)
             if promptService.currentPrompt == nil { cancelAutoModeSpeech() }
 
@@ -422,11 +469,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.showToast("Context nearly full — consider /compact", icon: "exclamationmark.triangle.fill", style: .warning)
             }
 
-        case .taskCreate(let id, let subject, let description, let activeForm, let status):
-            let task = TaskItem(id: id, subject: subject, status: status, description: description, activeForm: activeForm)
+        case .taskCreate(let id, let subject, let description, let activeForm, let status, let owner):
+            let task = TaskItem(id: id, subject: subject, status: status, description: description, activeForm: activeForm, owner: owner)
             state.tasks.append(task)
 
-        case .taskUpdate(let taskId, let status, let subject, let activeForm, let description):
+        case .taskUpdate(let taskId, let status, let subject, let activeForm, let description, let owner):
             if status == "deleted" {
                 // Remove deleted tasks from the list
                 state.tasks.removeAll { $0.id == taskId }
@@ -437,7 +484,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                     subject: subject ?? old.subject,
                     status: status,
                     description: description ?? old.description,
-                    activeForm: activeForm ?? old.activeForm
+                    activeForm: activeForm ?? old.activeForm,
+                    owner: owner ?? old.owner
                 )
             }
 
@@ -475,28 +523,28 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
 
         case .subagentOutput(let agentId, _, let data):
-            // Route subagent permission_request and ask_user_question to the prompt queue
-            if let data, (data.type == "permission_request" || data.type == "ask_user_question") {
-                let queueWasEmpty = promptService.promptQueue.isEmpty
+            // Subagent permissions are auto-approved server-side via TTY injection.
+            // However, if auto-approve fails, the server broadcasts the permission as
+            // a fallback. Route permission_request and ask_user_question to the prompt
+            // queue so the user can approve manually when auto-approve doesn't work.
+            if let data, (data.type == "ask_user_question" || data.type == "permission_request") {
                 let desc = state.activeSubagents[agentId]?.description
                 promptService.handleClaudeOutput(data, agentDescription: desc)
 
                 #if os(iOS)
-                // Only notify for the first permission in a burst (queue was empty before)
-                guard queueWasEmpty || promptService.promptQueue.isEmpty else { break }
-                if data.type == "permission_request" {
-                    let tool = data.tool ?? "Tool"
-                    let cmd = data.content ?? data.input?["command"]?.stringValue ?? ""
-                    let prefix = desc.map { "\($0) — " } ?? ""
-                    notify(trigger: .permission, sessionId: nil, body: "\(prefix)\(tool): \(cmd)")
-                } else {
+                if data.type == "ask_user_question" {
                     let questionText = data.questions?.first?.question ?? "Question from Claude"
                     let prefix = desc.map { "\($0) — " } ?? ""
                     notify(trigger: .question, sessionId: nil, body: "\(prefix)\(questionText)")
+                } else if data.type == "permission_request" {
+                    let toolName = data.tool ?? "Unknown tool"
+                    let prefix = desc.map { "\($0) — " } ?? ""
+                    notify(trigger: .permission, sessionId: nil, body: "\(prefix)\(toolName) needs approval")
                 }
                 #endif
             }
-            // Other subagent output suppressed — activity shown in inline card + badge detail sheet
+            // Other subagent output (tool, assistant, etc.) suppressed —
+            // activity shown in inline card + badge detail sheet
 
         case .subagentTool(let agentId, let tool, _):
             state.activeSubagents[agentId]?.currentTool = tool
@@ -517,12 +565,28 @@ public final class AppCoordinator: WebSocketServiceDelegate {
                 state.messages[msgIndex].subagentCurrentTool = nil
             }
 
+        case .teamCreate(let teamName):
+            state.activeTeamName = teamName
+            state.teamMessages.removeAll()
+
+        case .teamDelete:
+            state.activeTeamName = nil
+            state.teamMessages.removeAll()
+
         case .teamMessage(let sender, let recipient, let content, _):
-            let msg = TeamMessage(sender: sender, recipient: recipient, content: content)
-            state.teamMessages.append(msg)
+            let teamMsg = TeamMessage(sender: sender, recipient: recipient, content: content)
+            state.teamMessages.append(teamMsg)
             if state.teamMessages.count > AppState.maxTeamMessages {
                 state.teamMessages.removeFirst(state.teamMessages.count - AppState.maxTeamMessages)
             }
+            // Also render inline in chat so team messages are visible in the conversation
+            let chatMsg = Message(
+                type: .teamMessage,
+                content: content,
+                teamSender: sender,
+                teamRecipient: recipient
+            )
+            state.appendMessage(chatMsg)
 
         case .permissionResolved(let sessionId, let toolUseId):
             // Ignore from a different session
@@ -641,6 +705,11 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             }
             if let tasks = claudeState.tasks {
                 state.tasks = tasks
+            }
+            // #35: claude_state often arrives AFTER history with the authoritative status.
+            // If the queue is empty and state now reports waiting, retry history recovery.
+            if state.sessionStatus == .waiting && promptService.promptQueue.isEmpty && !state.messages.isEmpty {
+                promptService.recoverFromHistory(state.messages, sessionStatus: .waiting)
             }
             // Sync team data from server state snapshot
             if let team = claudeState.team, let name = team.name {
@@ -766,8 +835,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .statusUpdate(let status): return "status_update status=\(status)"
         case .tokenUsage(_, let i, let o): return "token_usage in=\(i ?? 0) out=\(o ?? 0)"
         case .contextPercentage(_, let p): return "context_percentage pct=\(p ?? 0)"
-        case .taskCreate(let id, _, _, _, _): return "task_create id=\(id ?? "nil")"
-        case .taskUpdate(let id, let status, _, _, _): return "task_update id=\(id) status=\(status)"
+        case .taskCreate(let id, _, _, _, _, _): return "task_create id=\(id ?? "nil")"
+        case .taskUpdate(let id, let status, _, _, _, _): return "task_update id=\(id) status=\(status)"
         case .taskList(let tasks): return "task_list count=\(tasks.count)"
         case .subagentStarting(let desc, _): return "subagent_starting desc=\(desc.prefix(40))"
         case .subagentStart(let id, _, _, _, let team, let member): return "subagent_start id=\(id)\(team.map { " team=\($0)" } ?? "")\(member.map { " member=\($0)" } ?? "")"
@@ -775,6 +844,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .subagentTool(let id, let tool, _): return "subagent_tool id=\(id) tool=\(tool)"
         case .subagentTokens(let id, _, _): return "subagent_tokens id=\(id)"
         case .subagentStop(let id): return "subagent_stop id=\(id)"
+        case .teamCreate(let name): return "team_create name=\(name)"
+        case .teamDelete: return "team_delete"
         case .teamMessage(let sender, _, _, _): return "team_message from=\(sender)"
         case .injectResult(let success, _): return "inject_result success=\(success)"
         case .escapeResult(let success, _): return "escape_result success=\(success)"
