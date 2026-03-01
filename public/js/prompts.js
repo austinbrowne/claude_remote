@@ -2,10 +2,11 @@
 // Interactive Prompt Response UI
 // ============================================
 const PROMPT_STYLES = {
-  permission: { icon: '⚠️', title: 'Permission Required', className: 'permission' },
-  yesNo: { icon: '❓', title: 'Question', className: '' },
-  multiChoice: { icon: '📋', title: 'Pick an option', className: '' },
-  freeForm: { icon: '✏️', title: 'Your input needed', className: '' }
+  permission: { icon: '!', title: 'Permission Required', className: 'permission' },
+  yesNo: { icon: '?', title: 'Question', className: '' },
+  multiChoice: { icon: '#', title: 'Pick an option', className: '' },
+  freeForm: { icon: 'A', title: 'Your input needed', className: '' },
+  planExit: { icon: 'P', title: 'Plan Mode Ending', className: '' }
 };
 
 const DESTRUCTIVE_KEYWORDS = ['delete', 'remove', 'drop', 'destroy', 'reset', 'force', 'overwrite', 'erase'];
@@ -74,6 +75,20 @@ function detectPromptType(content) {
   return null;
 }
 
+function showPlanExitPrompt() {
+  showPromptCard({
+    type: 'planExit',
+    text: 'Plan mode is ending. How would you like to proceed?',
+    multiSelect: false,
+    options: [
+      { num: '1', text: 'Preserve context and continue' },
+      { num: '2', text: 'Clear context and start fresh' },
+      { num: '3', text: 'Manual approve (review plan first)' },
+      { num: '4', text: 'Request changes to the plan' }
+    ]
+  });
+}
+
 function showStructuredPrompt(questions, subagentId = null) {
   // Defensive checks
   if (!Array.isArray(questions) || questions.length === 0) return;
@@ -86,6 +101,7 @@ function showStructuredPrompt(questions, subagentId = null) {
       text: q.question,
       multiSelect: q.multiSelect === true,
       subagentId: subagentId,
+      isStructured: true, // Use select_option/select_other instead of inject
       options: q.options.map((opt, i) => ({
         num: (i + 1).toString(),
         text: opt.description ? `${opt.label}: ${opt.description}` : opt.label
@@ -182,6 +198,7 @@ function showPromptCard(prompt) {
       `;
       break;
 
+    case 'planExit':
     case 'multiChoice':
       let multiHtml = prompt.subagentId ? `<div class="subagent-context">🤖 Subagent: ${prompt.subagentId.substring(0, 7)}</div>` : '';
       multiHtml += `<p>${escapeHtml(question)}</p>`;
@@ -247,6 +264,7 @@ function showPromptCard(prompt) {
 
   // Update action buttons to show Yes
   updateActionButtons();
+  updatePromptQueueBadge();
 }
 
 function setupOptionKeyboardNav() {
@@ -447,10 +465,31 @@ function respondToPrompt(response) {
 function respondToPromptFreeform() {
   const input = document.getElementById('promptFreeformInput');
   const text = input?.value?.trim();
-  if (text) {
-    respondToPrompt(text);
-  } else {
+  if (!text) {
     showToast('Please enter a response', 'error');
+    return;
+  }
+
+  // For structured prompts (AskUserQuestion), use select_other
+  // "Other" is the last option, appended by Claude Code after all defined options
+  if (currentPrompt?.isStructured) {
+    const otherIndex = currentPrompt.options?.length || 0;
+    const card = document.getElementById('promptCard');
+    card.classList.add('loading');
+    navigator.vibrate?.(50);
+    const success = wsSend({ action: 'select_other', sessionId: currentSessionId, index: otherIndex, text });
+    if (success) {
+      trackSentMessage(text);
+      appendMessage({ type: 'user', content: text });
+      if (settings.ttsEnabled) speak(`Sent: ${text}`);
+      setTimeout(() => hidePromptCard(), 300);
+    } else {
+      card.classList.remove('loading');
+      showToast('Failed to send response', 'error');
+    }
+  } else {
+    // Non-structured prompts: inject text directly
+    respondToPrompt(text);
   }
 }
 
@@ -482,33 +521,70 @@ function selectOption(el, isMulti = false) {
 async function submitChoice(isMulti = false) {
   const selected = document.querySelectorAll('.prompt-option.selected');
   if (selected.length > 0) {
-    if (isMulti && selected.length > 1) {
-      // Multi-select: send each selection sequentially with long delays
-      // Claude Code expects: type "1" Enter (toggle), type "3" Enter (toggle), Enter (submit)
-      const card = document.getElementById('promptCard');
-      card.classList.add('loading');
-      navigator.vibrate?.(50);
+    const card = document.getElementById('promptCard');
+    card.classList.add('loading');
+    navigator.vibrate?.(50);
 
-      const values = Array.from(selected).map(el => el.dataset.value);
-      try {
-        for (let i = 0; i < values.length; i++) {
-          showToast(`Selecting option ${values[i]}...`, 'info');
-          await injectAndWait(values[i]);
-          // Long delay to ensure terminal processes the keystroke
-          await new Promise(r => setTimeout(r, 1000));
+    // For structured prompts (AskUserQuestion), use select_option server action
+    if (currentPrompt?.isStructured) {
+      if (isMulti && selected.length > 1) {
+        // Multi-select: send each selection as select_option sequentially
+        const indices = Array.from(selected).map(el => parseInt(el.dataset.value, 10) - 1);
+        try {
+          for (let i = 0; i < indices.length; i++) {
+            showToast(`Selecting option ${indices[i] + 1}...`, 'info');
+            const success = wsSend({ action: 'select_option', sessionId: currentSessionId, index: indices[i] });
+            if (!success) throw new Error('WebSocket send failed');
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          // Final Enter to confirm multi-select (send select_option with current position)
+          showToast('Confirming...', 'info');
+          wsSend({ action: 'inject', command: '', sessionId: currentSessionId });
+          appendMessage({ type: 'user', content: indices.map(i => i + 1).join(', ') });
+          hidePromptCard();
+        } catch (e) {
+          console.error('Multi-select failed:', e);
+          showToast('Multi-select failed: ' + e.message, 'error');
+          card.classList.remove('loading');
         }
-        // Final empty Enter to submit selections
-        showToast('Submitting...', 'info');
-        await injectAndWait('');
-        appendMessage({ type: 'user', content: values.join(', ') });
-        hidePromptCard();
-      } catch (e) {
-        console.error('Multi-select failed:', e);
-        showToast('Multi-select failed: ' + e.message, 'error');
-        card.classList.remove('loading');
+      } else {
+        // Single select: send select_option with 0-based index
+        const index = parseInt(selected[0].dataset.value, 10) - 1;
+        const success = wsSend({ action: 'select_option', sessionId: currentSessionId, index });
+        if (success) {
+          trackSentMessage(selected[0].dataset.value);
+          appendMessage({ type: 'user', content: selected[0].dataset.value });
+          if (settings.ttsEnabled) speak(`Selected option ${selected[0].dataset.value}`);
+          setTimeout(() => hidePromptCard(), 300);
+        } else {
+          card.classList.remove('loading');
+          showToast('Failed to send response', 'error');
+        }
       }
     } else {
-      respondToPrompt(selected[0].dataset.value);
+      // Non-structured (detected) prompts: use inject as before
+      card.classList.remove('loading');
+      if (isMulti && selected.length > 1) {
+        card.classList.add('loading');
+        const values = Array.from(selected).map(el => el.dataset.value);
+        try {
+          for (let i = 0; i < values.length; i++) {
+            showToast(`Selecting option ${values[i]}...`, 'info');
+            await injectAndWait(values[i]);
+            await new Promise(r => setTimeout(r, 1000));
+          }
+          showToast('Submitting...', 'info');
+          await injectAndWait('');
+          appendMessage({ type: 'user', content: values.join(', ') });
+          hidePromptCard();
+        } catch (e) {
+          console.error('Multi-select failed:', e);
+          showToast('Multi-select failed: ' + e.message, 'error');
+          card.classList.remove('loading');
+        }
+      } else {
+        respondToPrompt(selected[0].dataset.value);
+      }
     }
   } else {
     showToast('Please select an option', 'error');
@@ -538,6 +614,7 @@ function hidePromptCard() {
   card.classList.remove('show', 'loading', 'stale');
   currentPrompt = null;
   updateActionButtons();
+  updatePromptQueueBadge();
   checkFallbackApproval();
 
   // Show next queued prompt if any
@@ -548,16 +625,46 @@ function hidePromptCard() {
   }
 }
 
+function updatePromptQueueBadge() {
+  let badge = document.getElementById('promptQueueBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'promptQueueBadge';
+    badge.className = 'prompt-queue-badge';
+    document.getElementById('promptCard').appendChild(badge);
+  }
+  if (promptQueue.length > 0) {
+    badge.textContent = `+${promptQueue.length} more`;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
 function dismissPrompt() {
+  // Send denial to server for permissions (prevent deadlock)
+  if (currentPrompt && currentPrompt.type === 'permission' && currentPrompt.toolUseId) {
+    wsSend({ action: 'inject', command: 'n', sessionId: currentSessionId, toolUseId: currentPrompt.toolUseId });
+  }
   hidePromptCard();
-  showToast('You can still respond in the text input', 'info');
+  showToast('Prompt dismissed', 'info');
 }
 
 function checkPromptStaleness() {
   if (!currentPrompt) return;
   const currentCount = document.querySelectorAll('.message').length;
-  if (currentCount > promptMessageIndex + 2) {
+  const messagesSince = currentCount - promptMessageIndex;
+
+  if (messagesSince > 2) {
     document.getElementById('promptCard').classList.add('stale');
+  }
+
+  // Auto-remove stale permissions after 30+ messages (send denial to prevent deadlock)
+  if (messagesSince >= 30 && currentPrompt.type === 'permission') {
+    if (currentPrompt.toolUseId) {
+      wsSend({ action: 'inject', command: 'n', sessionId: currentSessionId, toolUseId: currentPrompt.toolUseId });
+    }
+    hidePromptCard();
   }
 }
 

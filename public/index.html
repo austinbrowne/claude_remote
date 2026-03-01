@@ -9,9 +9,13 @@
   <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230d1117' width='100' height='100' rx='20'/><text y='.9em' font-size='80' x='50%' text-anchor='middle'>⚡</text></svg>">
   <link rel="manifest" href="/manifest.json">
   <title>Claude Remote</title>
+  <!-- Google Fonts: Inter + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <!-- Prism.js for syntax highlighting (lazy-loaded) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" integrity="sha512-vswe+cgvic/XBoF1OcM/TeJ2FW0OofqAVdCZiEYkd6dwGXthvkSFWOoGGJgS2CW70VK5dQM5Oh+7ne47s74VTg==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=13">
 </head>
 <body>
   <!-- Auth Screen -->
@@ -32,21 +36,32 @@
           <option value="">Select session...</option>
         </select>
         <div class="session-label" id="sessionLabel" onclick="openSessionDrawer()">
-          <span class="session-label-dot" id="sessionLabelDot"></span>
-          <span class="session-label-name" id="sessionLabelName">No session</span>
+          <div class="session-label-row">
+            <span class="session-label-dot" id="sessionLabelDot"></span>
+            <span class="session-label-name" id="sessionLabelName">No session</span>
+          </div>
+          <span class="session-status-text" id="sessionStatusText"></span>
         </div>
       </div>
       <!-- Subagent Indicator -->
       <div class="subagent-indicator hidden" id="subagentIndicator" onclick="showSubagentSheet()">
         <span class="subagent-badge">🤖 <span class="subagent-count">0</span></span>
       </div>
+      <!-- Document Viewer Button (shown when session active) -->
+      <button class="icon-btn doc-btn" id="docViewerBtn" onclick="showDocumentViewer()" style="display:none" title="Browse files">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </button>
+      <!-- Context Ring (hidden until first context_percentage message) -->
+      <div class="context-ring" id="contextRing" style="display:none">
+        <svg viewBox="0 0 36 36" class="context-ring-svg">
+          <circle class="context-ring-bg" cx="18" cy="18" r="15.915" fill="none" stroke-width="2.5"/>
+          <circle class="context-ring-fill" id="contextRingFill" cx="18" cy="18" r="15.915"
+            fill="none" stroke-width="2.5" stroke-dasharray="0 100" stroke-dashoffset="25"
+            stroke-linecap="round"/>
+        </svg>
+        <span class="context-ring-text" id="contextRingText">0%</span>
+      </div>
       <div class="header-actions">
-        <button class="icon-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-        </button>
-        <button class="icon-btn" id="ttsToggle" onclick="toggleTTS()" title="Text-to-speech">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
-        </button>
         <button class="icon-btn" id="settingsBtn" onclick="openSettings()" title="Settings">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         </button>
@@ -78,6 +93,16 @@
       </div>
     </div>
 
+    <!-- Milestones Timeline (collapsible) -->
+    <div class="milestones-container" id="milestonesContainer" style="display:none">
+      <div class="milestones-header" onclick="toggleMilestones()">
+        <span class="milestones-label">Session Timeline</span>
+        <span class="milestones-count">0</span>
+        <svg class="milestones-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="milestones-list"></div>
+    </div>
+
     <div class="output-area" id="outputArea">
       <div class="empty-state" id="emptyState">
         <div class="icon">
@@ -103,7 +128,7 @@
       <div class="prompt-content" id="promptContent"></div>
       <div class="prompt-actions" id="promptActions"></div>
       <div class="prompt-loading" id="promptLoading">Sending...</div>
-      <div class="prompt-stale" id="promptStale">⚠️ Claude may have moved on</div>
+      <div class="prompt-stale" id="promptStale">Claude may have moved on</div>
     </div>
 
     <!-- Session Drawer (mobile swipe-to-open) -->
@@ -150,20 +175,29 @@
     <div class="input-area">
       <!-- Fallback Approval Row (shown when session is waiting but prompt card didn't appear) -->
       <div class="fallback-approval hidden" id="fallbackApproval">
-        <span class="fallback-label">&#x26A0;&#xFE0F; Waiting for approval</span>
+        <span class="fallback-icon">!</span>
+        <span class="fallback-label">Waiting for approval</span>
         <div class="fallback-actions">
           <button class="prompt-btn primary" onclick="fallbackApprove('y')">Allow</button>
           <button class="prompt-btn allow-always" onclick="fallbackApprove('always')">Always</button>
           <button class="prompt-btn secondary" onclick="fallbackApprove('n')">Deny</button>
         </div>
       </div>
-      <!-- Mode Indicator (matches iOS InputBarView utility row) -->
-      <div class="mode-bar" id="modeBar">
-        <button class="mode-btn" id="modeBtn" onclick="sendModeToggle()" title="Toggle mode">
+      <!-- Utility Row: Refresh / Mode Toggle / Mic -->
+      <div class="utility-row" id="modeBar">
+        <button class="utility-btn" id="refreshBtn" onclick="refreshSessions()" title="Refresh">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          <span>Refresh</span>
+        </button>
+        <button class="utility-btn" id="modeBtn" onclick="sendModeToggle()" title="Toggle mode">
           <span class="mode-icon" id="modeIcon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>
           </span>
           <span class="mode-label" id="modeLabel">Default</span>
+        </button>
+        <button class="utility-btn" id="voiceBtn" onclick="toggleVoiceInput()" title="Voice input">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+          <span>Mic</span>
         </button>
       </div>
       <div class="input-row">
@@ -173,9 +207,6 @@
         <div class="input-wrapper">
           <div class="autocomplete" id="autocomplete"></div>
           <textarea class="command-input" id="commandInput" placeholder="Message" rows="1" autocomplete="off" onkeydown="handleKeyDown(event)" oninput="handleInput(this)"></textarea>
-          <button class="voice-btn" id="voiceBtn" onclick="toggleVoiceInput()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-          </button>
         </div>
         <button class="action-btn yes hidden" id="yesBtn" onclick="sendPreset('y')" title="Yes">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -184,7 +215,7 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
         </button>
         <button class="send-btn large" id="sendBtn" onclick="sendCommand()">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4.01 6.03l7.51 3.22-7.52-1 .01-2.22m7.5 8.72L4 17.97v-2.22l7.51-1m-9.5-9.75l-.01 6 15 2-15 2 .01 6 21-8-21-8z"/></svg>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
         </button>
       </div>
     </div>
@@ -271,15 +302,98 @@
     </div>
   </div>
 
+  <!-- Task List Sheet -->
+  <div class="task-sheet-overlay" id="taskSheetOverlay"></div>
+  <div class="task-sheet" id="taskSheet">
+    <div class="task-sheet-header">
+      <span>Tasks</span>
+      <button class="task-sheet-close" onclick="hideTaskSheet()">Done</button>
+    </div>
+    <div class="task-sheet-progress" id="taskSheetProgress">
+      <div class="task-sheet-progress-fill" id="taskSheetProgressFill"></div>
+    </div>
+    <div class="task-sheet-list" id="taskSheetList"></div>
+  </div>
+
+  <!-- Document Viewer -->
+  <div class="doc-viewer-overlay" id="docViewerOverlay"></div>
+  <div class="doc-viewer" id="docViewer">
+    <div class="doc-viewer-header">
+      <button class="doc-viewer-back" id="docViewerBack" onclick="docViewerBack()" style="display:none">Back</button>
+      <span class="doc-viewer-path" id="docViewerPath">Files</span>
+      <button class="doc-viewer-close" onclick="hideDocumentViewer()">Done</button>
+    </div>
+    <div class="doc-viewer-content" id="docViewerContent">
+      <div class="doc-viewer-loading">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Context Detail Sheet -->
+  <div class="context-sheet-overlay" id="contextSheetOverlay"></div>
+  <div class="context-sheet" id="contextSheet">
+    <div class="context-sheet-header">
+      <span>Context Window</span>
+      <button class="context-sheet-close" id="contextSheetClose">Done</button>
+    </div>
+    <div class="context-sheet-body">
+      <div class="context-sheet-ring">
+        <svg viewBox="0 0 36 36" class="context-ring-svg large">
+          <circle class="context-ring-bg" cx="18" cy="18" r="15.915" fill="none" stroke-width="3"/>
+          <circle class="context-ring-fill" id="contextSheetRingFill" cx="18" cy="18" r="15.915"
+            fill="none" stroke-width="3" stroke-dasharray="0 100" stroke-dashoffset="25"
+            stroke-linecap="round"/>
+        </svg>
+        <span class="context-sheet-pct" id="contextSheetPct">0%</span>
+      </div>
+      <div class="context-sheet-info">
+        <div class="context-sheet-row">
+          <span class="context-sheet-label">Mode</span>
+          <span class="context-sheet-value" id="contextSheetMode">Default</span>
+        </div>
+        <div class="context-sheet-row">
+          <span class="context-sheet-label">Active Agents</span>
+          <span class="context-sheet-value" id="contextSheetAgents">0</span>
+        </div>
+      </div>
+      <button class="context-sheet-btn" id="contextCompactBtn" style="display:none">Compact Context</button>
+      <button class="context-sheet-btn clear-resume" id="contextClearResumeBtn">Clear & Resume</button>
+    </div>
+  </div>
+
+  <!-- Clear & Resume Overlay -->
+  <div class="clear-resume-overlay" id="clearResumeOverlay">
+    <div class="clear-resume-content">
+      <div class="clear-resume-spinner" id="clearResumeSpinner"></div>
+      <div class="clear-resume-text" id="clearResumeText">Clearing context...</div>
+      <div class="clear-resume-error" id="clearResumeError" style="display:none"></div>
+      <div class="clear-resume-actions" id="clearResumeActions" style="display:none">
+        <button class="clear-resume-retry" onclick="retryClearResume()">Retry</button>
+        <button class="clear-resume-dismiss" onclick="dismissClearResume()">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compaction Overlay (full-screen spinner during context compaction) -->
+  <div class="compaction-overlay" id="compactionOverlay">
+    <div class="compaction-content">
+      <div class="compaction-spinner"></div>
+      <div class="compaction-text">Compacting context...</div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
 
+  <!-- Markdown rendering: marked.js + DOMPurify (self-hosted, no CDN dependency) -->
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/purify.min.js"></script>
+
   <!-- JS: load order matters (state → connection → sessions → prompts → ui → init) -->
-  <script src="/js/state.js"></script>
-  <script src="/js/connection.js"></script>
-  <script src="/js/sessions.js"></script>
-  <script src="/js/prompts.js"></script>
-  <script src="/js/ui.js"></script>
-  <script src="/js/init.js"></script>
+  <script src="/js/state.js?v=13"></script>
+  <script src="/js/connection.js?v=13"></script>
+  <script src="/js/sessions.js?v=13"></script>
+  <script src="/js/prompts.js?v=13"></script>
+  <script src="/js/ui.js?v=13"></script>
+  <script src="/js/init.js?v=13"></script>
 </body>
 </html>

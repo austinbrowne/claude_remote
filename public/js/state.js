@@ -23,6 +23,8 @@ const SESSION_STATE = { IDLE: 0, SWITCHING: 1, ACTIVE: 2 };
 let sessionState = SESSION_STATE.IDLE;
 let pendingSessionId = null;
 let pendingPromptMessage = null;  // Queue for prompts arriving during state transitions
+// Buffer for all claude_output messages arriving during SWITCHING state (replayed on ACTIVE)
+const pendingOutputMessages = [];
 let isRecording = false;
 let recognition = null;
 let synth = window.speechSynthesis;
@@ -40,6 +42,16 @@ const TRIGGER_SILENCE_MS = 3000;    // 3s silence = auto-send
 const TRIGGER_RESTART_DELAY_MS = 300;
 const TRIGGER_WORD = 'titus';
 const TRIGGER_VARIANTS = ['titus', 'tightest', 'tidus', 'tidas', 'titus,', 'titis', 'titus.', 'tight us', 'title', 'titus!'];
+// Strip trigger word from the start of a transcript (speech recognition replays full utterance)
+function stripTriggerWord(text) {
+  const lower = text.toLowerCase();
+  for (const variant of TRIGGER_VARIANTS) {
+    if (lower.startsWith(variant)) {
+      return text.substring(variant.length).trim();
+    }
+  }
+  return text;
+}
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
 // Safe storage access (handles private browsing mode)
@@ -113,6 +125,20 @@ const pending = {
   lastPermissionCardTime: 0,   // Timestamp of last permission card shown
   lastToolLanguage: 'plaintext' // Last tool language for syntax highlighting
 };
+
+// Context window state
+let contextPercentage = 0;
+let contextReceived = false; // True after first context_percentage message
+
+// Clear & Resume state
+let clearResumeState = 'idle'; // idle | saving_state | clearing | switching | error | complete
+let clearResumeError = null;
+
+// Catch-up debounce timer
+let _catchUpTimer = null;
+
+// Milestones timeline
+let milestones = [];
 
 // Session mode (matches iOS: 'default', 'plan', 'acceptEdits')
 let currentMode = 'default';

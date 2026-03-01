@@ -53,6 +53,7 @@ function updateSessionStatus(sessionId, status) {
   // Update header label dot if this is the current session
   if (sessionId === currentSessionId) {
     updateSessionLabel();
+    updateSessionStatusText(status);
     checkFallbackApproval();
   }
 }
@@ -84,6 +85,8 @@ function switchSession() {
   activeSubagents.clear();
   activeTeamName = null;
   teamMessages.length = 0;
+  milestones = [];
+  renderMilestones();
   // Clear pending subagent card timeouts
   pendingSubagentCards.forEach(p => clearTimeout(p.timeout));
   pendingSubagentCards.length = 0;
@@ -91,8 +94,25 @@ function switchSession() {
   currentMode = 'default';
   updateModeIndicator();
   document.getElementById('statusBar')?.classList.add('hidden');
+  // Clear buffered output messages from the previous session
+  pendingOutputMessages.length = 0;
+  pendingPromptMessage = null;
+  // Clear prompt state from previous session (#43)
+  promptQueue.length = 0;
+  hidePromptCard();
+  if (pending.permissionTimeout) {
+    clearTimeout(pending.permissionTimeout);
+    pending.permissionTimeout = null;
+  }
+  pending.permissionCard = null;
+  pendingSubagentPermissions.forEach(p => clearTimeout(p.timeout));
+  pendingSubagentPermissions.clear();
 
   wsSend({ action: 'watch_session', sessionId: sessionId });
+
+  // Show doc viewer button when session is active
+  const docBtn = document.getElementById('docViewerBtn');
+  if (docBtn) docBtn.style.display = sessionId ? '' : 'none';
 
   // Update header label and hide splash
   updateSessionLabel();
@@ -109,8 +129,9 @@ function updateSessionLabel() {
     if (labelDot) labelDot.className = 'session-label-dot';
     return;
   }
-  // Strip emoji prefix from option text for clean display
-  const name = option.textContent.replace(/^(?:🟠|🔵)\s*/g, '');
+  // Strip emoji prefix and branch suffix for clean display — just the repo name
+  let name = option.textContent.replace(/^(?:🟠|🔵)\s*/g, '');
+  name = name.replace(/\s*\(.*\)$/, '');
   labelName.textContent = name;
   labelDot.className = 'session-label-dot ' + (option.dataset.status || '');
 }
@@ -410,6 +431,10 @@ function mergeOrAppendToolResult(data) {
         summary.appendChild(statusIcon);
       }
 
+      // Update parent tool group header
+      const parentGroup = matchingCard.closest('.tool-group');
+      if (parentGroup) updateToolGroupHeader(parentGroup);
+
       outputArea.scrollTop = outputArea.scrollHeight;
       return;
     }
@@ -417,6 +442,64 @@ function mergeOrAppendToolResult(data) {
 
   // Fallback: append as standalone tool_result message
   appendMessage(data);
+}
+
+// ============================================
+// Tool Grouping (matches iOS ToolGroupView)
+// ============================================
+
+function getOrCreateToolGroup(outputArea) {
+  const lastChild = outputArea.lastElementChild;
+  if (lastChild && lastChild.classList.contains('tool-group')) {
+    return lastChild;
+  }
+  const group = document.createElement('div');
+  group.className = 'tool-group';
+  group.innerHTML = `
+    <div class="tool-group-header">
+      <svg class="tool-group-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+      <span class="tool-group-label">Working...</span>
+      <span class="tool-group-summary"></span>
+      <span class="tool-group-status"></span>
+    </div>
+    <div class="tool-group-items"></div>
+  `;
+  group.querySelector('.tool-group-header').addEventListener('click', () => {
+    group.classList.toggle('expanded');
+  });
+  outputArea.appendChild(group);
+  return group;
+}
+
+function updateToolGroupHeader(group) {
+  const tools = group.querySelectorAll('.tool-group-items > .message.tool');
+  const toolCounts = {};
+  tools.forEach(t => {
+    const name = t.dataset.toolName || 'Tool';
+    toolCounts[name] = (toolCounts[name] || 0) + 1;
+  });
+
+  const count = tools.length;
+  const label = group.querySelector('.tool-group-label');
+  label.textContent = `Used ${count} tool${count !== 1 ? 's' : ''}`;
+
+  const summary = group.querySelector('.tool-group-summary');
+  summary.textContent = Object.entries(toolCounts)
+    .map(([name, c]) => c > 1 ? `${name} (${c})` : name)
+    .join(' · ');
+
+  // Mini status dots
+  const statusEl = group.querySelector('.tool-group-status');
+  let html = '';
+  tools.forEach(t => {
+    const icon = t.querySelector('.tool-status-icon');
+    if (icon) {
+      html += `<span class="tool-group-dot ${icon.classList.contains('error') ? 'error' : 'success'}"></span>`;
+    } else {
+      html += '<span class="tool-group-dot pending"></span>';
+    }
+  });
+  statusEl.innerHTML = html;
 }
 
 // ============================================
@@ -428,7 +511,18 @@ function renderHistory(history) {
   promptQueue.length = 0; // Clear any queued prompts
   hidePromptCard(); // Clear any existing prompt
 
-  history.forEach(entry => appendMessage(entry, false, true)); // skipPromptDetection=true
+  history.forEach(entry => {
+    // Skip transient types — not chat content
+    if (entry.type === 'status_update') return;
+    if (entry.type === 'compaction_starting' || entry.type === 'compaction_complete') return;
+    if (entry.type === 'subagent_starting') return;
+    // Route tool_result through merge (pairs with its tool card)
+    if (entry.type === 'tool_result') {
+      mergeOrAppendToolResult(entry);
+      return;
+    }
+    appendMessage(entry, false, true); // skipPromptDetection=true
+  });
   outputArea.scrollTop = outputArea.scrollHeight;
 
   // Check if history contains an unanswered prompt (permission or question)
@@ -474,7 +568,12 @@ function renderHistory(history) {
   }
 }
 
+// Types that are chat-visible (everything else is transient/structural)
+const CHAT_TYPES = new Set(['assistant', 'user', 'tool', 'tool_result']);
+
 function appendMessage(data, scroll = true, skipPromptDetection = false, subagentId = null) {
+  // Only render actual chat content — skip transient/structural types
+  if (!CHAT_TYPES.has(data.type)) return;
   // Skip empty assistant messages (no content)
   if (data.type === 'assistant' && (!data.content || !data.content.trim())) return;
 
@@ -504,26 +603,25 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
 
   if (data.type === 'tool') {
     const toolInput = formatToolInput(data.input);
-    // Guard against null/undefined input
     const fullInput = data.input == null
       ? ''
       : typeof data.input === 'string'
         ? data.input
         : JSON.stringify(data.input, null, 2);
     const lang = detectLanguage(data.input);
+    const toolSummary = getToolSummary(data.tool, data.input);
 
-    // Visual prefix for subagent tool messages
-    const subagentPrefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+    // Store tool name for group header
+    msg.dataset.toolName = data.tool || 'Tool';
 
     // Special handling for Edit tool - show inline diff preview
     if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
-      const filePath = data.input.file_path || 'file';
       const diffHtml = renderDiff(data.input.old_string, data.input.new_string);
       msg.innerHTML = `
         <div class="tool-summary" data-lang="${escapeHtml(lang)}">
           <span class="tool-chevron">▶</span>
-          ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
-          <span class="tool-path">${escapeHtml(filePath)}</span>
+          <span class="tool-name">${escapeHtml(data.tool)}</span>
+          <span class="tool-path">${escapeHtml(toolSummary)}</span>
         </div>
         ${diffHtml}
         <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
@@ -532,21 +630,25 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
       msg.innerHTML = `
         <div class="tool-summary" data-lang="${escapeHtml(lang)}">
           <span class="tool-chevron">▶</span>
-          ${subagentPrefix}<span class="tool-name">${escapeHtml(data.tool)}</span>
-          <span style="color: var(--text-muted)">${escapeHtml(toolInput.substring(0, 50))}${toolInput.length > 50 ? '...' : ''}</span>
+          <span class="tool-name">${escapeHtml(data.tool)}</span>
+          <span class="tool-path">${escapeHtml(toolSummary)}</span>
         </div>
         <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
       `;
     }
+
+    // Add to tool group instead of directly to output
+    const group = getOrCreateToolGroup(outputArea);
+    group.querySelector('.tool-group-items').appendChild(msg);
+    updateToolGroupHeader(group);
+    if (scroll) outputArea.scrollTop = outputArea.scrollHeight;
+    return msg;
   } else if (data.type === 'tool_result') {
     const result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-    // Split once, reuse for preview and line count
     const lines = result.split('\n');
     const preview = lines[0].substring(0, 50);
     const lineCount = lines.length;
-    // Show ellipsis if first line truncated OR multiple lines exist
     const needsEllipsis = lines[0].length > 50 || lineCount > 1;
-    // Try to detect language from previous tool call's file path
     const lang = pending.lastToolLanguage || 'plaintext';
     msg.innerHTML = `
       <div class="tool-summary" data-lang="${escapeHtml(lang)}">
@@ -555,6 +657,13 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
       </div>
       <div class="tool-details"><pre>${escapeHtml(result)}</pre></div>
     `;
+  } else if (data.type === 'assistant') {
+    const content = typeof data.content === 'string'
+      ? data.content
+      : JSON.stringify(data.content);
+    const prefix = isSubagent ? '<span style="color: var(--orange); font-weight: 600;">🤖 </span>' : '';
+    const rendered = renderAssistantContent(content);
+    msg.innerHTML = prefix + `<div class="markdown-body">${rendered}</div>`;
   } else {
     const content = typeof data.content === 'string'
       ? data.content
@@ -579,6 +688,29 @@ function formatToolInput(input) {
   if (input.content) return input.content.substring(0, 200) + (input.content.length > 200 ? '...' : '');
   if (input.path) return input.path;
   return JSON.stringify(input, null, 2).substring(0, 200);
+}
+
+// Clean summary for tool cards (matches iOS ToolCardView summaries)
+function getToolSummary(tool, input) {
+  if (!input) return '';
+  switch (tool) {
+    case 'Read': case 'Write': case 'Edit': case 'MultiEdit':
+      return (input.file_path || '').split('/').pop() || '';
+    case 'Bash':
+      return (input.command || '').split('\n')[0].substring(0, 60);
+    case 'Glob':
+      return input.pattern || '';
+    case 'Grep':
+      return input.pattern || '';
+    case 'WebFetch':
+      return input.url || '';
+    case 'WebSearch':
+      return input.query || '';
+    case 'Task':
+      return (input.description || '').substring(0, 60);
+    default:
+      return '';
+  }
 }
 
 // Toggle tool expand with syntax highlighting

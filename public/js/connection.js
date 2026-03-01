@@ -161,6 +161,13 @@ function handleVisibilityChange() {
       }
     } else {
       checkConnectionHealth();
+      // Short background: request catch-up to fill any missed messages
+      if (currentSessionId) {
+        clearTimeout(_catchUpTimer);
+        _catchUpTimer = setTimeout(() => {
+          wsSend({ action: 'catch_up', sessionId: currentSessionId });
+        }, 500);
+      }
     }
 
     // Restart trigger listening when returning to foreground (iOS kills mic in background)
@@ -217,6 +224,9 @@ function reconnect() {
 
   const savedSessionId = currentSessionId;
   currentSessionId = null;
+  // Clear buffered messages from before the reconnect — they'll arrive via history
+  pendingOutputMessages.length = 0;
+  pendingPromptMessage = null;
 
   const statusDot = document.getElementById('statusDot');
   statusDot.classList.remove('connected');
@@ -294,22 +304,34 @@ function handleMessage(msg) {
       // Update mobile header and hide splash
       updateSessionLabel();
       document.getElementById('sessionPickerSplash')?.classList.add('hidden');
-      // Process any queued prompt that arrived during state transition
-      if (sessionState === SESSION_STATE.ACTIVE && pendingPromptMessage) {
-        const queued = pendingPromptMessage;
-        pendingPromptMessage = null;
-        if (queued.sessionId === currentSessionId) {
-          if (queued.data.type === 'ask_user_question') {
-            showStructuredPrompt(queued.data.questions);
-          } else if (queued.data.type === 'permission_request') {
-            showPromptCard({
-              type: 'permission',
-              text: `Allow ${queued.data.tool}?`,
-              tool: queued.data.tool,
-              toolUseId: queued.data.toolUseId || null,
-              command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
-              isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase())
-            });
+      // Replay buffered output messages that arrived during state transition
+      if (sessionState === SESSION_STATE.ACTIVE) {
+        // Replay all buffered claude_output messages in order
+        if (pendingOutputMessages.length > 0) {
+          const buffered = pendingOutputMessages.splice(0);
+          for (const bufferedMsg of buffered) {
+            if (bufferedMsg.sessionId === currentSessionId) {
+              handleMessage(bufferedMsg);
+            }
+          }
+        }
+        // Process any queued prompt that arrived during state transition
+        if (pendingPromptMessage) {
+          const queued = pendingPromptMessage;
+          pendingPromptMessage = null;
+          if (queued.sessionId === currentSessionId) {
+            if (queued.data.type === 'ask_user_question') {
+              showStructuredPrompt(queued.data.questions);
+            } else if (queued.data.type === 'permission_request') {
+              showPromptCard({
+                type: 'permission',
+                text: `Allow ${queued.data.tool}?`,
+                tool: queued.data.tool,
+                toolUseId: queued.data.toolUseId || null,
+                command: queued.data.tool === 'Bash' ? queued.data.input?.command : `${queued.data.tool}: ${queued.data.input?.file_path}`,
+                isDestructive: queued.data.tool === 'Bash' && /\brm\b|\bdelete\b|\bdrop\b/.test((queued.data.input?.command || '').toLowerCase())
+              });
+            }
           }
         }
       }
@@ -320,10 +342,17 @@ function handleMessage(msg) {
       break;
 
     case 'claude_output':
-      // Queue prompt messages that arrive during state transitions (not ACTIVE yet)
-      if (sessionState !== SESSION_STATE.ACTIVE || msg.sessionId !== currentSessionId) {
+      // Drop messages for a different session entirely
+      if (msg.sessionId !== currentSessionId) {
+        break;
+      }
+      // Buffer messages arriving during state transitions (SWITCHING → ACTIVE)
+      // so they're replayed once the watching confirmation arrives — not dropped.
+      if (sessionState !== SESSION_STATE.ACTIVE) {
         if (msg.data.type === 'ask_user_question' || msg.data.type === 'permission_request') {
           pendingPromptMessage = msg;
+        } else {
+          pendingOutputMessages.push(msg);
         }
         break;
       }
@@ -397,8 +426,19 @@ function handleMessage(msg) {
         mergeOrAppendToolResult(msg.data);
         break;
       }
-      // Compaction complete — show toast and skip chat
+      // Plan exit prompt — show structured 4-option prompt
+      if (msg.data.type === 'exit_plan_mode') {
+        showPlanExitPrompt();
+        break;
+      }
+      // Compaction starting — show full-screen overlay
+      if (msg.data.type === 'compaction_starting') {
+        showCompactionOverlay();
+        break;
+      }
+      // Compaction complete — dismiss overlay and show toast
       if (msg.data.type === 'compaction_complete') {
+        hideCompactionOverlay();
         showToast('Context compacted', 'success');
         break;
       }
@@ -461,6 +501,14 @@ function handleMessage(msg) {
 
     case 'task_list':
       handleTaskList(msg);
+      break;
+
+    case 'session_milestone':
+      addMilestone(msg.text, msg.timestamp, msg.toolCount);
+      break;
+
+    case 'session_milestones':
+      setMilestones(msg.milestones || []);
       break;
 
     case 'subagent_starting': {
@@ -636,6 +684,18 @@ function handleMessage(msg) {
       }
       break;
 
+    case 'context_percentage':
+      handleContextPercentage(msg.percentage);
+      break;
+
+    case 'clear_and_resume_progress':
+      handleClearResumeProgress(msg);
+      break;
+
+    case 'session_replaced':
+      handleSessionReplaced(msg);
+      break;
+
     case 'mode_change':
       currentMode = msg.mode || 'default';
       updateModeIndicator();
@@ -645,4 +705,194 @@ function handleMessage(msg) {
       if (pingTimeout) clearTimeout(pingTimeout);
       break;
   }
+}
+
+// ============================================
+// Compaction Overlay
+// ============================================
+
+function showCompactionOverlay() {
+  const el = document.getElementById('compactionOverlay');
+  if (el) el.classList.add('show');
+  // Safety timeout: auto-dismiss after 60s if completion never fires
+  window._compactionTimeout = setTimeout(hideCompactionOverlay, 60000);
+}
+
+function hideCompactionOverlay() {
+  const el = document.getElementById('compactionOverlay');
+  if (el) el.classList.remove('show');
+  if (window._compactionTimeout) {
+    clearTimeout(window._compactionTimeout);
+    window._compactionTimeout = null;
+  }
+}
+
+// ============================================
+// Context Ring
+// ============================================
+
+function handleContextPercentage(pct) {
+  const clamped = Math.max(0, Math.min(100, pct || 0));
+  contextPercentage = clamped;
+
+  // Show ring on first message
+  if (!contextReceived) {
+    contextReceived = true;
+    const ring = document.getElementById('contextRing');
+    if (ring) ring.style.display = '';
+  }
+
+  updateContextRing(clamped);
+}
+
+function getContextColor(pct) {
+  if (pct >= 90) return 'red';
+  if (pct >= 70) return 'orange';
+  return '';  // default green via CSS
+}
+
+function updateContextRing(pct) {
+  // Header ring
+  const fill = document.getElementById('contextRingFill');
+  const text = document.getElementById('contextRingText');
+  if (fill) {
+    fill.setAttribute('stroke-dasharray', `${pct} ${100 - pct}`);
+    fill.className.baseVal = 'context-ring-fill ' + getContextColor(pct);
+  }
+  if (text) text.textContent = pct + '%';
+
+  // Sheet ring (if open)
+  const sheetFill = document.getElementById('contextSheetRingFill');
+  const sheetPct = document.getElementById('contextSheetPct');
+  if (sheetFill) {
+    sheetFill.setAttribute('stroke-dasharray', `${pct} ${100 - pct}`);
+    sheetFill.className.baseVal = 'context-ring-fill ' + getContextColor(pct);
+  }
+  if (sheetPct) sheetPct.textContent = pct + '%';
+
+  // Show compact button when >= 80%
+  const compactBtn = document.getElementById('contextCompactBtn');
+  if (compactBtn) compactBtn.style.display = pct >= 80 ? '' : 'none';
+}
+
+function showContextSheet() {
+  // Sync sheet data
+  const sheetMode = document.getElementById('contextSheetMode');
+  const sheetAgents = document.getElementById('contextSheetAgents');
+  if (sheetMode) sheetMode.textContent = currentMode.charAt(0).toUpperCase() + currentMode.slice(1);
+  if (sheetAgents) sheetAgents.textContent = activeSubagents.size.toString();
+
+  updateContextRing(contextPercentage);
+
+  document.getElementById('contextSheetOverlay').classList.add('show');
+  document.getElementById('contextSheet').classList.add('show');
+}
+
+function hideContextSheet() {
+  document.getElementById('contextSheetOverlay').classList.remove('show');
+  document.getElementById('contextSheet').classList.remove('show');
+}
+
+// ============================================
+// Clear & Resume
+// ============================================
+let clearResumeTimeout = null;
+
+function startClearResume() {
+  if (!currentSessionId) return;
+  clearResumeState = 'saving_state';
+  clearResumeError = null;
+  showClearResumeOverlay('Saving session state...');
+  hideContextSheet();
+  wsSend({ action: 'clear_and_resume', sessionId: currentSessionId });
+
+  // Safety timeout: 90s max
+  clearResumeTimeout = setTimeout(() => {
+    if (clearResumeState !== 'idle' && clearResumeState !== 'complete') {
+      showClearResumeError('Timeout: operation took too long');
+    }
+  }, 90000);
+}
+
+function handleClearResumeProgress(msg) {
+  const step = msg.step;
+  const message = msg.message || '';
+
+  if (step === 'complete') {
+    clearResumeState = 'idle';
+    hideClearResumeOverlay();
+    showToast('Context cleared and resumed', 'success');
+    return;
+  }
+  if (step === 'failed') {
+    showClearResumeError(message);
+    return;
+  }
+  if (step === 'already_pending') {
+    showClearResumeOverlay('Clear already in progress...');
+    return;
+  }
+
+  clearResumeState = step;
+  const stepMessages = {
+    saving_state: 'Saving session state...',
+    clearing: 'Clearing context...',
+    switching: 'Switching to new session...'
+  };
+  showClearResumeOverlay(stepMessages[step] || message);
+}
+
+function handleSessionReplaced(msg) {
+  // Server tells us the session was replaced — switch to new one
+  if (msg.oldSessionId === currentSessionId) {
+    currentSessionId = msg.newSessionId;
+    // Refresh session list to pick up the new session
+    wsSend({ action: 'watch_session', sessionId: msg.newSessionId });
+    refreshSessions();
+  }
+}
+
+function showClearResumeOverlay(text) {
+  const overlay = document.getElementById('clearResumeOverlay');
+  const textEl = document.getElementById('clearResumeText');
+  const spinner = document.getElementById('clearResumeSpinner');
+  const errorEl = document.getElementById('clearResumeError');
+  const actions = document.getElementById('clearResumeActions');
+  overlay.classList.add('show');
+  textEl.textContent = text;
+  spinner.style.display = '';
+  errorEl.style.display = 'none';
+  actions.style.display = 'none';
+}
+
+function showClearResumeError(message) {
+  clearResumeState = 'error';
+  clearResumeError = message;
+  const spinner = document.getElementById('clearResumeSpinner');
+  const textEl = document.getElementById('clearResumeText');
+  const errorEl = document.getElementById('clearResumeError');
+  const actions = document.getElementById('clearResumeActions');
+  spinner.style.display = 'none';
+  textEl.textContent = 'Clear & Resume Failed';
+  errorEl.textContent = message;
+  errorEl.style.display = '';
+  actions.style.display = '';
+  if (clearResumeTimeout) { clearTimeout(clearResumeTimeout); clearResumeTimeout = null; }
+}
+
+function hideClearResumeOverlay() {
+  document.getElementById('clearResumeOverlay').classList.remove('show');
+  clearResumeState = 'idle';
+  clearResumeError = null;
+  if (clearResumeTimeout) { clearTimeout(clearResumeTimeout); clearResumeTimeout = null; }
+}
+
+function retryClearResume() {
+  hideClearResumeOverlay();
+  startClearResume();
+}
+
+function dismissClearResume() {
+  hideClearResumeOverlay();
+  showToast('Clear & Resume cancelled', 'error');
 }

@@ -1,4 +1,47 @@
 // ============================================
+// Markdown Rendering
+// ============================================
+
+// DOMPurify config: explicit allowlist (Finding #15)
+const PURIFY_CONFIG = {
+  ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'h1', 'h2', 'h3', 'h4',
+    'ul', 'ol', 'li', 'a', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'blockquote', 'hr', 'del', 'img', 'span', 'div', 'sup', 'sub'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id'],
+  FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick'],
+  ALLOW_DATA_ATTR: false,
+  ADD_ATTR: ['target'],
+};
+
+// Block javascript: URIs
+if (window.DOMPurify) {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.hasAttribute('href')) {
+      const val = node.getAttribute('href');
+      if (val && /^\s*javascript:/i.test(val)) {
+        node.removeAttribute('href');
+      }
+    }
+    // External links open in new tab
+    if (node.tagName === 'A' && node.getAttribute('href')) {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+}
+
+function renderAssistantContent(content) {
+  const markedReady = window.marked && typeof window.marked.parse === 'function';
+  const purifyReady = window.DOMPurify && typeof window.DOMPurify.sanitize === 'function';
+
+  if (markedReady && purifyReady) {
+    return DOMPurify.sanitize(marked.parse(content, { breaks: true }), PURIFY_CONFIG);
+  }
+  // Fallback: safe plain text
+  return '<pre>' + escapeHtml(content) + '</pre>';
+}
+
+// ============================================
 // Command Sending
 // ============================================
 function sendCommand() {
@@ -329,6 +372,7 @@ function toggleTTS() {
 
 function updateTTSButton() {
   const btn = document.getElementById('ttsToggle');
+  if (!btn) return;
   btn.innerHTML = settings.ttsEnabled
     ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/></svg>'
     : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
@@ -637,19 +681,41 @@ function updateActionButtons() {
 }
 
 function handleStatusUpdate(data) {
-  const statusBar = document.getElementById('statusBar');
-  const statusVerb = document.getElementById('statusVerb');
-
-  statusBar.classList.remove('hidden');
-  statusVerb.textContent = data.content || 'Working...';
+  // Update session label status text (subtle, in header)
+  updateSessionStatusText('processing', data.content);
   updateActionButtons();
 
-  // Auto-hide after 5 seconds of no updates
+  // Auto-clear status text after 5 seconds of no updates
   clearTimeout(statusTimeout);
   statusTimeout = setTimeout(() => {
-    statusBar.classList.add('hidden');
     updateActionButtons();
+    updateSessionStatusText('idle');
   }, 5000);
+}
+
+function updateSessionStatusText(status, activity) {
+  const el = document.getElementById('sessionStatusText');
+  if (!el) return;
+
+  el.className = 'session-status-text';
+
+  if (status === 'processing' || status === 'active') {
+    el.textContent = activity || 'Processing';
+    el.classList.add('active', 'processing');
+  } else if (status === 'waiting') {
+    el.textContent = 'Waiting for input';
+    el.classList.add('active', 'waiting');
+  } else {
+    // idle/unknown — show branch or hide
+    const selector = document.getElementById('sessionSelector');
+    const option = selector.selectedOptions[0];
+    const branch = option?.dataset?.branch;
+    if (branch) {
+      el.textContent = branch;
+      el.classList.add('active');
+    }
+    // else leave hidden (no active class)
+  }
 }
 
 function handleTokenUsage(data) {
@@ -730,23 +796,164 @@ function renderTasksInline() {
     return;
   }
 
+  const completed = [...tasks.values()].filter(t => t.status === 'completed').length;
+  const total = tasks.size;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
   container.classList.remove('hidden');
   container.innerHTML = '';
+  container.onclick = showTaskSheet;
 
-  tasks.forEach((task, id) => {
-    const div = document.createElement('div');
-    div.className = `task-inline ${task.status}`;
-    div.innerHTML = `
-      <span class="task-icon"></span>
-      <span class="task-subject">${escapeHtml(task.subject || '')}</span>
-    `;
-    container.appendChild(div);
-  });
+  const summary = document.createElement('div');
+  summary.className = 'task-summary';
+  summary.innerHTML = `
+    <span class="task-summary-label">Tasks ${completed}/${total}</span>
+    <div class="task-summary-bar">
+      <div class="task-summary-fill" style="width: ${pct}%"></div>
+    </div>
+  `;
+  container.appendChild(summary);
 }
 
 function clearTasks() {
   tasks.clear();
   renderTasksInline();
+}
+
+function showTaskSheet() {
+  const overlay = document.getElementById('taskSheetOverlay');
+  const sheet = document.getElementById('taskSheet');
+  const list = document.getElementById('taskSheetList');
+  const progressFill = document.getElementById('taskSheetProgressFill');
+
+  const completed = [...tasks.values()].filter(t => t.status === 'completed').length;
+  const total = tasks.size;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  progressFill.style.width = pct + '%';
+
+  list.innerHTML = '';
+  tasks.forEach((task, id) => {
+    const item = document.createElement('div');
+    item.className = 'task-sheet-item';
+    const statusIcon = task.status === 'completed' ? '✅' :
+                       task.status === 'in_progress' ? '🔄' : '⏳';
+    let html = `<div class="task-sheet-row">
+      <span class="task-sheet-icon">${statusIcon}</span>
+      <span class="task-sheet-subject">${escapeHtml(task.subject || '')}</span>
+    </div>`;
+    if (task.status === 'in_progress' && task.activeForm) {
+      html += `<div class="task-sheet-active">${escapeHtml(task.activeForm)}</div>`;
+    }
+    if (task.description) {
+      html += `<div class="task-sheet-desc">${escapeHtml(task.description)}</div>`;
+      item.onclick = () => item.classList.toggle('expanded');
+    }
+    item.innerHTML = html;
+    list.appendChild(item);
+  });
+
+  overlay.classList.add('show');
+  sheet.classList.add('show');
+}
+
+function hideTaskSheet() {
+  document.getElementById('taskSheetOverlay').classList.remove('show');
+  document.getElementById('taskSheet').classList.remove('show');
+}
+
+// ============================================
+// Milestones Timeline
+// ============================================
+
+function addMilestone(text, timestamp, toolCount) {
+  milestones.push({ text, timestamp, toolCount: toolCount || 0 });
+  renderMilestones();
+}
+
+function setMilestones(items) {
+  milestones = items.map(m => ({ text: m.text, timestamp: m.timestamp, toolCount: m.toolCount || 0 }));
+  renderMilestones();
+}
+
+function renderMilestones() {
+  const container = document.getElementById('milestonesContainer');
+  if (!container) return;
+
+  if (milestones.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = '';
+  const header = container.querySelector('.milestones-header');
+  const list = container.querySelector('.milestones-list');
+  const countEl = header?.querySelector('.milestones-count');
+
+  if (countEl) countEl.textContent = milestones.length;
+
+  if (!list) return;
+  list.innerHTML = '';
+
+  // Reverse chronological order
+  const sorted = [...milestones].reverse();
+  for (const m of sorted) {
+    const row = document.createElement('div');
+    row.className = 'milestone-row';
+
+    const dot = document.createElement('div');
+    dot.className = 'milestone-dot';
+
+    const content = document.createElement('div');
+    content.className = 'milestone-content';
+
+    const text = document.createElement('div');
+    text.className = 'milestone-text';
+    text.textContent = m.text;
+    text.title = m.text; // Full text on hover
+
+    const meta = document.createElement('div');
+    meta.className = 'milestone-meta';
+
+    if (m.timestamp) {
+      const time = document.createElement('span');
+      time.className = 'milestone-time';
+      time.textContent = formatRelativeTime(m.timestamp);
+      meta.appendChild(time);
+    }
+    if (m.toolCount > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'milestone-tool-badge';
+      badge.textContent = `${m.toolCount} tools`;
+      meta.appendChild(badge);
+    }
+
+    content.appendChild(text);
+    content.appendChild(meta);
+    row.appendChild(dot);
+    row.appendChild(content);
+    list.appendChild(row);
+  }
+}
+
+function formatRelativeTime(timestamp) {
+  const now = Date.now();
+  const ts = new Date(timestamp).getTime();
+  const diff = Math.max(0, now - ts);
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return 'just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function toggleMilestones() {
+  const list = document.querySelector('.milestones-list');
+  const header = document.querySelector('.milestones-header');
+  if (!list || !header) return;
+  const isExpanded = list.classList.toggle('expanded');
+  header.classList.toggle('expanded', isExpanded);
 }
 
 // ============================================
@@ -991,4 +1198,142 @@ function handleVoicePromptResponse(transcript) {
   }
 
   return false;
+}
+
+// ============================================
+// Document Viewer
+// ============================================
+const docViewerStack = []; // breadcrumb stack of paths
+
+function showDocumentViewer() {
+  if (!currentSessionId) return;
+  docViewerStack.length = 0;
+  document.getElementById('docViewerOverlay').classList.add('show');
+  document.getElementById('docViewer').classList.add('show');
+  loadDirectory('.');
+}
+
+function hideDocumentViewer() {
+  document.getElementById('docViewerOverlay').classList.remove('show');
+  document.getElementById('docViewer').classList.remove('show');
+}
+
+async function loadDirectory(dirPath) {
+  const content = document.getElementById('docViewerContent');
+  const pathEl = document.getElementById('docViewerPath');
+  const backBtn = document.getElementById('docViewerBack');
+  content.innerHTML = '<div class="doc-viewer-loading">Loading...</div>';
+  pathEl.textContent = dirPath === '.' ? 'Files' : dirPath.split('/').pop();
+  backBtn.style.display = docViewerStack.length > 0 ? '' : 'none';
+
+  try {
+    const res = await fetch(`/api/files?sessionId=${encodeURIComponent(currentSessionId)}&path=${encodeURIComponent(dirPath)}`, {
+      headers: { 'Authorization': `Bearer ${authToken}` }
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    if (!data.entries || data.entries.length === 0) {
+      content.innerHTML = '<div class="doc-viewer-loading">Empty directory</div>';
+      return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'doc-file-list';
+    for (const entry of data.entries) {
+      const li = document.createElement('li');
+      li.className = 'doc-file-item';
+      const icon = entry.isDirectory ? '📁' : getFileIcon(entry.name);
+      li.innerHTML = `<span class="doc-file-icon">${icon}</span><span class="doc-file-name">${escapeHtml(entry.name)}</span>${entry.isDirectory ? '<span class="doc-file-chevron">›</span>' : ''}`;
+      if (entry.isDirectory) {
+        li.onclick = () => {
+          docViewerStack.push(dirPath);
+          loadDirectory(dirPath === '.' ? entry.name : dirPath + '/' + entry.name);
+        };
+      } else {
+        li.onclick = () => {
+          docViewerStack.push(dirPath);
+          loadFile(dirPath === '.' ? entry.name : dirPath + '/' + entry.name, entry.name);
+        };
+      }
+      list.appendChild(li);
+    }
+    content.innerHTML = '';
+    content.appendChild(list);
+  } catch (e) {
+    content.innerHTML = `<div class="doc-viewer-loading">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadFile(filePath, fileName) {
+  const content = document.getElementById('docViewerContent');
+  const pathEl = document.getElementById('docViewerPath');
+  const backBtn = document.getElementById('docViewerBack');
+  content.innerHTML = '<div class="doc-viewer-loading">Loading...</div>';
+  pathEl.textContent = fileName || filePath.split('/').pop();
+  backBtn.style.display = '';
+
+  try {
+    const res = await fetch(`/api/file?sessionId=${encodeURIComponent(currentSessionId)}&path=${encodeURIComponent(filePath)}`, {
+      headers: { 'Authorization': `Bearer ${authToken}` }
+    });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+
+    content.innerHTML = '';
+
+    // Actions bar (copy)
+    const actions = document.createElement('div');
+    actions.className = 'doc-file-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'doc-copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(data.content).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy', 1500);
+      });
+    };
+    actions.appendChild(copyBtn);
+    content.appendChild(actions);
+
+    // Content area
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'doc-file-content';
+
+    if (data.language === 'markdown' && window.marked && window.DOMPurify) {
+      const rendered = DOMPurify.sanitize(marked.parse(data.content, { breaks: true }), PURIFY_CONFIG);
+      contentDiv.innerHTML = `<div class="markdown-body">${rendered}</div>`;
+    } else {
+      contentDiv.innerHTML = `<pre>${escapeHtml(data.content)}</pre>`;
+    }
+    content.appendChild(contentDiv);
+  } catch (e) {
+    content.innerHTML = `<div class="doc-viewer-loading">Error: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function docViewerBack() {
+  if (docViewerStack.length === 0) {
+    hideDocumentViewer();
+    return;
+  }
+  const prev = docViewerStack.pop();
+  loadDirectory(prev);
+}
+
+function getFileIcon(name) {
+  const ext = name.includes('.') ? name.substring(name.lastIndexOf('.')) : '';
+  const icons = {
+    '.js': '📄', '.ts': '📄', '.jsx': '📄', '.tsx': '📄',
+    '.swift': '🔶', '.py': '🐍', '.rb': '💎', '.go': '🔵',
+    '.rs': '🦀', '.java': '☕', '.kt': '🟣',
+    '.json': '📋', '.yaml': '📋', '.yml': '📋', '.toml': '📋',
+    '.md': '📝', '.txt': '📄',
+    '.html': '🌐', '.css': '🎨', '.scss': '🎨',
+    '.sh': '⚙️', '.zsh': '⚙️',
+    '.sql': '🗃️',
+    '.png': '🖼️', '.jpg': '🖼️', '.gif': '🖼️', '.svg': '🖼️',
+  };
+  return icons[ext] || '📄';
 }

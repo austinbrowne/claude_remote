@@ -97,11 +97,12 @@ function initSpeechRecognition() {
           autoResize(document.getElementById('commandInput'));
           return;
         }
-        triggerCommandBuffer += ' ' + finalTranscript;
+        // Strip trigger word from start of transcript (recognition replays full utterance)
+        triggerCommandBuffer += ' ' + stripTriggerWord(finalTranscript);
       }
-      // Show interim preview
+      // Show interim preview (also strip trigger word from interim text)
       const input = document.getElementById('commandInput');
-      input.value = (triggerCommandBuffer + ' ' + interimTranscript).trim();
+      input.value = (triggerCommandBuffer + ' ' + stripTriggerWord(interimTranscript)).trim();
       autoResize(input);
       resetTriggerSilenceTimer();
       return;
@@ -191,10 +192,10 @@ function adjustPromptCardPosition() {
   if (viewport) {
     const keyboardHeight = window.innerHeight - viewport.height;
     if (keyboardHeight > 100) {
-      // Keyboard is visible
+      // Keyboard is visible — lift card above it
       card.style.bottom = (keyboardHeight + 10) + 'px';
     } else {
-      card.style.bottom = '180px';
+      card.style.bottom = '';
     }
   }
 }
@@ -229,6 +230,22 @@ document.addEventListener('DOMContentLoaded', () => {
       selectAutocomplete(item.dataset.cmd);
     }
   });
+
+  // Task sheet overlay close
+  document.getElementById('taskSheetOverlay').addEventListener('click', hideTaskSheet);
+
+  // Document viewer overlay close
+  document.getElementById('docViewerOverlay').addEventListener('click', hideDocumentViewer);
+
+  // Context ring click → show detail sheet
+  document.getElementById('contextRing').addEventListener('click', showContextSheet);
+  document.getElementById('contextSheetOverlay').addEventListener('click', hideContextSheet);
+  document.getElementById('contextSheetClose').addEventListener('click', hideContextSheet);
+  document.getElementById('contextCompactBtn').addEventListener('click', () => {
+    sendPreset('/compact');
+    hideContextSheet();
+  });
+  document.getElementById('contextClearResumeBtn').addEventListener('click', startClearResume);
 
   // Setup mobile session drawer swipe gesture
   setupSessionDrawerSwipe();
