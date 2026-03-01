@@ -430,7 +430,7 @@ struct ServerMessageDecodingTests {
             "status": "pending"
         }
         """)
-        guard case .taskCreate(let id, let subject, let description, let activeForm, let status) = msg else {
+        guard case .taskCreate(let id, let subject, let description, let activeForm, let status, _) = msg else {
             Issue.record("Expected taskCreate")
             return
         }
@@ -448,7 +448,7 @@ struct ServerMessageDecodingTests {
         let msg = try decode("""
         {"type": "task_update", "taskId": "task-1", "status": "completed", "subject": "Fixed the bug", "activeForm": "Fixing bug", "description": "Fix the login bug"}
         """)
-        guard case .taskUpdate(let taskId, let status, let subject, let activeForm, let description) = msg else {
+        guard case .taskUpdate(let taskId, let status, let subject, let activeForm, let description, _) = msg else {
             Issue.record("Expected taskUpdate")
             return
         }
@@ -1113,7 +1113,7 @@ struct TaskUpdateDeletedTests {
         let msg = try decode("""
         {"type": "task_update", "taskId": "task-1", "status": "deleted"}
         """)
-        guard case .taskUpdate(let taskId, let status, _, _, _) = msg else {
+        guard case .taskUpdate(let taskId, let status, _, _, _, _) = msg else {
             Issue.record("Expected taskUpdate")
             return
         }

@@ -11,6 +11,8 @@ public enum MessageType: String, Codable, Sendable {
     case askUserQuestion = "ask_user_question"
     case tokenUsage = "token_usage"
     case subagentStarting = "subagent_starting"
+    case permissionResolved = "permission_resolved"
+    case teamMessage = "team_message"
     case unknown
 
     public init(from decoder: Decoder) throws {
@@ -44,6 +46,10 @@ public struct Message: Identifiable, Sendable {
     public var subagentCurrentTool: String?
     /// Linked agent ID (set when subagent_start correlates to this message)
     public var subagentAgentId: String?
+    /// Sender name for team messages (e.g. "implementer-1")
+    public let teamSender: String?
+    /// Recipient name for team messages
+    public let teamRecipient: String?
 
     public init(
         type: MessageType,
@@ -61,7 +67,9 @@ public struct Message: Identifiable, Sendable {
         resultIsError: Bool = false,
         subagentStatus: String? = nil,
         subagentCurrentTool: String? = nil,
-        subagentAgentId: String? = nil
+        subagentAgentId: String? = nil,
+        teamSender: String? = nil,
+        teamRecipient: String? = nil
     ) {
         self.id = UUID()
         self.type = type
@@ -80,6 +88,8 @@ public struct Message: Identifiable, Sendable {
         self.subagentStatus = subagentStatus
         self.subagentCurrentTool = subagentCurrentTool
         self.subagentAgentId = subagentAgentId
+        self.teamSender = teamSender
+        self.teamRecipient = teamRecipient
     }
 }
 

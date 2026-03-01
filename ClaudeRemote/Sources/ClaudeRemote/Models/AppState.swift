@@ -137,6 +137,8 @@ public final class AppState {
 
     // MARK: - Context Window
     public var contextPercentage: Double = 0
+    /// True while context compaction is in progress (spinner overlay)
+    public var isCompacting: Bool = false
     public var clearAndResumeState: ClearAndResumeState = .idle
 
     // MARK: - Settings
@@ -171,12 +173,25 @@ public final class AppState {
     // MARK: - Message Management
 
     /// Add a message, trimming oldest if over max.
-    /// Filters out literal "(no content)" placeholder messages.
+    /// Filters out empty messages and "(no content)" placeholders that produce empty bubbles.
     public func appendMessage(_ message: Message) {
         let text = message.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text == "(no content)" {
-            return
+
+        // Filter empty/placeholder content for chat-visible message types
+        switch message.type {
+        case .assistant, .user, .statusUpdate, .teamMessage:
+            // These render text-only — skip if empty (prevents blank bubbles)
+            if text.isEmpty || text == "(no content)" { return }
+        case .tool:
+            // Tool cards require a tool name to be meaningful
+            if message.tool == nil || message.tool?.isEmpty == true { return }
+        case .permissionResolved, .tokenUsage:
+            // Metadata types — always allow (permissionResolved needed for history recovery)
+            break
+        default:
+            if text == "(no content)" { return }
         }
+
         messages.append(message)
         if messages.count > Self.maxMessages {
             messages.removeFirst(messages.count - Self.maxMessages)

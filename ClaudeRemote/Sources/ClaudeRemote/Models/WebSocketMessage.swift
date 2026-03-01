@@ -14,8 +14,8 @@ public enum ServerMessage: Sendable {
     case statusUpdate(status: String)
     case tokenUsage(sessionId: String?, input: Int?, output: Int?)
     case contextPercentage(sessionId: String?, percentage: Int?)
-    case taskCreate(id: String?, subject: String, description: String?, activeForm: String?, status: String?)
-    case taskUpdate(taskId: String, status: String, subject: String?, activeForm: String?, description: String?)
+    case taskCreate(id: String?, subject: String, description: String?, activeForm: String?, status: String?, owner: String?)
+    case taskUpdate(taskId: String, status: String, subject: String?, activeForm: String?, description: String?, owner: String?)
     case taskList(tasks: [TaskItem])
     case subagentStarting(description: String, agentType: String?)
     case subagentStart(agentId: String, sessionId: String?, description: String?, agentType: String?, teamName: String?, memberName: String?)
@@ -23,6 +23,8 @@ public enum ServerMessage: Sendable {
     case subagentTool(agentId: String, tool: String, input: String?)
     case subagentTokens(agentId: String, input: Int?, output: Int?)
     case subagentStop(agentId: String)
+    case teamCreate(teamName: String)
+    case teamDelete
     case teamMessage(sender: String, recipient: String?, content: String, messageType: String?)
     case injectResult(success: Bool, error: String?)
     case escapeResult(success: Bool, error: String?)
@@ -120,13 +122,16 @@ public struct TaskItem: Codable, Sendable, Equatable {
     public let status: String?
     public let description: String?
     public let activeForm: String?
+    /// Agent name that owns/claimed this task (e.g. "implementer-1")
+    public let owner: String?
 
-    public init(id: String? = nil, subject: String? = nil, status: String? = nil, description: String? = nil, activeForm: String? = nil) {
+    public init(id: String? = nil, subject: String? = nil, status: String? = nil, description: String? = nil, activeForm: String? = nil, owner: String? = nil) {
         self.id = id
         self.subject = subject
         self.status = status
         self.description = description
         self.activeForm = activeForm
+        self.owner = owner
     }
 }
 
@@ -238,7 +243,7 @@ extension ServerMessage: Decodable {
         // token_usage, mode_change, context_percentage
         case input, output, usage, mode, percentage
         // task_*
-        case id, taskId, subject, description, activeForm, tasks
+        case id, taskId, subject, description, activeForm, tasks, owner
         // subagent
         case agentId, agentType, tool, teamName, memberName
         // team_message
@@ -327,7 +332,8 @@ extension ServerMessage: Decodable {
             let description = try container.decodeIfPresent(String.self, forKey: .description)
             let activeForm = try container.decodeIfPresent(String.self, forKey: .activeForm)
             let status = try container.decodeIfPresent(String.self, forKey: .status)
-            self = .taskCreate(id: id, subject: subject, description: description, activeForm: activeForm, status: status)
+            let owner = try container.decodeIfPresent(String.self, forKey: .owner)
+            self = .taskCreate(id: id, subject: subject, description: description, activeForm: activeForm, status: status, owner: owner)
 
         case "task_update":
             let taskId = try container.decode(String.self, forKey: .taskId)
@@ -335,7 +341,8 @@ extension ServerMessage: Decodable {
             let subject = try container.decodeIfPresent(String.self, forKey: .subject)
             let activeForm = try container.decodeIfPresent(String.self, forKey: .activeForm)
             let description = try container.decodeIfPresent(String.self, forKey: .description)
-            self = .taskUpdate(taskId: taskId, status: status, subject: subject, activeForm: activeForm, description: description)
+            let owner = try container.decodeIfPresent(String.self, forKey: .owner)
+            self = .taskUpdate(taskId: taskId, status: status, subject: subject, activeForm: activeForm, description: description, owner: owner)
 
         case "task_list":
             let tasks = try container.decode([TaskItem].self, forKey: .tasks)
@@ -376,6 +383,13 @@ extension ServerMessage: Decodable {
         case "subagent_stop":
             let agentId = try container.decode(String.self, forKey: .agentId)
             self = .subagentStop(agentId: agentId)
+
+        case "team_create":
+            let teamName = try container.decode(String.self, forKey: .teamName)
+            self = .teamCreate(teamName: teamName)
+
+        case "team_delete":
+            self = .teamDelete
 
         case "team_message":
             let sender = try container.decode(String.self, forKey: .sender)
