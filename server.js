@@ -1029,7 +1029,10 @@ async function sendRecentHistory(ws, sessionId) {
           const items = Array.isArray(parsed) ? parsed : [parsed];
           allItems.push(...items.filter(i =>
             i.type !== 'token_usage' && i.type !== 'mode_change' &&
-            i.type !== 'task_create' && i.type !== 'task_update' && i.type !== 'task_list'
+            i.type !== 'task_create' && i.type !== 'task_update' && i.type !== 'task_list' &&
+            i.type !== 'status_update' && i.type !== 'subagent_starting' &&
+            i.type !== 'compaction_starting' && i.type !== 'team_create' &&
+            i.type !== 'team_delete' && i.type !== 'permission_resolved'
           ));
         }
       } catch (e) {
@@ -1111,7 +1114,8 @@ async function sendActiveSubagents(ws, sessionId) {
       timestamp: info.startTime
     }));
 
-    // Read and send recent subagent output
+    // Read and send recent subagent output (excluding permission_requests —
+    // subagent permissions are auto-approved server-side, never shown to user)
     try {
       const logFile = path.join(subagentsDir, `agent-${agentId}.jsonl`);
       const content = await fsp.readFile(logFile, 'utf8');
@@ -1124,6 +1128,10 @@ async function sendActiveSubagents(ws, sessionId) {
           if (parsed) {
             const items = Array.isArray(parsed) ? parsed : [parsed];
             for (const item of items) {
+              // Skip permission_request — auto-approved server-side
+              if (item.type === 'permission_request') continue;
+              // Skip permission_resolved — no card to dismiss
+              if (item.type === 'permission_resolved') continue;
               // Send as subagent_output so client displays it
               ws.send(JSON.stringify({
                 type: 'subagent_output',

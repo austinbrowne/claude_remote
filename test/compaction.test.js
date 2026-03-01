@@ -26,6 +26,21 @@ function parseCompactSummary(entry, timestamp) {
   return null;
 }
 
+// Simulates the updated command wrapper detection that emits compaction_starting for /compact
+function parseCommandWrapper(content, timestamp) {
+  if (typeof content !== 'string') return null;
+  if (content.includes('<command-name>')) {
+    if (content.includes('/compact') || content.includes('compact')) {
+      return [{ type: 'compaction_starting', content: 'Compacting context...', timestamp: timestamp || new Date().toISOString() }];
+    }
+    return null;
+  }
+  if (content.includes('<command-message>')) {
+    return null;
+  }
+  return 'not_a_command'; // sentinel: content is not a command wrapper
+}
+
 function isCommandWrapper(content) {
   if (typeof content !== 'string') return false;
   return content.includes('<command-message>') || content.includes('<command-name>');
@@ -103,6 +118,47 @@ describe('Compaction handling', () => {
         message: { role: 'user', content: 'Not a summary' }
       };
       assert.strictEqual(parseCompactSummary(entry, '2026-02-19T10:00:00Z'), null);
+    });
+  });
+
+  describe('parseCommandWrapper — detects /compact start and filters other commands', () => {
+    it('emits compaction_starting for /compact command-name', () => {
+      const content = '<command-name>/compact</command-name>';
+      const result = parseCommandWrapper(content, '2026-02-20T10:00:00Z');
+      assert.deepStrictEqual(result, [{
+        type: 'compaction_starting',
+        content: 'Compacting context...',
+        timestamp: '2026-02-20T10:00:00Z'
+      }]);
+    });
+
+    it('emits compaction_starting for compact (without slash) in command-name', () => {
+      const content = '<command-name>compact</command-name>';
+      const result = parseCommandWrapper(content, '2026-02-20T10:00:00Z');
+      assert.deepStrictEqual(result, [{
+        type: 'compaction_starting',
+        content: 'Compacting context...',
+        timestamp: '2026-02-20T10:00:00Z'
+      }]);
+    });
+
+    it('returns null for non-compact command-name (e.g. /help)', () => {
+      const content = '<command-name>/help</command-name>';
+      assert.strictEqual(parseCommandWrapper(content), null);
+    });
+
+    it('returns null for command-message tags', () => {
+      const content = '<command-message>compact</command-message>';
+      assert.strictEqual(parseCommandWrapper(content), null);
+    });
+
+    it('returns sentinel for normal user text (not a command)', () => {
+      assert.strictEqual(parseCommandWrapper('Hello world'), 'not_a_command');
+    });
+
+    it('returns null for non-string input', () => {
+      assert.strictEqual(parseCommandWrapper(null), null);
+      assert.strictEqual(parseCommandWrapper(42), null);
     });
   });
 
