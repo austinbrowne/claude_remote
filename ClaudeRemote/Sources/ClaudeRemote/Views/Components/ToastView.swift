@@ -40,11 +40,15 @@ struct ToastOverlay: View {
                 .background(.ultraThinMaterial)
                 .clipShape(Capsule())
                 .shadow(radius: 4)
+                .onTapGesture { withAnimation { onDismiss() } }
 
                 Spacer()
             }
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
+            // Use toast ID as view identity so each new toast triggers onAppear
+            // (without this, replacing one toast with another skips onAppear)
+            .id(toast.id)
             .onAppear {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2.5))
