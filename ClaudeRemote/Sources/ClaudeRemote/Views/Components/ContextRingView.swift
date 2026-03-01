@@ -144,6 +144,20 @@ private struct ContextDetailSheet: View {
                     .padding(.horizontal)
                 }
 
+                // Refresh session view — unwatches and re-watches to reload all state
+                Button {
+                    refreshSession()
+                    dismiss()
+                } label: {
+                    Label("Refresh Session", systemImage: "arrow.clockwise")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .padding(.horizontal)
+
                 // Clear & Resume — full context reset with auto-resume
                 clearAndResumeButton
                     .padding(.horizontal)
@@ -229,5 +243,11 @@ private struct ContextDetailSheet: View {
     private func sendClearAndResume() {
         guard let sessionId = state.currentSessionId else { return }
         coordinator.clearAndResume(sessionId)
+    }
+
+    private func refreshSession() {
+        guard let sessionId = state.currentSessionId else { return }
+        coordinator.refreshCurrentSession(sessionId)
+        state.showToast("Refreshing session...", icon: "arrow.clockwise", style: .info)
     }
 }

@@ -58,6 +58,10 @@ struct MainView: View {
         .sheet(isPresented: $showDocumentViewer) {
             DocumentViewerSheet()
         }
+        .overlay {
+            CompactionOverlayView()
+        }
+        .animation(.easeInOut(duration: 0.3), value: state.isCompacting)
         .overlay(alignment: .top) {
             ToastOverlay(toast: state.currentToast) {
                 state.currentToast = nil

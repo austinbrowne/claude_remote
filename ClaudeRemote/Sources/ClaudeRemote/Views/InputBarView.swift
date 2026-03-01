@@ -16,11 +16,14 @@ struct InputBarView: View {
     /// Fallback approval row state (shown when session is waiting but no prompt card appeared)
     @State private var showFallbackApproval = false
     @State private var fallbackDebounceTask: Task<Void, Never>?
+    /// Timestamp when fallback conditions first became true (anti-starvation)
+    @State private var fallbackConditionsMetAt: Date?
 
     /// Minimum interval between sends to prevent double-tap
     private static let sendCooldown: TimeInterval = 0.3
-    /// Debounce delay before showing fallback approval row. Must match JS FALLBACK_DEBOUNCE_MS.
-    private static let fallbackDebounceSeconds: Int = 2
+    /// Debounce delay before showing fallback approval row.
+    /// Kept short (800ms) so fallback appears quickly when prompt card system fails.
+    private static let fallbackDebounceMs: Int = 800
     static let maxSuggestions = 6
 
     private var canSend: Bool {
@@ -52,6 +55,7 @@ struct InputBarView: View {
             // Fallback approval row (when prompt card system fails)
             if showFallbackApproval {
                 fallbackApprovalRow
+                    .animation(.easeInOut(duration: 0.25), value: showFallbackApproval)
             }
 
             VStack(spacing: 6) {
@@ -166,7 +170,7 @@ struct InputBarView: View {
         }
         #endif
         .onAppear { updateFallbackApproval() }
-        .onDisappear { fallbackDebounceTask?.cancel(); fallbackDebounceTask = nil }
+        .onDisappear { fallbackDebounceTask?.cancel(); fallbackDebounceTask = nil; fallbackConditionsMetAt = nil }
         .onChange(of: state.sessionStatus) { _, _ in updateFallbackApproval() }
         .onChange(of: coordinator.promptService.currentPrompt) { _, _ in updateFallbackApproval() }
         .onChange(of: state.currentSessionId) { _, _ in updateFallbackApproval() }
@@ -211,42 +215,91 @@ struct InputBarView: View {
     // MARK: - Fallback Approval
 
     private var fallbackApprovalRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.subheadline)
+        let lastPerm = coordinator.promptService.lastSeenPermission
+        let toolName = lastPerm?.tool
+        let command = lastPerm?.command
 
-            Text("Waiting for approval")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.title3)
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(toolName.map { "\($0) needs approval" } ?? "Waiting for approval")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
 
-            Button("Allow") { injectFallback("y") }
+                    if let command, !command.isEmpty {
+                        Text(command)
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    injectFallback("y")
+                } label: {
+                    Label("Allow", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
                 .buttonStyle(.borderedProminent)
                 .tint(.blue)
-                .controlSize(.small)
 
-            Button("Always") { injectFallback("always") }
+                Button {
+                    injectFallback("always")
+                } label: {
+                    Label("Always", systemImage: "checkmark.circle.badge.checkmark")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
 
-            Button("Deny") { injectFallback("n") }
+                Button {
+                    injectFallback("n")
+                } label: {
+                    Label("Deny", systemImage: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
                 .buttonStyle(.bordered)
                 .tint(.red)
-                .controlSize(.small)
+
+                Spacer()
+            }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.orange.opacity(0.08))
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.orange.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(.orange.opacity(0.3), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     private func injectFallback(_ command: String) {
         guard let sessionId = state.currentSessionId else { return }
         coordinator.injectCommand(command, sessionId: sessionId)
+        // Dismiss any prompt card that appeared late (prevents double-approval)
+        if coordinator.promptService.currentPrompt != nil {
+            coordinator.promptService.clearQueue()
+        }
         showFallbackApproval = false
         fallbackDebounceTask?.cancel()
         fallbackDebounceTask = nil
+        fallbackConditionsMetAt = nil
         #if os(iOS)
         HapticService.medium()
         #endif
@@ -260,10 +313,25 @@ struct InputBarView: View {
         )
 
         if conditionsMet {
-            // Start 2s debounce timer only if not already showing or timing
+            // Track when conditions first became true (anti-starvation)
+            if fallbackConditionsMetAt == nil {
+                fallbackConditionsMetAt = Date()
+            }
+
+            // Anti-starvation: if conditions have been met for > 1.5s and timer
+            // keeps getting cancelled/restarted by onChange triggers, force show
+            if let firstMet = fallbackConditionsMetAt,
+               Date().timeIntervalSince(firstMet) > 1.5 {
+                showFallbackApproval = true
+                fallbackDebounceTask?.cancel()
+                fallbackDebounceTask = nil
+                return
+            }
+
+            // Start debounce timer only if not already showing or timing
             if !showFallbackApproval && fallbackDebounceTask == nil {
                 fallbackDebounceTask = Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(Self.fallbackDebounceSeconds))
+                    try? await Task.sleep(for: .milliseconds(Self.fallbackDebounceMs))
                     guard !Task.isCancelled else { return }
                     showFallbackApproval = true
                     fallbackDebounceTask = nil
@@ -273,6 +341,7 @@ struct InputBarView: View {
             // Cancel timer and hide immediately
             fallbackDebounceTask?.cancel()
             fallbackDebounceTask = nil
+            fallbackConditionsMetAt = nil
             showFallbackApproval = false
         }
     }
@@ -394,6 +463,10 @@ struct InputBarView: View {
 
     private func toggleMode() {
         guard let sessionId = state.currentSessionId else { return }
+        guard state.sessionStatus == .waiting else {
+            state.showToast("Mode toggle requires an active prompt", icon: "arrow.triangle.swap", style: .info)
+            return
+        }
         coordinator.toggleMode(sessionId)
     }
 }

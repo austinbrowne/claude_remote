@@ -45,6 +45,10 @@ struct MessageView: View {
             StatusIndicatorView(status: "Question pending...")
         case .subagentStarting:
             SubagentActivityCard(message: message)
+        case .permissionResolved:
+            EmptyView() // Invisible — exists only for history recovery tracking
+        case .teamMessage:
+            TeamMessageBubble(message: message)
         case .unknown:
             StatusIndicatorView(status: message.content ?? "Unknown message")
         }
@@ -156,10 +160,49 @@ private struct TokenUsageView: View {
 }
 
 /// Single-line inline activity card for a subagent — updates in-place through its lifecycle.
+/// Shows agent name, role, owned task, and current tool when available.
 private struct SubagentActivityCard: View {
     let message: Message
+    @Environment(AppState.self) private var state
 
     private var status: String { message.subagentStatus ?? "starting" }
+
+    /// Look up SubagentInfo from state for richer display
+    private var agentInfo: SubagentInfo? {
+        guard let agentId = message.subagentAgentId else { return nil }
+        return state.activeSubagents[agentId]
+    }
+
+    /// Display name: memberName > agentType > description
+    private var displayName: String? {
+        guard let info = agentInfo else { return nil }
+        if let name = info.memberName, !name.isEmpty { return name }
+        if info.agentType != "general" && !info.agentType.isEmpty { return info.agentType }
+        return nil
+    }
+
+    /// Friendly role label from agentType
+    private var roleLabel: String? {
+        guard let info = agentInfo else { return nil }
+        switch info.agentType {
+        case "team-lead": return "Lead"
+        case "team-implementer": return "Implementer"
+        case "team-analyst": return "Analyst"
+        case "Explore": return "Explorer"
+        case "Plan": return "Planner"
+        case "general", "general-purpose": return nil
+        default:
+            if info.agentType.isEmpty { return nil }
+            return info.agentType
+        }
+    }
+
+    /// Find the task owned by this agent (if any)
+    private var ownedTask: TaskItem? {
+        guard let info = agentInfo, let name = info.memberName, !name.isEmpty else { return nil }
+        return state.tasks.first { $0.owner == name && $0.status == "in_progress" }
+            ?? state.tasks.first { $0.owner == name }
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -190,11 +233,40 @@ private struct SubagentActivityCard: View {
 
     private var statusText: Text {
         let desc = message.content ?? ""
+        let taskSubject = ownedTask?.subject
+
+        // Build name + role prefix if available
+        let namePrefix: Text? = {
+            if let name = displayName {
+                if let role = roleLabel {
+                    return Text(name).fontWeight(.medium) + Text(" (\(role))").foregroundColor(.secondary)
+                }
+                return Text(name).fontWeight(.medium)
+            }
+            return nil
+        }()
+
         switch status {
         case "completed":
+            if let prefix = namePrefix {
+                return prefix.foregroundColor(.green)
+                    + Text(" — Done").foregroundColor(.secondary)
+            }
             return Text("Completed: ").fontWeight(.medium).foregroundColor(.green)
                 + Text(desc).foregroundColor(.secondary)
         case "running":
+            if let prefix = namePrefix {
+                if let tool = message.subagentCurrentTool {
+                    return prefix.foregroundColor(.orange)
+                        + Text(" ").foregroundColor(.secondary)
+                        + Text(tool).foregroundColor(.orange)
+                }
+                if let task = taskSubject {
+                    return prefix.foregroundColor(.orange)
+                        + Text(": \(task)").foregroundColor(.secondary)
+                }
+                return prefix.foregroundColor(.orange)
+            }
             if let tool = message.subagentCurrentTool {
                 return Text(tool).fontWeight(.medium).foregroundColor(.orange)
                     + Text(" — ").foregroundColor(.secondary)
@@ -203,6 +275,14 @@ private struct SubagentActivityCard: View {
             return Text("Running: ").fontWeight(.medium).foregroundColor(.orange)
                 + Text(desc).foregroundColor(.secondary)
         default:
+            if let prefix = namePrefix {
+                if let task = taskSubject {
+                    return prefix.foregroundColor(.orange)
+                        + Text(": \(task)").foregroundColor(.secondary)
+                }
+                return prefix.foregroundColor(.orange)
+                    + Text(" Starting...").foregroundColor(.secondary)
+            }
             return Text("Starting: ").fontWeight(.medium).foregroundColor(.orange)
                 + Text(desc).foregroundColor(.secondary)
         }
@@ -210,6 +290,49 @@ private struct SubagentActivityCard: View {
 
     private var backgroundColor: Color {
         status == "completed" ? Color.green.opacity(0.08) : Color.orange.opacity(0.1)
+    }
+}
+
+/// Renders inter-teammate messages with sender attribution
+private struct TeamMessageBubble: View {
+    let message: Message
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Sender → Recipient header
+            HStack(spacing: 4) {
+                Image(systemName: "person.circle")
+                    .font(.caption2)
+                    .foregroundStyle(.blue)
+                Text(message.teamSender ?? "Agent")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.blue)
+                if let recipient = message.teamRecipient {
+                    Image(systemName: "arrow.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(recipient)
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Message content
+            Text(message.content ?? "")
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .lineLimit(4)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.blue.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.blue.opacity(0.2), lineWidth: 0.5)
+        )
     }
 }
 
