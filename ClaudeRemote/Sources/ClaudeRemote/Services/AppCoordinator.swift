@@ -104,6 +104,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         disconnect()
         let ws = WebSocketService(serverURL: url, token: token)
         ws.delegate = self
+        // Preserve session watch across reconnection so the WebSocket's
+        // own re-watch logic (in handleServerMessage on auth success)
+        // sends a single watch_session after reconnecting.
+        if let sessionId = state.currentSessionId {
+            ws.setLastWatchedSession(sessionId)
+        }
         self.webSocket = ws
         ws.connect()
     }
@@ -216,13 +222,6 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public func webSocketDidConnect() {
         state.isConnected = true
         state.showToast("Connected", icon: "wifi", style: .success)
-        // Re-watch the current session after reconnect.
-        // When AppCoordinator.reconnect() creates a new WebSocketService,
-        // the old lastWatchedSessionId is lost. Explicitly re-watch here
-        // so output continues flowing after connection recovery.
-        if let sessionId = state.currentSessionId {
-            watchSession(sessionId)
-        }
     }
 
     public func webSocketDidDisconnect(code: Int?) {
