@@ -67,6 +67,9 @@ public final class PromptService {
     /// All pending prompts in FIFO order. The head (first) is the active prompt.
     public private(set) var promptQueue: [PromptItem] = []
 
+    /// Prompts the user dismissed (minimized) — still active server-side, can be restored.
+    public private(set) var minimizedPrompts: [PromptItem] = []
+
     /// The active prompt being displayed — queue head (nil when queue is empty).
     public var currentPrompt: PromptItem? { promptQueue.first }
 
@@ -308,15 +311,24 @@ public final class PromptService {
 
     /// Dismiss the current (head) prompt.
     /// For permissions, sends 'n' to prevent server-side deadlock (#41).
+    /// Minimize the current prompt — hides it without sending any response to the server.
+    /// The prompt can be restored later via `restoreMinimized()`.
     public func dismiss() {
-        if let sid = sessionId, case .permission = currentPrompt?.kind {
-            sendHandler?(.inject(command: "n", sessionId: sid, toolUseId: currentPrompt?.toolUseId))
-        }
-        dismissHead()
-        // Cancel multi-select even if queue was already empty
-        // (respondMultiSelect dismisses head before starting its task)
+        // Cancel multi-select regardless of queue state
+        // (respondMultiSelect dismisses head before starting its async task)
         multiSelectTask?.cancel()
         multiSelectTask = nil
+
+        guard !promptQueue.isEmpty else { return }
+        let item = promptQueue.removeFirst()
+        minimizedPrompts.append(item)
+        messagesSincePrompt = 0
+    }
+
+    /// Move all minimized prompts back to the active queue.
+    public func restoreMinimized() {
+        promptQueue.append(contentsOf: minimizedPrompts)
+        minimizedPrompts.removeAll()
     }
 
     /// Respond with a single text value (for freeform-only questions with no options)
@@ -353,9 +365,12 @@ public final class PromptService {
         guard let sid = sessionId else { return }
         guard case .permission = currentPrompt?.kind else { return }
 
-        // Collect all unique tools from queue + pending
+        // Collect all unique tools from queue + minimized + pending
         var allTools: Set<String> = []
         for item in promptQueue {
+            if case .permission(let t, _, _) = item.kind, let t { allTools.insert(t) }
+        }
+        for item in minimizedPrompts {
             if case .permission(let t, _, _) = item.kind, let t { allTools.insert(t) }
         }
         for (_, pending) in pendingPermissions {
@@ -369,6 +384,13 @@ public final class PromptService {
 
         // Send "always" for each remaining queued permission so server unblocks them
         for item in promptQueue {
+            if case .permission = item.kind {
+                sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: item.toolUseId))
+            }
+        }
+
+        // Send "always" for each minimized permission
+        for item in minimizedPrompts {
             if case .permission = item.kind {
                 sendHandler?(.inject(command: "always", sessionId: sid, toolUseId: item.toolUseId))
             }
@@ -390,8 +412,12 @@ public final class PromptService {
         coalesceTask = nil
         firstPendingArrival = nil
 
-        // Clear remaining permissions from queue (preserve questions/planExit)
+        // Clear remaining permissions from queue and minimized (preserve questions/planExit)
         promptQueue.removeAll { item in
+            if case .permission = item.kind { return true }
+            return false
+        }
+        minimizedPrompts.removeAll { item in
             if case .permission = item.kind { return true }
             return false
         }
@@ -445,6 +471,7 @@ public final class PromptService {
     /// Clear the entire queue and local grants (used on session switch/disconnect)
     public func clearQueue() {
         promptQueue.removeAll()
+        minimizedPrompts.removeAll()
         messagesSincePrompt = 0
         cancelAllPendingPermissions()
         multiSelectTask?.cancel()
@@ -652,6 +679,8 @@ public final class PromptService {
             if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
                 promptQueue.remove(at: idx)
             }
+            // Also remove from minimized prompts (resolved server-side while hidden)
+            minimizedPrompts.removeAll { $0.toolUseId == toolUseId }
             // toolUseId provided — don't fallback to head dismissal even if not found
             // (the item may have already been dismissed by user or cascadeAlwaysAllow)
             return

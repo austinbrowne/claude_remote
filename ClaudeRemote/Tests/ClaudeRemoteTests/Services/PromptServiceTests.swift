@@ -488,6 +488,94 @@ struct PromptServiceTests {
     }
 
     @MainActor
+    @Test("dismiss minimizes prompt without sending anything to server")
+    func dismissMinimizes() {
+        let (service, capture) = Self.makeSUT()
+        // Use ask_user_question (appears immediately, no coalesce delay)
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "ask_user_question",
+            questions: [QuestionData(question: "Pick?")]
+        ))
+        #expect(service.promptQueue.count == 1)
+        #expect(service.minimizedPrompts.isEmpty)
+
+        service.dismiss()
+
+        // Should NOT send anything to server
+        #expect(capture.actions.isEmpty)
+        // Prompt moved to minimized, not deleted
+        #expect(service.promptQueue.isEmpty)
+        #expect(service.minimizedPrompts.count == 1)
+    }
+
+    @MainActor
+    @Test("dismiss does not send 'n' for permission prompts")
+    func dismissPermissionNoReject() async throws {
+        let (service, capture) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request", content: "ls",
+            tool: "Bash", toolUseId: "tu-1"
+        ))
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(service.promptQueue.count == 1)
+
+        service.dismiss()
+
+        // Must NOT send "n" — dismiss only hides, doesn't reject
+        #expect(capture.actions.isEmpty)
+        #expect(service.minimizedPrompts.count == 1)
+        #expect(service.minimizedPrompts.first?.toolUseId == "tu-1")
+    }
+
+    @MainActor
+    @Test("restoreMinimized moves prompts back to queue")
+    func restoreMinimized() {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "ask_user_question",
+            questions: [QuestionData(question: "Pick?")]
+        ))
+        service.dismiss()
+        #expect(service.promptQueue.isEmpty)
+        #expect(service.minimizedPrompts.count == 1)
+
+        service.restoreMinimized()
+        #expect(service.promptQueue.count == 1)
+        #expect(service.minimizedPrompts.isEmpty)
+    }
+
+    @MainActor
+    @Test("permission_resolved cleans up minimized prompts")
+    func permissionResolvedCleansMinimized() async throws {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "permission_request", content: "file.txt",
+            tool: "Read", toolUseId: "tu-2"
+        ))
+        try await Task.sleep(for: .milliseconds(600))
+        service.dismiss()
+        #expect(service.minimizedPrompts.count == 1)
+
+        service.handlePermissionResolved(toolUseId: "tu-2")
+        #expect(service.minimizedPrompts.isEmpty)
+    }
+
+    @MainActor
+    @Test("clearQueue also clears minimized prompts")
+    func clearQueueClearsMinimized() {
+        let (service, _) = Self.makeSUT()
+        service.handleClaudeOutput(ClaudeOutputData(
+            type: "ask_user_question",
+            questions: [QuestionData(question: "Pick?")]
+        ))
+        service.dismiss()
+        #expect(service.minimizedPrompts.count == 1)
+
+        service.clearQueue()
+        #expect(service.minimizedPrompts.isEmpty)
+    }
+
+    @MainActor
     @Test("no action sent when sessionId is nil")
     func noActionWithoutSessionId() {
         let capture = ActionCapture()

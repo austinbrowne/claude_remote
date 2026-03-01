@@ -9,9 +9,10 @@ struct PromptCardView: View {
     private static let maxVisible = 3
 
     private var queue: [PromptItem] { coordinator.promptService.promptQueue }
+    private var minimized: [PromptItem] { coordinator.promptService.minimizedPrompts }
 
     var body: some View {
-        if !queue.isEmpty {
+        if !queue.isEmpty || !minimized.isEmpty {
             VStack(spacing: 0) {
                 Divider()
                 VStack(spacing: 8) {
@@ -21,11 +22,36 @@ struct PromptCardView: View {
                     if queue.count > Self.maxVisible {
                         overflowIndicator(remaining: queue.count - Self.maxVisible)
                     }
+                    if !minimized.isEmpty {
+                        minimizedIndicator
+                    }
                 }
                 .padding(12)
                 .background(.regularMaterial)
             }
         }
+    }
+
+    private var minimizedIndicator: some View {
+        Button {
+            coordinator.promptService.restoreMinimized()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "tray.full")
+                    .font(.caption)
+                Text("\(minimized.count) minimized prompt\(minimized.count == 1 ? "" : "s")")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                Image(systemName: "chevron.up")
+                    .font(.caption2)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
