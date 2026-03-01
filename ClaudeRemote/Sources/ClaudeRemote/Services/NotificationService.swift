@@ -174,26 +174,33 @@ public final class NotificationService: NSObject {
 
 // MARK: - UNUserNotificationCenterDelegate
 
-extension NotificationService: UNUserNotificationCenterDelegate {
+extension NotificationService: @preconcurrency UNUserNotificationCenterDelegate {
     /// Suppress banner when app is in foreground
     public nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        // Return empty options to suppress foreground display
-        return []
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([])
     }
 
-    /// Handle notification tap — navigate to the session
+    /// Handle notification tap — navigate to the session.
+    /// Uses the completion-handler variant (not async) for reliable app foregrounding
+    /// on both cold launch and background resume.
     public nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let userInfo = response.notification.request.content.userInfo
-        guard let sessionId = userInfo["sessionId"] as? String else { return }
-        await MainActor.run {
-            onNotificationTap?(sessionId)
+        guard let sessionId = userInfo["sessionId"] as? String else {
+            completionHandler()
+            return
         }
+        Task { @MainActor in
+            self.onNotificationTap?(sessionId)
+        }
+        completionHandler()
     }
 }
 #endif

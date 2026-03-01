@@ -495,8 +495,16 @@ public final class SpeechService {
     public func startTriggerListening() throws -> TriggerStartResult {
         guard triggerState == .idle || triggerState == .cooldown else { return .started }
 
-        // Don't start if manual listening or TTS is active
-        if isListening || isSpeaking { return .failed("Audio in use") }
+        // If manual listening is active, it holds the audio session — can't start trigger
+        if isListening { return .failed("Mic in use by voice input") }
+
+        // If TTS is active, defer trigger start until speech finishes.
+        // pauseTriggerForTTS/resumeTriggerIfPaused already coordinate this — mark
+        // as paused so resumeTriggerIfPaused() will start us when TTS ends.
+        if isSpeaking {
+            triggerPaused = true
+            return .started
+        }
 
         let authStatus = SFSpeechRecognizer.authorizationStatus()
         if authStatus == .notDetermined {
