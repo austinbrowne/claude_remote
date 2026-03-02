@@ -77,6 +77,10 @@ public final class PromptService {
     /// to show context about what's waiting when the prompt card system misses a prompt.
     public private(set) var lastSeenPermission: (tool: String?, command: String?)?
 
+    /// Timestamp of the last user response via the primary prompt card.
+    /// Used to suppress the fallback approval row briefly after responding.
+    public private(set) var lastRespondedAt: Date?
+
     // MARK: - Allowed Tools (from claudeState)
 
     /// Tools that are pre-allowed and should never show permission prompts
@@ -669,6 +673,7 @@ public final class PromptService {
         guard !promptQueue.isEmpty else { return }
         promptQueue.removeFirst()
         messagesSincePrompt = 0
+        lastRespondedAt = Date()
         multiSelectTask?.cancel()
         multiSelectTask = nil
     }

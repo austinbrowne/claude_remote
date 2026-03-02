@@ -174,6 +174,7 @@ struct InputBarView: View {
         .onChange(of: state.sessionStatus) { _, _ in updateFallbackApproval() }
         .onChange(of: coordinator.promptService.currentPrompt) { _, _ in updateFallbackApproval() }
         .onChange(of: state.currentSessionId) { _, _ in updateFallbackApproval() }
+        .onChange(of: coordinator.promptService.lastRespondedAt) { _, _ in updateFallbackApproval() }
     }
 
     // MARK: - Question Suggestion Chips
@@ -309,7 +310,8 @@ struct InputBarView: View {
         let conditionsMet = InputBarHelpers.shouldShowFallbackApproval(
             sessionStatus: state.sessionStatus,
             currentPrompt: coordinator.promptService.currentPrompt,
-            currentSessionId: state.currentSessionId
+            currentSessionId: state.currentSessionId,
+            lastRespondedAt: coordinator.promptService.lastRespondedAt
         )
 
         if conditionsMet {
@@ -514,10 +516,16 @@ enum InputBarHelpers {
     static func shouldShowFallbackApproval(
         sessionStatus: SessionStatus,
         currentPrompt: PromptItem?,
-        currentSessionId: String?
+        currentSessionId: String?,
+        lastRespondedAt: Date? = nil
     ) -> Bool {
-        sessionStatus == .waiting
-        && currentPrompt == nil
-        && currentSessionId != nil
+        // Don't show fallback if a prompt was responded to via the primary card
+        // within the last 3 seconds (avoids flash after responding)
+        if let responded = lastRespondedAt, Date().timeIntervalSince(responded) < 3.0 {
+            return false
+        }
+        return sessionStatus == .waiting
+            && currentPrompt == nil
+            && currentSessionId != nil
     }
 }
