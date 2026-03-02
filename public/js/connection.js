@@ -413,6 +413,14 @@ function handleMessage(msg) {
               break;
             }
           }
+          // Also clean up minimized prompts (matches iOS dismissPermission)
+          for (let i = minimizedPrompts.length - 1; i >= 0; i--) {
+            if (minimizedPrompts[i].toolUseId === resultToolUseId) {
+              minimizedPrompts.splice(i, 1);
+              updateMinimizedIndicator();
+              break;
+            }
+          }
           if (currentPrompt?.toolUseId === resultToolUseId) {
             hidePromptCard();
           }

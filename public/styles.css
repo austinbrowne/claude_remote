@@ -738,6 +738,33 @@ body {
 }
 
 /* Fallback Approval Row */
+/* Minimized Prompts Indicator (matches iOS PromptCardView minimizedIndicator) */
+.minimized-prompt-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--md-surface-2);
+  border-radius: var(--md-shape-md) var(--md-shape-md) 0 0;
+  border-top: 1px solid var(--md-outline-variant);
+  color: var(--md-on-surface-variant);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--md-motion-standard);
+}
+.minimized-prompt-indicator:hover {
+  background: var(--md-surface-3);
+}
+.minimized-icon {
+  font-size: 16px;
+}
+.minimized-restore {
+  color: var(--md-primary);
+  font-weight: 500;
+  margin-left: 4px;
+}
+
 .fallback-approval {
   display: flex;
   align-items: center;

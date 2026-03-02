@@ -16,7 +16,9 @@ const FALLBACK_DEBOUNCE_MS = 2000; // Must match Swift fallbackDebounceSeconds
 let currentPrompt = null;
 let promptMessageIndex = 0;
 const promptQueue = [];
+const minimizedPrompts = [];
 let fallbackApprovalTimer = null;
+let lastRespondedAt = 0; // Timestamp of last prompt response (suppresses fallback flash)
 
 function isDestructivePrompt(text) {
   const lower = text.toLowerCase();
@@ -265,6 +267,7 @@ function showPromptCard(prompt) {
   // Update action buttons to show Yes
   updateActionButtons();
   updatePromptQueueBadge();
+  updateMinimizedIndicator();
 }
 
 function setupOptionKeyboardNav() {
@@ -378,12 +381,18 @@ const alwaysAllowedTools = new Set();
 function respondToPermission(tool, toolUseId) {
   if (tool) {
     alwaysAllowedTools.add(tool);
-    // Cascade: remove queued permissions for the same tool
+    // Cascade: remove queued and minimized permissions for the same tool
     for (let i = promptQueue.length - 1; i >= 0; i--) {
       if (promptQueue[i].type === 'permission' && promptQueue[i].tool === tool) {
         promptQueue.splice(i, 1);
       }
     }
+    for (let i = minimizedPrompts.length - 1; i >= 0; i--) {
+      if (minimizedPrompts[i].type === 'permission' && minimizedPrompts[i].tool === tool) {
+        minimizedPrompts.splice(i, 1);
+      }
+    }
+    updateMinimizedIndicator();
   }
   // Send 'always' (matching iOS behavior) so server can track the grant,
   // and include toolUseId for accurate tool-to-grant mapping
@@ -415,11 +424,18 @@ function approveAllPermissions() {
   for (const p of promptQueue) {
     if (p.type === 'permission' && p.tool) allTools.add(p.tool);
   }
+  for (const p of minimizedPrompts) {
+    if (p.type === 'permission' && p.tool) allTools.add(p.tool);
+  }
   for (const tool of allTools) alwaysAllowedTools.add(tool);
-  // Remove all permission prompts from queue (keep questions)
+  // Remove all permission prompts from queue and minimized (keep questions)
   for (let i = promptQueue.length - 1; i >= 0; i--) {
     if (promptQueue[i].type === 'permission') promptQueue.splice(i, 1);
   }
+  for (let i = minimizedPrompts.length - 1; i >= 0; i--) {
+    if (minimizedPrompts[i].type === 'permission') minimizedPrompts.splice(i, 1);
+  }
+  updateMinimizedIndicator();
   // Send "always" for head
   const toolUseId = currentPrompt.toolUseId || '';
   const card = document.getElementById('promptCard');
@@ -613,6 +629,7 @@ function hidePromptCard() {
   const card = document.getElementById('promptCard');
   card.classList.remove('show', 'loading', 'stale');
   currentPrompt = null;
+  lastRespondedAt = Date.now(); // Suppress fallback flash after response
   updateActionButtons();
   updatePromptQueueBadge();
   checkFallbackApproval();
@@ -642,12 +659,59 @@ function updatePromptQueueBadge() {
 }
 
 function dismissPrompt() {
-  // Send denial to server for permissions (prevent deadlock)
-  if (currentPrompt && currentPrompt.type === 'permission' && currentPrompt.toolUseId) {
-    wsSend({ action: 'inject', command: 'n', sessionId: currentSessionId, toolUseId: currentPrompt.toolUseId });
+  // Minimize prompt instead of sending denial (matches iOS: dismiss = hide, not reject)
+  if (currentPrompt) {
+    minimizedPrompts.push(currentPrompt);
   }
-  hidePromptCard();
-  showToast('Prompt dismissed', 'info');
+  // Hide card without sending any response to server
+  const card = document.getElementById('promptCard');
+  card.classList.remove('show', 'loading', 'stale');
+  currentPrompt = null;
+  updateActionButtons();
+  updatePromptQueueBadge();
+  updateMinimizedIndicator();
+  checkFallbackApproval();
+
+  // Show next queued prompt if any
+  if (promptQueue.length > 0) {
+    const next = promptQueue.shift();
+    setTimeout(() => showPromptCard(next), 350);
+  }
+
+  showToast('Prompt minimized', 'info');
+}
+
+function restoreMinimizedPrompts() {
+  if (minimizedPrompts.length === 0) return;
+  // Move all minimized prompts back to the queue
+  promptQueue.push(...minimizedPrompts);
+  minimizedPrompts.length = 0;
+  updateMinimizedIndicator();
+  // Show the first one if nothing is currently showing
+  if (!currentPrompt && promptQueue.length > 0) {
+    const next = promptQueue.shift();
+    showPromptCard(next);
+  }
+}
+
+function updateMinimizedIndicator() {
+  let indicator = document.getElementById('minimizedPromptIndicator');
+  if (minimizedPrompts.length > 0) {
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.id = 'minimizedPromptIndicator';
+      indicator.className = 'minimized-prompt-indicator';
+      indicator.onclick = restoreMinimizedPrompts;
+      // Insert before the fallback approval row in input-area
+      const fallback = document.getElementById('fallbackApproval');
+      fallback.parentNode.insertBefore(indicator, fallback);
+    }
+    const count = minimizedPrompts.length;
+    indicator.innerHTML = `<span class="minimized-icon">&#9776;</span> ${count} minimized prompt${count === 1 ? '' : 's'} <span class="minimized-restore">Restore</span>`;
+    indicator.style.display = '';
+  } else if (indicator) {
+    indicator.style.display = 'none';
+  }
 }
 
 function checkPromptStaleness() {
@@ -682,7 +746,10 @@ function checkFallbackApproval() {
   const isWaiting = getCurrentSessionStatus() === 'waiting';
   const hasPrompt = currentPrompt !== null;
 
-  if (isWaiting && !hasPrompt && currentSessionId) {
+  // Suppress fallback for 3 seconds after responding to a prompt (prevents flash)
+  const recentlyResponded = lastRespondedAt > 0 && (Date.now() - lastRespondedAt) < 3000;
+
+  if (isWaiting && !hasPrompt && currentSessionId && !recentlyResponded) {
     // Start 2s timer if not already running
     if (!fallbackApprovalTimer) {
       fallbackApprovalTimer = setTimeout(() => {
