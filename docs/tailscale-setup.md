@@ -23,6 +23,7 @@ After authenticating, verify:
 tailscale status
 tailscale ip -4    # Note this IP — you'll use it on your phone
 ```
+100.113.18.8
 
 ---
 

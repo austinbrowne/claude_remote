@@ -704,6 +704,10 @@ function handleMessage(msg) {
       handleSessionReplaced(msg);
       break;
 
+    case 'session_ended':
+      handleSessionEnded(msg);
+      break;
+
     case 'mode_change':
       currentMode = msg.mode || 'default';
       updateModeIndicator();
@@ -853,11 +857,61 @@ function handleClearResumeProgress(msg) {
 function handleSessionReplaced(msg) {
   // Server tells us the session was replaced — switch to new one
   if (msg.oldSessionId === currentSessionId) {
+    // Clear old session state before switching
+    document.getElementById('outputArea').innerHTML = '';
+    resetSessionTokens();
+    clearTasks();
+    activeSubagents.clear();
+    activeTeamName = null;
+    teamMessages.length = 0;
+    updateSubagentIndicator();
+    document.getElementById('statusBar')?.classList.add('hidden');
+    pendingOutputMessages.length = 0;
+    pendingPromptMessage = null;
+    promptQueue.length = 0;
+    hidePromptCard();
+
     currentSessionId = msg.newSessionId;
-    // Refresh session list to pick up the new session
+    sessionState = SESSION_STATE.SWITCHING;
+    pendingSessionId = msg.newSessionId;
     wsSend({ action: 'watch_session', sessionId: msg.newSessionId });
-    refreshSessions();
+    // Refresh session list (server action only, no re-watch)
+    wsSend({ action: 'refresh_sessions' });
+    showToast('Session refreshed', 'success');
   }
+}
+
+function handleSessionEnded(msg) {
+  if (msg.sessionId !== currentSessionId) return;
+
+  showToast('Session ended', 'error');
+
+  // Reset all session state
+  currentSessionId = null;
+  sessionState = SESSION_STATE.IDLE;
+  pendingSessionId = null;
+  document.getElementById('outputArea').innerHTML = '';
+  resetSessionTokens();
+  clearTasks();
+  activeSubagents.clear();
+  activeTeamName = null;
+  teamMessages.length = 0;
+  updateSubagentIndicator();
+  currentMode = 'default';
+  updateModeIndicator();
+  contextPercentage = 0;
+  contextReceived = false;
+  const ring = document.getElementById('contextRing');
+  if (ring) ring.style.display = 'none';
+  document.getElementById('statusBar')?.classList.add('hidden');
+  pendingOutputMessages.length = 0;
+  pendingPromptMessage = null;
+  promptQueue.length = 0;
+  hidePromptCard();
+
+  // Show session picker so user can select a new session
+  updateSessionLabel();
+  document.getElementById('sessionPickerSplash')?.classList.remove('hidden');
 }
 
 function showClearResumeOverlay(text) {

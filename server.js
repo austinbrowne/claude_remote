@@ -220,6 +220,7 @@ const { watchSession, unwatchSession } = createWatcher({
   getSessionStatus,
   loadAllowedTools,
   discoverSessions,
+  getActiveClaude,
   onNewSessionAfterClear: handleNewSessionAfterClear
 });
 
@@ -292,6 +293,85 @@ setInterval(() => {
     broadcastClaudeState(sessionId);
   }
 }, CLAUDE_STATE_SYNC_MS);
+
+// Periodic liveness check: detect dead sessions and auto-transition to replacements
+const SESSION_LIVENESS_CHECK_MS = 15000;
+let livenessCheckRunning = false;
+
+setInterval(async () => {
+  if (activeSessions.size === 0 || livenessCheckRunning) return;
+  livenessCheckRunning = true;
+  try {
+    const activeProcesses = await getActiveClaude();
+    const activeTtys = new Set(activeProcesses.map(p => p.tty));
+
+    // Collect dead sessions (don't mutate activeSessions during iteration)
+    const deadSessions = [];
+    for (const [sessionId, sd] of activeSessions) {
+      const tty = sd.session?.tty;
+      if (tty && !activeTtys.has(tty)) {
+        deadSessions.push({ sessionId, cwd: sd.session.cwd });
+      }
+    }
+
+    for (const { sessionId, cwd } of deadSessions) {
+      console.log(`[Liveness] Session ${sessionId.substring(0, 8)} process is dead`);
+
+      // Find clients watching this session before cleanup
+      const watchingClients = [];
+      for (const [ws, clientData] of clients) {
+        if (clientData.watchingSessions.has(sessionId)) {
+          watchingClients.push({ ws, clientData });
+        }
+      }
+
+      if (watchingClients.length === 0) {
+        // No clients watching — just clean up
+        unwatchSession(sessionId);
+        continue;
+      }
+
+      // Clean up the dead session
+      unwatchSession(sessionId);
+
+      // Try to find a replacement session (same cwd, active process)
+      const sessions = await discoverSessions();
+      const replacement = sessions.find(s => s.cwd === cwd);
+
+      if (replacement) {
+        console.log(`[Liveness] Auto-transitioning to replacement: ${replacement.id.substring(0, 8)}`);
+        const newSession = await watchSession(replacement.id);
+        if (newSession) {
+          for (const { ws, clientData } of watchingClients) {
+            clientData.watchingSessions.delete(sessionId);
+            clientData.watchingSessions.add(replacement.id);
+            try {
+              ws.send(JSON.stringify({
+                type: 'session_replaced',
+                oldSessionId: sessionId,
+                newSessionId: replacement.id,
+                session: newSession
+              }));
+            } catch (e) { /* client disconnected */ }
+          }
+        }
+      } else {
+        // No replacement — notify clients that session ended
+        for (const { ws, clientData } of watchingClients) {
+          clientData.watchingSessions.delete(sessionId);
+          try {
+            ws.send(JSON.stringify({ type: 'session_ended', sessionId }));
+            ws.send(JSON.stringify({ type: 'sessions', data: sessions }));
+          } catch (e) { /* client disconnected */ }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[Liveness] Check failed:', e.message);
+  } finally {
+    livenessCheckRunning = false;
+  }
+}, SESSION_LIVENESS_CHECK_MS);
 
 // Check if any other client is watching a session (excludes given ws)
 function isAnyoneWatching(sessionId, excludeWs = null) {
@@ -485,7 +565,10 @@ async function handleClientMessage(ws, msg) {
           clientData.pauseBroadcast = false;
         }
       } else {
-        sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session not found or no log file', { sessionId: msg.sessionId });
+        sendError(ws, ErrorCodes.SESSION_NOT_FOUND, 'Session ended or not found', { sessionId: msg.sessionId });
+        // Proactively send updated session list so client can pick a new session
+        const sessions = await discoverSessions();
+        ws.send(JSON.stringify({ type: 'sessions', data: sessions }));
       }
       break;
     }
