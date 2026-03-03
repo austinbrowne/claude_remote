@@ -395,63 +395,49 @@ function refreshSessions() {
 function mergeOrAppendToolResult(data) {
   const toolUseId = data.toolUseId;
   if (toolUseId) {
-    // Find the last tool card with matching toolUseId
     const outputArea = document.getElementById('outputArea');
-    const allTools = outputArea.querySelectorAll(`.message.tool[data-tool-use-id="${CSS.escape(toolUseId)}"]`);
-    const matchingCard = allTools.length > 0 ? allTools[allTools.length - 1] : null;
+    // Find matching tool row in a batch
+    const row = outputArea.querySelector(`.history-tool-row[data-tool-use-id="${CSS.escape(toolUseId)}"]`);
+    if (row) {
+      const isError = !!data.isError;
 
-    if (matchingCard) {
-      // Remove manual approve button now that result arrived
-      const approveBtn = matchingCard.querySelector('.tool-approve-btn');
-      if (approveBtn) approveBtn.remove();
-
-      // Merge: append result inline into the existing tool card
-      const result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-      const isError = !!data.resultIsError;
-      const lang = pending.lastToolLanguage || 'plaintext';
-
-      // Add result section to the tool card
-      const resultDiv = document.createElement('div');
-      resultDiv.className = `tool-result-inline${isError ? ' error' : ''}`;
-      const lines = result.split('\n');
-      const preview = lines[0].substring(0, 50);
-      const needsEllipsis = lines[0].length > 50 || lines.length > 1;
-      resultDiv.innerHTML = `
-        <div class="tool-result-separator"></div>
-        <div class="tool-result-header">
-          <span class="tool-result-chevron">▶</span>
-          <span class="tool-result-icon">${isError ? '✕' : '✓'}</span>
-          <span class="tool-result-preview">${escapeHtml(preview)}${needsEllipsis ? '...' : ''} (${lines.length} lines)</span>
-        </div>
-        <div class="tool-result-details"><pre>${escapeHtml(result)}</pre></div>
-      `;
-      // Click handler to toggle result details
-      const resultHeader = resultDiv.querySelector('.tool-result-header');
-      resultHeader.addEventListener('click', (e) => {
-        e.stopPropagation();
-        resultDiv.classList.toggle('expanded');
-      });
-      matchingCard.appendChild(resultDiv);
-
-      // Update the chevron summary to show completion status
-      const summary = matchingCard.querySelector('.tool-summary');
-      if (summary) {
-        const statusIcon = document.createElement('span');
-        statusIcon.className = `tool-status-icon${isError ? ' error' : ''}`;
-        statusIcon.textContent = isError ? '✕' : '✓';
-        summary.appendChild(statusIcon);
+      // Update status icon
+      const iconSpan = row.querySelector('.history-tool-icon');
+      if (iconSpan) {
+        iconSpan.style.color = isError ? 'var(--error)' : 'var(--success)';
+        iconSpan.textContent = isError ? '✕' : '✓';
       }
 
-      // Update parent tool group header
-      const parentGroup = matchingCard.closest('.tool-group');
-      if (parentGroup) updateToolGroupHeader(parentGroup);
+      // Remove approve button
+      const approveBtn = row.querySelector('.tool-approve-btn');
+      if (approveBtn) approveBtn.remove();
+
+      // Store result data for expand-on-click
+      row._resultData = data;
+
+      // Update expanded content if already open
+      const expandEl = row.nextElementSibling;
+      if (expandEl && expandEl.classList.contains('history-tool-expand')) {
+        const fullResult = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+        if (!expandEl.querySelector('.tool-result-section')) {
+          const div = document.createElement('div');
+          div.className = 'tool-result-section';
+          div.style.cssText = 'border-top:1px solid var(--separator);margin-top:6px;padding-top:6px';
+          div.innerHTML = `<pre>${escapeHtml(fullResult.substring(0, 2000))}</pre>`;
+          expandEl.appendChild(div);
+        }
+      }
+
+      // Update batch header
+      const batch = row.closest('.history-tool-batch');
+      if (batch) updateBatchHeader(batch);
 
       outputArea.scrollTop = outputArea.scrollHeight;
       return;
     }
   }
 
-  // Fallback: append as standalone tool_result message
+  // Fallback: standalone tool_result (no matching tool row found)
   appendMessage(data);
 }
 
@@ -561,60 +547,116 @@ function renderHistoryToolBatch(outputArea, batch) {
   outputArea.appendChild(container);
 }
 
-function getOrCreateToolGroup(outputArea) {
+// Get or create a live tool batch (reuse last child if it's a batch)
+function getOrCreateToolBatch(outputArea) {
   const lastChild = outputArea.lastElementChild;
-  if (lastChild && lastChild.classList.contains('tool-group')) {
+  if (lastChild && lastChild.classList.contains('history-tool-batch')) {
     return lastChild;
   }
-  const group = document.createElement('div');
-  group.className = 'tool-group';
-  group.innerHTML = `
-    <div class="tool-group-header">
-      <svg class="tool-group-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
-      <span class="tool-group-icon">🔧</span>
-      <span class="tool-group-label">Working...</span>
-      <span class="tool-group-summary"></span>
-      <span class="tool-group-status"></span>
-    </div>
-    <div class="tool-group-items"></div>
+  const container = document.createElement('div');
+  container.className = 'history-tool-batch';
+
+  const header = document.createElement('div');
+  header.className = 'history-tool-batch-header';
+  header.innerHTML = `
+    <svg class="tool-group-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+    <span style="font-size:13px">🔧</span>
+    <span class="history-tool-batch-label">Working...</span>
+    <span class="history-tool-batch-summary"></span>
+    <span class="history-tool-batch-status"></span>
   `;
-  group.querySelector('.tool-group-header').addEventListener('click', () => {
-    group.classList.toggle('expanded');
-  });
-  outputArea.appendChild(group);
-  return group;
+  header.addEventListener('click', () => container.classList.toggle('expanded'));
+  container.appendChild(header);
+
+  const details = document.createElement('div');
+  details.className = 'history-tool-batch-details';
+  container.appendChild(details);
+
+  outputArea.appendChild(container);
+  return container;
 }
 
-function updateToolGroupHeader(group) {
-  const tools = group.querySelectorAll('.tool-group-items > .message.tool');
-  const toolCounts = {};
-  tools.forEach(t => {
-    const name = t.dataset.toolName || 'Tool';
-    toolCounts[name] = (toolCounts[name] || 0) + 1;
+// Add a single tool to a live batch (incremental — called per tool message)
+function addToolToBatch(batch, data) {
+  const details = batch.querySelector('.history-tool-batch-details');
+  const toolSummary = getToolSummary(data.tool, data.input);
+
+  const row = document.createElement('div');
+  row.className = 'history-tool-row';
+  if (data.toolUseId) row.dataset.toolUseId = data.toolUseId;
+
+  const approveBtn = data.needsApproval && data.toolUseId
+    ? `<button class="tool-approve-btn" title="Approve">✓</button>`
+    : '';
+
+  row.innerHTML = `
+    <span class="history-tool-icon" style="color:var(--text-muted)">⋯</span>
+    <span class="history-tool-name">${escapeHtml(data.tool || 'Tool')}</span>
+    <span class="history-tool-path">${escapeHtml(toolSummary)}</span>
+    ${approveBtn}
+  `;
+
+  // Store tool data for expand-on-click
+  row._toolData = data;
+  row.style.cursor = 'pointer';
+  row.addEventListener('click', (e) => {
+    if (e.target.closest('.tool-approve-btn')) return;
+    let expandEl = row.nextElementSibling;
+    if (expandEl && expandEl.classList.contains('history-tool-expand')) {
+      expandEl.remove();
+      return;
+    }
+    expandEl = document.createElement('div');
+    expandEl.className = 'history-tool-expand';
+    const fullInput = data.input == null ? '' : typeof data.input === 'string' ? data.input : JSON.stringify(data.input, null, 2);
+    const resultData = row._resultData;
+    const fullResult = resultData ? (typeof resultData.content === 'string' ? resultData.content : JSON.stringify(resultData.content, null, 2)) : '';
+    expandEl.innerHTML = `<pre>${escapeHtml(fullInput)}</pre>${fullResult ? `<div style="border-top:1px solid var(--separator);margin-top:6px;padding-top:6px"><pre>${escapeHtml(fullResult.substring(0, 2000))}</pre></div>` : ''}`;
+    row.after(expandEl);
   });
 
-  const count = tools.length;
-  const label = group.querySelector('.tool-group-label');
-  label.textContent = `Used ${count} tool${count !== 1 ? 's' : ''}`;
+  // Approve button handler
+  if (data.needsApproval && data.toolUseId) {
+    const btn = row.querySelector('.tool-approve-btn');
+    if (btn) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        manualApproveToolUse(data.toolUseId);
+      });
+    }
+  }
 
-  const summary = group.querySelector('.tool-group-summary');
-  summary.textContent = Object.entries(toolCounts)
-    .map(([name, c]) => c > 1 ? `${name} (${c})` : name)
-    .join(' · ');
+  details.appendChild(row);
+  updateBatchHeader(batch);
+  return row;
+}
 
-  // Status indicators: checkmarks/spinners matching iOS ToolGroupView
-  const statusEl = group.querySelector('.tool-group-status');
-  let html = '';
-  tools.forEach(t => {
-    const icon = t.querySelector('.tool-status-icon');
-    if (icon) {
-      const isError = icon.classList.contains('error');
-      html += `<span class="tool-group-check ${isError ? 'error' : 'success'}">${isError ? '✕' : '✓'}</span>`;
+// Update batch header with current tool counts and status
+function updateBatchHeader(batch) {
+  const rows = batch.querySelectorAll('.history-tool-batch-details > .history-tool-row');
+  const toolCounts = {};
+  let statusHtml = '';
+
+  rows.forEach(row => {
+    const name = row.querySelector('.history-tool-name')?.textContent || 'Tool';
+    toolCounts[name] = (toolCounts[name] || 0) + 1;
+
+    if (row._resultData) {
+      const isError = row._resultData.isError;
+      statusHtml += `<span class="tool-group-check ${isError ? 'error' : 'success'}">${isError ? '✕' : '✓'}</span>`;
     } else {
-      html += '<span class="tool-group-spinner"></span>';
+      statusHtml += '<span class="tool-group-spinner"></span>';
     }
   });
-  statusEl.innerHTML = html;
+
+  const count = rows.length;
+  batch.querySelector('.history-tool-batch-label').textContent = count > 0
+    ? `Used ${count} tool${count !== 1 ? 's' : ''}`
+    : 'Working...';
+  batch.querySelector('.history-tool-batch-summary').textContent = Object.entries(toolCounts)
+    .map(([name, c]) => c > 1 ? `${name} ×${c}` : name)
+    .join(', ');
+  batch.querySelector('.history-tool-batch-status').innerHTML = statusHtml;
 }
 
 // ============================================
@@ -747,72 +789,9 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
   }
 
   if (data.type === 'tool') {
-    const toolInput = formatToolInput(data.input);
-    const fullInput = data.input == null
-      ? ''
-      : typeof data.input === 'string'
-        ? data.input
-        : JSON.stringify(data.input, null, 2);
-    const lang = detectLanguage(data.input);
-    const toolSummary = getToolSummary(data.tool, data.input);
-
-    // Store tool name for group header
-    msg.dataset.toolName = data.tool || 'Tool';
-
-    // Approve button for pending permission requests (manual fallback)
-    const approveBtn = data.needsApproval && data.toolUseId
-      ? `<button class="tool-approve-btn" title="Approve">✓</button>`
-      : '';
-
-    // Special handling for Edit tool - show inline diff preview
-    if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
-      const diffHtml = renderDiff(data.input.old_string, data.input.new_string);
-      msg.innerHTML = `
-        <div class="tool-summary" data-lang="${escapeHtml(lang)}">
-          <span class="tool-chevron">▶</span>
-          <span class="tool-name">${escapeHtml(data.tool)}</span>
-          <span class="tool-path">${escapeHtml(toolSummary)}</span>
-          ${approveBtn}
-        </div>
-        ${diffHtml}
-        <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
-      `;
-    } else {
-      msg.innerHTML = `
-        <div class="tool-summary" data-lang="${escapeHtml(lang)}">
-          <span class="tool-chevron">▶</span>
-          <span class="tool-name">${escapeHtml(data.tool)}</span>
-          <span class="tool-path">${escapeHtml(toolSummary)}</span>
-          ${approveBtn}
-        </div>
-        <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
-      `;
-    }
-
-    // Attach click handler for approve button (avoids inline onclick for XSS safety)
-    if (data.needsApproval && data.toolUseId) {
-      const btn = msg.querySelector('.tool-approve-btn');
-      if (btn) {
-        const toolUseId = data.toolUseId;
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation(); // Don't toggle expand
-          manualApproveToolUse(toolUseId);
-        });
-      }
-    }
-
-    // Click handler for expand/collapse individual tool card
-    const summaryEl = msg.querySelector('.tool-summary');
-    if (summaryEl) {
-      summaryEl.addEventListener('click', () => {
-        toggleToolExpand(msg, lang);
-      });
-    }
-
-    // Add to tool group instead of directly to output
-    const group = getOrCreateToolGroup(outputArea);
-    group.querySelector('.tool-group-items').appendChild(msg);
-    updateToolGroupHeader(group);
+    // Use the same batch rendering as history — add tool to a batch group
+    const batch = getOrCreateToolBatch(outputArea);
+    addToolToBatch(batch, data);
     if (scroll) outputArea.scrollTop = outputArea.scrollHeight;
     return msg;
   } else if (data.type === 'tool_result') {

@@ -457,10 +457,6 @@ body {
   padding-left: 10px !important;
   border-radius: 0 var(--md-shape-sm) var(--md-shape-sm) 0 !important;
 }
-.message.subagent.tool .tool-name {
-  color: var(--orange) !important;
-}
-
 /* History Tool Batch — simple expandable summary for tool groups in history */
 .history-tool-batch {
   background: var(--md-surface-2);
@@ -559,68 +555,7 @@ body {
   word-break: break-all;
 }
 
-/* Tool Group — collapsible container for consecutive tool calls (live streaming) */
-.tool-group {
-  background: var(--md-surface-2);
-  border-radius: var(--md-shape-md);
-  border: 1px solid var(--md-outline-variant);
-  overflow: hidden;
-  margin: 4px 0;
-  width: 100%;
-  align-self: stretch;
-}
-
-.tool-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 13px;
-  color: var(--text-primary);
-  transition: background var(--md-motion-standard);
-}
-.tool-group-header:hover {
-  background: var(--md-state-hover);
-}
-.tool-group-header:active {
-  background: var(--md-state-press);
-}
-
-.tool-group-chevron {
-  transition: transform var(--md-motion-standard);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.tool-group.expanded .tool-group-chevron {
-  transform: rotate(90deg);
-}
-
-.tool-group-icon {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-.tool-group-label {
-  font-weight: 500;
-}
-.tool-group-summary {
-  color: var(--text-muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.tool-group-status {
-  margin-left: auto;
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  align-items: center;
-}
+/* Tool batch shared utility classes (used by .history-tool-batch) */
 .tool-group-check {
   font-size: 10px;
   font-weight: 700;
@@ -640,102 +575,9 @@ body {
   to { transform: rotate(360deg); }
 }
 
-.tool-group-items {
-  display: none;
-  padding: 0 12px 8px;
-}
-.tool-group.expanded .tool-group-items {
-  display: block;
-}
-
-/* Individual tool cards (inside groups) */
-.message.tool {
-  color: var(--text-secondary);
-  font-size: 13px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--md-outline-variant);
-}
-.message.tool:last-child {
-  border-bottom: none;
-}
-
-.message.tool .tool-name {
-  color: var(--text-primary);
-  font-weight: 500;
-  display: inline;
-  font-size: 13px;
-}
-.message.tool .tool-path {
-  color: var(--text-muted);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
 .message.tool_result {
   color: var(--text-muted);
   font-size: 12px;
-}
-
-/* Tool result merge (inline in tool card) */
-.tool-result-inline {
-  margin-top: 6px;
-}
-.tool-result-separator {
-  height: 1px;
-  background: var(--separator);
-  margin: 6px 0;
-}
-.tool-result-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.tool-result-chevron {
-  font-size: 8px;
-  transition: transform var(--md-motion-standard);
-}
-.tool-result-inline.expanded .tool-result-chevron {
-  transform: rotate(90deg);
-}
-.tool-result-icon {
-  font-size: 12px;
-  color: var(--success);
-  font-weight: 600;
-}
-.tool-result-inline.error .tool-result-icon {
-  color: var(--error);
-}
-.tool-result-details {
-  display: none;
-  margin-top: 6px;
-  padding: 8px;
-  background: var(--bg-grouped);
-  border-radius: var(--md-shape-sm);
-  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-  font-size: 12px;
-  max-height: 150px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-}
-.message.tool.expanded .tool-result-details,
-.tool-result-inline.expanded .tool-result-details {
-  display: block;
-}
-.tool-status-icon {
-  font-size: 12px;
-  color: var(--success);
-  font-weight: 600;
-  margin-left: auto;
-}
-.tool-status-icon.error {
-  color: var(--error);
 }
 
 /* Manual approve button on pending permission tool cards */
@@ -761,12 +603,11 @@ body {
   background: rgba(76, 217, 100, 0.25);
 }
 
-/* Collapsible tool messages */
-.message.tool, .message.tool_result {
+/* Collapsible tool result messages (fallback for unmatched results) */
+.message.tool_result {
   cursor: pointer;
 }
 
-.message.tool .tool-details,
 .message.tool_result .tool-details {
   display: none;
   margin-top: 8px;
@@ -781,7 +622,6 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-.message.tool.expanded .tool-details,
 .message.tool_result.expanded .tool-details {
   display: block;
 }
