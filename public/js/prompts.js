@@ -18,6 +18,7 @@ let promptMessageIndex = 0;
 const promptQueue = [];
 const minimizedPrompts = [];
 let fallbackApprovalTimer = null;
+let notifyTimer = null;
 let lastRespondedAt = 0; // Timestamp of last prompt response (suppresses fallback flash)
 
 function isDestructivePrompt(text) {
@@ -142,6 +143,16 @@ function showPromptCard(prompt) {
   currentPrompt = prompt;
   promptMessageIndex = document.querySelectorAll('.message').length;
   hideFallbackApproval();
+
+  // Schedule notification after delay (only fires if prompt still showing & tab hidden)
+  if (notifyTimer) clearTimeout(notifyTimer);
+  notifyTimer = setTimeout(() => {
+    notifyTimer = null;
+    if (currentPrompt && settings.notifyEnabled && document.hidden) {
+      const label = prompt.type === 'permission' ? `Allow ${prompt.tool}?` : 'Waiting for input';
+      sendNotification('Claude needs input', label);
+    }
+  }, NOTIFY_DELAY_MS);
 
   // Apply styling based on prompt type
   const style = PROMPT_STYLES[prompt.type];
@@ -630,6 +641,8 @@ function hidePromptCard() {
   card.classList.remove('show', 'loading', 'stale');
   currentPrompt = null;
   lastRespondedAt = Date.now(); // Suppress fallback flash after response
+  // Cancel pending notification
+  if (notifyTimer) { clearTimeout(notifyTimer); notifyTimer = null; }
   updateActionButtons();
   updatePromptQueueBadge();
   checkFallbackApproval();

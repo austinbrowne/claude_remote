@@ -5,6 +5,7 @@ const PING_TIMEOUT_MS = 3000;              // Pong response timeout before recon
 const TOAST_DURATION_MS = 2500;            // Toast message display duration
 const PERMISSION_CARD_DELAY_MS = 500;      // Delay before showing permission card
 const VOICE_LISTEN_DELAY_MS = 500;         // Delay before starting voice recognition after TTS
+const NOTIFY_DELAY_MS = 5000;              // Delay before sending notification for waiting/permission
 
 // ============================================
 // State
