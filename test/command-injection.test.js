@@ -1,5 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('os');
 const {
   sendControlCharToTty,
   injectCommandToTty,
@@ -13,15 +14,17 @@ const {
 // ---------------------------------------------------------------------------
 
 // Determine whether a rejection came from VALIDATION (before exec) or from the
-// exec/osascript path.  Validation errors have known, stable messages.
+// exec/osascript/tmux path.  Validation errors have known, stable messages.
 function isValidationError(err, pattern) {
   return pattern.test(err.message);
 }
 
-// A TTY string that passes the format check.  The exec call that follows will
-// fail because osascript is unavailable in the test environment, but the
-// validation guard will NOT have fired.
-const VALID_TTY = 'ttys001';
+// Platform-aware valid target and validation error pattern.
+// On macOS: TTY format "ttys001", error "Invalid TTY format"
+// On Linux: pane ID format "%0", error "Invalid pane ID format"
+const IS_LINUX = (process.env.CLAUDE_REMOTE_PLATFORM || os.platform()) === 'linux';
+const VALID_TTY = IS_LINUX ? '%0' : 'ttys001';
+const INVALID_TARGET_PATTERN = IS_LINUX ? /Invalid pane ID format/ : /Invalid TTY format/;
 
 // ---------------------------------------------------------------------------
 // validateTty — exercised via every exported function that delegates to it.
@@ -33,70 +36,70 @@ describe('validateTty — invalid formats are rejected before exec', () => {
   it('rejects empty string', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, ''),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects null', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, null),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects undefined', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, undefined),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects path traversal attempt "../foo"', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, '../foo'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects path traversal attempt "../../etc/passwd"', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, '../../etc/passwd'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects shell injection "ttys0; rm -rf /"', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, 'ttys0; rm -rf /'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects shell injection with backtick', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, 'ttys0`whoami`'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects /dev/ prefix (must be bare device name)', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, '/dev/ttys001'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects "tty" without the "s" suffix', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, 'tty001'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
   it('rejects numeric-only string', async () => {
     await assert.rejects(
       () => sendControlCharToTty(27, '001'),
-      { message: /Invalid TTY format/ }
+      { message: INVALID_TARGET_PATTERN }
     );
   });
 
@@ -108,29 +111,33 @@ describe('validateTty — invalid formats are rejected before exec', () => {
       // If somehow osascript succeeds (unlikely in CI), that is also fine.
     } catch (err) {
       assert.ok(
-        !isValidationError(err, /Invalid TTY format/),
+        !isValidationError(err, INVALID_TARGET_PATTERN),
         `Expected exec-stage error, got validation error: ${err.message}`
       );
     }
   });
 
-  it('does NOT reject valid format "ttys0" at the validation stage', async () => {
+  // Platform-specific valid format tests
+  it('does NOT reject platform-valid format at the validation stage', async () => {
+    // On macOS: ttys0 is valid. On Linux: %1 is valid.
+    const extraValid = IS_LINUX ? '%1' : 'ttys0';
     try {
-      await sendControlCharToTty(27, 'ttys0');
+      await sendControlCharToTty(27, extraValid);
     } catch (err) {
       assert.ok(
-        !isValidationError(err, /Invalid TTY format/),
+        !isValidationError(err, INVALID_TARGET_PATTERN),
         `Expected exec-stage error, got validation error: ${err.message}`
       );
     }
   });
 
-  it('does NOT reject valid format "ttys1234567" at the validation stage', async () => {
+  it('does NOT reject large platform-valid format at the validation stage', async () => {
+    const largeValid = IS_LINUX ? '%1234567' : 'ttys1234567';
     try {
-      await sendControlCharToTty(27, 'ttys1234567');
+      await sendControlCharToTty(27, largeValid);
     } catch (err) {
       assert.ok(
-        !isValidationError(err, /Invalid TTY format/),
+        !isValidationError(err, INVALID_TARGET_PATTERN),
         `Expected exec-stage error, got validation error: ${err.message}`
       );
     }
