@@ -461,23 +461,124 @@ body {
   color: var(--orange) !important;
 }
 
-/* Tool Group — collapsible container for consecutive tool calls */
-.tool-group {
+/* History Tool Batch — simple expandable summary for tool groups in history */
+.history-tool-batch {
+  background: var(--md-surface-2);
+  border-radius: var(--md-shape-md);
+  border: 1px solid var(--md-outline-variant);
+  padding: 0;
+  width: 100%;
+  align-self: stretch;
+}
+.history-tool-batch-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.history-tool-batch-label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.history-tool-batch-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.history-tool-batch-status {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  align-items: center;
+  margin-left: auto;
+}
+.history-tool-batch .tool-group-chevron {
+  transition: transform var(--md-motion-standard);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.history-tool-batch.expanded .tool-group-chevron {
+  transform: rotate(90deg);
+}
+.history-tool-batch-details {
+  display: none;
+  padding: 0 14px 10px;
+}
+.history-tool-batch.expanded .history-tool-batch-details {
+  display: block;
+}
+.history-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.history-tool-row:last-of-type {
+  border-bottom: none;
+}
+.history-tool-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.history-tool-path {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.history-tool-expand {
+  padding: 8px;
+  margin: 4px 0;
   background: var(--md-surface-1);
   border-radius: var(--md-shape-sm);
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+.history-tool-expand pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Tool Group — collapsible container for consecutive tool calls (live streaming) */
+.tool-group {
+  background: var(--md-surface-2);
+  border-radius: var(--md-shape-md);
+  border: 1px solid var(--md-outline-variant);
   overflow: hidden;
   margin: 4px 0;
+  width: 100%;
+  align-self: stretch;
 }
 
 .tool-group-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   cursor: pointer;
   user-select: none;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   transition: background var(--md-motion-standard);
 }
 .tool-group-header:hover {
