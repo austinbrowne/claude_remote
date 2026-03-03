@@ -174,8 +174,9 @@ enum ToolGroupHelpers {
             // Noise messages are skipped entirely — they don't break tool groups
             // and aren't shown in the chat stream:
             // - tokenUsage: tiny caption text, clutter (C5)
-            // - unknown: unhandled types like exit_plan_mode that show as "Unknown message"
-            if message.type == .tokenUsage || message.type == .unknown {
+            // - exitPlanMode: prompt trigger only, not visible content
+            // - unknown: unhandled types that would show as "Unknown message"
+            if message.type == .tokenUsage || message.type == .exitPlanMode || message.type == .unknown {
                 continue
             }
             if isToolGroupMessage(message) {

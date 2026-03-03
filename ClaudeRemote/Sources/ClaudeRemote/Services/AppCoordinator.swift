@@ -168,6 +168,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         webSocket?.send(.inject(command: command, sessionId: sessionId))
     }
 
+    /// Manual approve a tool use from its tool card (fallback when prompt card didn't appear).
+    /// Injects '1' (allow once) and cleans up any matching prompt from the queue.
+    public func manualApproveToolUse(toolUseId: String) {
+        guard let sessionId = state.currentSessionId else { return }
+        // Clean up matching prompt from queue/minimized to prevent double-response
+        promptService.dismissPermission(toolUseId: toolUseId)
+        // Inject '1' (allow once) with toolUseId for accurate routing
+        webSocket?.send(.inject(command: "1", sessionId: sessionId, toolUseId: toolUseId))
+    }
+
     /// Send escape (Ctrl+C) to a session
     public func escapeSession(_ sessionId: String) {
         webSocket?.send(.escape(sessionId: sessionId))

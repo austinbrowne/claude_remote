@@ -401,6 +401,10 @@ function mergeOrAppendToolResult(data) {
     const matchingCard = allTools.length > 0 ? allTools[allTools.length - 1] : null;
 
     if (matchingCard) {
+      // Remove manual approve button now that result arrived
+      const approveBtn = matchingCard.querySelector('.tool-approve-btn');
+      if (approveBtn) approveBtn.remove();
+
       // Merge: append result inline into the existing tool card
       const result = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
       const isError = !!data.resultIsError;
@@ -415,11 +419,18 @@ function mergeOrAppendToolResult(data) {
       resultDiv.innerHTML = `
         <div class="tool-result-separator"></div>
         <div class="tool-result-header">
+          <span class="tool-result-chevron">▶</span>
           <span class="tool-result-icon">${isError ? '✕' : '✓'}</span>
           <span class="tool-result-preview">${escapeHtml(preview)}${needsEllipsis ? '...' : ''} (${lines.length} lines)</span>
         </div>
         <div class="tool-result-details"><pre>${escapeHtml(result)}</pre></div>
       `;
+      // Click handler to toggle result details
+      const resultHeader = resultDiv.querySelector('.tool-result-header');
+      resultHeader.addEventListener('click', (e) => {
+        e.stopPropagation();
+        resultDiv.classList.toggle('expanded');
+      });
       matchingCard.appendChild(resultDiv);
 
       // Update the chevron summary to show completion status
@@ -458,6 +469,7 @@ function getOrCreateToolGroup(outputArea) {
   group.innerHTML = `
     <div class="tool-group-header">
       <svg class="tool-group-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 6 15 12 9 18"/></svg>
+      <span class="tool-group-icon">🔧</span>
       <span class="tool-group-label">Working...</span>
       <span class="tool-group-summary"></span>
       <span class="tool-group-status"></span>
@@ -488,15 +500,16 @@ function updateToolGroupHeader(group) {
     .map(([name, c]) => c > 1 ? `${name} (${c})` : name)
     .join(' · ');
 
-  // Mini status dots
+  // Status indicators: checkmarks/spinners matching iOS ToolGroupView
   const statusEl = group.querySelector('.tool-group-status');
   let html = '';
   tools.forEach(t => {
     const icon = t.querySelector('.tool-status-icon');
     if (icon) {
-      html += `<span class="tool-group-dot ${icon.classList.contains('error') ? 'error' : 'success'}"></span>`;
+      const isError = icon.classList.contains('error');
+      html += `<span class="tool-group-check ${isError ? 'error' : 'success'}">${isError ? '✕' : '✓'}</span>`;
     } else {
-      html += '<span class="tool-group-dot pending"></span>';
+      html += '<span class="tool-group-spinner"></span>';
     }
   });
   statusEl.innerHTML = html;
@@ -531,7 +544,7 @@ function renderHistory(history) {
     let lastPromptIndex = -1;
     for (let i = history.length - 1; i >= 0; i--) {
       const entry = history[i];
-      if (entry.type === 'ask_user_question' || entry.type === 'permission_request') {
+      if (entry.type === 'ask_user_question' || entry.type === 'permission_request' || entry.type === 'exit_plan_mode') {
         lastPromptIndex = i;
         break;
       }
@@ -551,7 +564,9 @@ function renderHistory(history) {
     // Only show prompt if unanswered
     if (!hasUserResponseAfterPrompt && lastPromptIndex >= 0) {
       const promptEntry = history[lastPromptIndex];
-      if (promptEntry.type === 'ask_user_question' && promptEntry.questions) {
+      if (promptEntry.type === 'exit_plan_mode') {
+        showPlanExitPrompt();
+      } else if (promptEntry.type === 'ask_user_question' && promptEntry.questions) {
         showStructuredPrompt(promptEntry.questions);
       } else if (promptEntry.type === 'permission_request') {
         // Only show if session is waiting (not already executing)
@@ -614,6 +629,11 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
     // Store tool name for group header
     msg.dataset.toolName = data.tool || 'Tool';
 
+    // Approve button for pending permission requests (manual fallback)
+    const approveBtn = data.needsApproval && data.toolUseId
+      ? `<button class="tool-approve-btn" title="Approve">✓</button>`
+      : '';
+
     // Special handling for Edit tool - show inline diff preview
     if (data.tool === 'Edit' && data.input?.old_string && data.input?.new_string) {
       const diffHtml = renderDiff(data.input.old_string, data.input.new_string);
@@ -622,6 +642,7 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
           <span class="tool-chevron">▶</span>
           <span class="tool-name">${escapeHtml(data.tool)}</span>
           <span class="tool-path">${escapeHtml(toolSummary)}</span>
+          ${approveBtn}
         </div>
         ${diffHtml}
         <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
@@ -632,9 +653,30 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
           <span class="tool-chevron">▶</span>
           <span class="tool-name">${escapeHtml(data.tool)}</span>
           <span class="tool-path">${escapeHtml(toolSummary)}</span>
+          ${approveBtn}
         </div>
         <div class="tool-details"><pre>${escapeHtml(fullInput)}</pre></div>
       `;
+    }
+
+    // Attach click handler for approve button (avoids inline onclick for XSS safety)
+    if (data.needsApproval && data.toolUseId) {
+      const btn = msg.querySelector('.tool-approve-btn');
+      if (btn) {
+        const toolUseId = data.toolUseId;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Don't toggle expand
+          manualApproveToolUse(toolUseId);
+        });
+      }
+    }
+
+    // Click handler for expand/collapse individual tool card
+    const summaryEl = msg.querySelector('.tool-summary');
+    if (summaryEl) {
+      summaryEl.addEventListener('click', () => {
+        toggleToolExpand(msg, lang);
+      });
     }
 
     // Add to tool group instead of directly to output

@@ -251,7 +251,7 @@ public final class PromptService {
                let tuId = msg.toolUseId {
                 answeredToolUseIds.insert(tuId)
             }
-            if msg.type == .permissionRequest || msg.type == .askUserQuestion {
+            if msg.type == .permissionRequest || msg.type == .askUserQuestion || msg.type == .exitPlanMode {
                 promptIndices.append((i, msg))
             }
         }
@@ -273,8 +273,8 @@ public final class PromptService {
                     messages[$0].type == .assistant || messages[$0].type == .tool
                 }
                 if hasSubsequentProgress { continue }
-            } else if msg.type == .askUserQuestion {
-                // Question answered if followed by a user message anywhere after it
+            } else if msg.type == .askUserQuestion || msg.type == .exitPlanMode {
+                // Question/plan exit answered if followed by a user message anywhere after it
                 let hasFollowingUserMsg = ((idx + 1)..<messages.count).contains {
                     messages[$0].type == .user
                 }
@@ -308,6 +308,13 @@ public final class PromptService {
                 kind: .question(questions: questions),
                 arrivedAt: msg.timestamp,
                 isStale: false // Only prompt recovered — it's the current one
+            )
+            enqueuePrompt(prompt)
+        } else if msg.type == .exitPlanMode {
+            let prompt = PromptItem(
+                kind: .planExit,
+                arrivedAt: msg.timestamp,
+                isStale: false
             )
             enqueuePrompt(prompt)
         }
@@ -679,7 +686,7 @@ public final class PromptService {
     }
 
     /// Dismiss a specific queued prompt matching a tool_result's toolUseId
-    private func dismissPermission(toolUseId: String?) {
+    public func dismissPermission(toolUseId: String?) {
         if let toolUseId {
             if let idx = promptQueue.firstIndex(where: { $0.toolUseId == toolUseId }) {
                 promptQueue.remove(at: idx)

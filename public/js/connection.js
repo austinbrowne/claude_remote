@@ -374,7 +374,9 @@ function handleMessage(msg) {
         appendMessage({
           type: 'tool',
           tool: tool,
-          input: input
+          input: input,
+          toolUseId: msg.data.toolUseId,
+          needsApproval: true
         });
 
         // Store pending card and wait before showing (allows auto-approval to cancel)

@@ -11,6 +11,7 @@ public enum MessageType: String, Codable, Sendable {
     case askUserQuestion = "ask_user_question"
     case tokenUsage = "token_usage"
     case subagentStarting = "subagent_starting"
+    case exitPlanMode = "exit_plan_mode"
     case permissionResolved = "permission_resolved"
     case teamMessage = "team_message"
     case unknown

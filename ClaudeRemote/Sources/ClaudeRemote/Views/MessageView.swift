@@ -45,6 +45,8 @@ struct MessageView: View {
             StatusIndicatorView(status: "Question pending...")
         case .subagentStarting:
             SubagentActivityCard(message: message)
+        case .exitPlanMode:
+            EmptyView() // Prompt trigger only — handled by PromptCardView
         case .permissionResolved:
             EmptyView() // Invisible — exists only for history recovery tracking
         case .teamMessage:

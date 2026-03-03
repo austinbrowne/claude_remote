@@ -714,6 +714,42 @@ function updateMinimizedIndicator() {
   }
 }
 
+// Manual approve a tool use from its tool card (fallback when prompt card didn't appear)
+function manualApproveToolUse(toolUseId) {
+  if (!currentSessionId || !toolUseId) return;
+  navigator.vibrate?.(50);
+
+  const msg = { action: 'inject', command: '1', sessionId: currentSessionId, toolUseId };
+  const success = wsSend(msg);
+  if (success) {
+    trackSentMessage('1');
+    appendMessage({ type: 'user', content: '1' });
+    // Clean up matching prompts from queue and minimized
+    if (currentPrompt?.toolUseId === toolUseId) {
+      hidePromptCard();
+    }
+    for (let i = promptQueue.length - 1; i >= 0; i--) {
+      if (promptQueue[i].toolUseId === toolUseId) {
+        promptQueue.splice(i, 1);
+        break;
+      }
+    }
+    for (let i = minimizedPrompts.length - 1; i >= 0; i--) {
+      if (minimizedPrompts[i].toolUseId === toolUseId) {
+        minimizedPrompts.splice(i, 1);
+        updateMinimizedIndicator();
+        break;
+      }
+    }
+    // Remove the approve button from the tool card
+    const card = document.querySelector(`.message.tool[data-tool-use-id="${CSS.escape(toolUseId)}"] .tool-approve-btn`);
+    if (card) card.remove();
+    showToast('Approved', 'success');
+  } else {
+    showToast('Failed to send approval', 'error');
+  }
+}
+
 function checkPromptStaleness() {
   if (!currentPrompt) return;
   const currentCount = document.querySelectorAll('.message').length;
