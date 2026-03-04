@@ -167,15 +167,13 @@ function showPromptCard(prompt) {
 
   switch (prompt.type) {
     case 'permission':
-      let permissionHtml = '';
-      if (prompt.subagentId) {
-        permissionHtml += `<div class="subagent-context">🤖 Subagent: ${prompt.subagentId.substring(0, 7)}</div>`;
-      }
-      permissionHtml += `<p>${escapeHtml(question)}</p>`;
+      // Compact permission display — tool name + command preview only
+      title.textContent = `Allow ${escapeHtml(prompt.tool || 'Tool')}?`;
       if (prompt.command) {
-        permissionHtml += `<div class="prompt-command-preview"><code>${escapeHtml(formatPermissionDisplay(prompt.tool, prompt.command))}</code></div>`;
+        content.innerHTML = `<div class="prompt-command-preview"><code>${escapeHtml(formatPermissionDisplay(prompt.tool, prompt.command))}</code></div>`;
+      } else {
+        content.innerHTML = '';
       }
-      content.innerHTML = permissionHtml;
       // Claude Code uses numbered options: 1=Yes (once), 2=Yes and always allow, 3=No
       const toolName = prompt.tool || '';
       const toolUseId = prompt.toolUseId || '';
@@ -185,16 +183,16 @@ function showPromptCard(prompt) {
       const totalPermissions = promptQueue.filter(p => p.type === 'permission').length + 1;
       const hasMixedTools = totalPermissions > 1 && totalPermissions !== sameToolTotal;
       actions.innerHTML = `
-        <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" data-action="yes">Yes</button>
-        <button class="prompt-btn allow-always" data-action="always">Always Allow</button>
-        <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" data-action="no">No</button>
-        ${sameToolTotal > 1 && toolName ? `<button class="prompt-btn allow-all" data-action="allow-all">Allow All ${escapeHtml(toolName)} (${sameToolTotal})</button>` : ''}
+        <button class="prompt-btn ${prompt.isDestructive ? 'secondary' : 'primary'}" data-action="yes">Allow</button>
+        <button class="prompt-btn allow-always" data-action="always">Always</button>
+        <button class="prompt-btn ${prompt.isDestructive ? 'primary destructive' : 'secondary'}" data-action="no">Deny</button>
+        ${sameToolTotal > 1 && toolName ? `<button class="prompt-btn allow-all" data-action="allow-all">All ${escapeHtml(toolName)} (${sameToolTotal})</button>` : ''}
         ${hasMixedTools ? `<button class="prompt-btn approve-all" data-action="approve-all">Approve All (${totalPermissions})</button>` : ''}
       `;
-      // Attach handlers programmatically to avoid inline string interpolation (XSS defense)
-      actions.querySelector('[data-action="yes"]').addEventListener('click', () => respondToPrompt('1'));
-      actions.querySelector('[data-action="always"]').addEventListener('click', () => respondToPermission(toolName, toolUseId));
-      actions.querySelector('[data-action="no"]').addEventListener('click', () => respondToPrompt('3'));
+      // Attach handlers — send 'y'/'n'/'always' matching iOS behavior
+      actions.querySelector('[data-action="yes"]').addEventListener('click', () => respondToPermission(null, null, 'y'));
+      actions.querySelector('[data-action="always"]').addEventListener('click', () => respondToPermission(toolName, toolUseId, 'always'));
+      actions.querySelector('[data-action="no"]').addEventListener('click', () => respondToPermission(null, null, 'n'));
       const allowAllBtn = actions.querySelector('[data-action="allow-all"]');
       if (allowAllBtn) allowAllBtn.addEventListener('click', () => respondToPermission(toolName, toolUseId));
       const approveAllBtn = actions.querySelector('[data-action="approve-all"]');
@@ -388,9 +386,9 @@ function updateBatchButton() {
 // Track which tools have been "always allowed" (local tracking for UI only)
 const alwaysAllowedTools = new Set();
 
-// Handle permission response with tool tracking
-function respondToPermission(tool, toolUseId) {
-  if (tool) {
+// Handle permission response with tool tracking (matching iOS behavior)
+function respondToPermission(tool, toolUseId, command = 'always') {
+  if (command === 'always' && tool) {
     alwaysAllowedTools.add(tool);
     // Cascade: remove queued and minimized permissions for the same tool
     for (let i = promptQueue.length - 1; i >= 0; i--) {
@@ -405,22 +403,17 @@ function respondToPermission(tool, toolUseId) {
     }
     updateMinimizedIndicator();
   }
-  // Send 'always' (matching iOS behavior) so server can track the grant,
-  // and include toolUseId for accurate tool-to-grant mapping
   const card = document.getElementById('promptCard');
   card.classList.add('loading');
   navigator.vibrate?.(50);
 
-  const msg = { action: 'inject', command: 'always', sessionId: currentSessionId };
+  const msg = { action: 'inject', command, sessionId: currentSessionId };
   if (toolUseId) msg.toolUseId = toolUseId;
   const success = wsSend(msg);
 
   if (success) {
-    trackSentMessage('always');
-    appendMessage({ type: 'user', content: 'always' });
-    if (settings.ttsEnabled) {
-      speak('Sent: always allow');
-    }
+    trackSentMessage(command);
+    // Don't show permission responses in chat (matches iOS)
     setTimeout(() => hidePromptCard(), 300);
   } else {
     card.classList.remove('loading');
@@ -457,8 +450,6 @@ function approveAllPermissions() {
   const success = wsSend(msg);
   if (success) {
     trackSentMessage('always');
-    appendMessage({ type: 'user', content: 'always' });
-    if (settings.ttsEnabled) speak('Approved all permissions');
     setTimeout(() => hidePromptCard(), 300);
   } else {
     card.classList.remove('loading');
@@ -732,11 +723,10 @@ function manualApproveToolUse(toolUseId) {
   if (!currentSessionId || !toolUseId) return;
   navigator.vibrate?.(50);
 
-  const msg = { action: 'inject', command: '1', sessionId: currentSessionId, toolUseId };
+  const msg = { action: 'inject', command: 'y', sessionId: currentSessionId, toolUseId };
   const success = wsSend(msg);
   if (success) {
-    trackSentMessage('1');
-    appendMessage({ type: 'user', content: '1' });
+    trackSentMessage('y');
     // Clean up matching prompts from queue and minimized
     if (currentPrompt?.toolUseId === toolUseId) {
       hidePromptCard();
@@ -828,7 +818,7 @@ function fallbackApprove(command) {
   const success = wsSend({ action: 'inject', command, sessionId: currentSessionId });
   if (success) {
     trackSentMessage(command);
-    appendMessage({ type: 'user', content: command });
+    // Don't show permission responses in chat (matches iOS)
     hideFallbackApproval();
   }
 }

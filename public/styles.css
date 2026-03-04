@@ -1517,6 +1517,23 @@ input::placeholder { color: var(--text-muted); }
 .prompt-card.permission .prompt-icon {
   background: rgba(255, 213, 79, 0.15);
   color: var(--md-warning);
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
+.prompt-card.permission .prompt-header {
+  padding: 10px 0 6px;
+}
+.prompt-card.permission .prompt-content {
+  margin-bottom: 10px;
+}
+.prompt-card.permission .prompt-command-preview {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.prompt-card.permission .prompt-freeform {
+  display: none;
 }
 .prompt-card.destructive .prompt-icon {
   background: rgba(242, 184, 181, 0.15);
@@ -1581,9 +1598,9 @@ input::placeholder { color: var(--text-muted); }
 
 .prompt-btn {
   flex: 1;
-  min-width: 80px;
-  min-height: 44px;
-  padding: 10px 16px;
+  min-width: 60px;
+  min-height: 40px;
+  padding: 8px 14px;
   border-radius: var(--md-shape-xl);
   font-size: 14px;
   font-weight: 500;
