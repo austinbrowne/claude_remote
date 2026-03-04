@@ -763,6 +763,11 @@ function appendMessage(data, scroll = true, skipPromptDetection = false, subagen
   if (!CHAT_TYPES.has(data.type)) return;
   // Skip empty assistant messages (no content)
   if (data.type === 'assistant' && (!data.content || !data.content.trim())) return;
+  // Skip permission response messages — they're noise in chat (matches iOS behavior)
+  if (data.type === 'user') {
+    const trimmed = (data.content || '').trim().toLowerCase();
+    if (['y', 'n', 'always', '1', '2', '3'].includes(trimmed)) return;
+  }
 
   const outputArea = document.getElementById('outputArea');
   document.getElementById('emptyState')?.remove();
