@@ -189,12 +189,49 @@ async function handleNewSessionAfterClear(oldSessionId, newSessionId, newLogFile
   }, 2000);
 }
 
+// Message types excluded from recentEvents replay buffer:
+// - Ephemeral: transient status that's stale on replay
+// - Meta: replay/recovery messages that would cause recursion if replayed (CONS-001)
+const EXCLUDED_FROM_REPLAY = new Set([
+  'session_status', 'typing', 'heartbeat',           // ephemeral
+  'session_delta', 'pending_prompts', 'session_suspect', 'session_alive'  // meta/recovery
+]);
+const RECENT_EVENTS_CAP = 100;
+const COMPACTION_SLACK = 20; // Amortized compaction: compact when cap + slack exceeded
+
 function broadcastToClients(message) {
   // Log subagent-related messages for debugging
   if (message.type?.startsWith('subagent')) {
     console.log(`[BROADCAST] ${message.type} agentId=${message.agentId} dataType=${message.data?.type}`);
   }
-  const data = JSON.stringify(message);
+
+  // Look up session to get seq counter
+  const sessionData = message.sessionId ? activeSessions.get(message.sessionId) : null;
+  let seq = null;
+
+  if (sessionData) {
+    seq = ++sessionData.lastBroadcastSeq;
+
+    // Update authoritative prompt state before broadcasting
+    try {
+      updatePromptState(sessionData, message);
+    } catch (e) {
+      console.error('[Broadcast] updatePromptState failed:', e.message);
+    }
+
+    // Store in recent events buffer (skip excluded types that are stale/dangerous on replay)
+    if (!EXCLUDED_FROM_REPLAY.has(message.type)) {
+      const stored = { seq, ...message, timestamp: Date.now() };
+      sessionData.recentEvents.push(stored);
+      // Periodic compaction — amortized O(n), not per-append splice
+      if (sessionData.recentEvents.length > RECENT_EVENTS_CAP + COMPACTION_SLACK) {
+        sessionData.recentEvents = sessionData.recentEvents.slice(-RECENT_EVENTS_CAP);
+      }
+    }
+  }
+
+  const enriched = seq != null ? { ...message, seq } : message;
+  const data = JSON.stringify(enriched);
   clients.forEach((clientData, ws) => {
     if (ws.readyState === WebSocket.OPEN && !clientData.pauseBroadcast) {
       if (!message.sessionId || clientData.watchingSessions.has(message.sessionId)) {
@@ -206,6 +243,42 @@ function broadcastToClients(message) {
       }
     }
   });
+}
+
+// Track server-side prompt state for authoritative recovery on reconnect
+function updatePromptState(sessionData, event) {
+  if (!sessionData || !event) return;
+
+  if (event.type === 'permission_request' || event.type === 'ask_user_question') {
+    // toolUseId is reliable for permission_request (from log-parser.js block.id)
+    // ask_user_question has no correlation ID — use seq-based fallback
+    const promptId = event.toolUseId || `prompt-${sessionData.lastBroadcastSeq}`;
+    sessionData.pendingPrompts.set(promptId, {
+      promptId,
+      type: event.type,
+      tool: event.tool,
+      toolUseId: event.toolUseId,
+      data: event,
+      seq: sessionData.lastBroadcastSeq,
+      timestamp: Date.now()
+    });
+  }
+
+  if (event.type === 'tool_result' && event.toolUseId) {
+    sessionData.pendingPrompts.delete(event.toolUseId);
+  }
+
+  if (event.type === 'user') {
+    // Clear oldest ask_user_question (FIFO — acceptable since AskUserQuestion
+    // prompts are rare and sequential in practice. toolUseId-based correlation
+    // is not available in the JSONL format for these events.)
+    for (const [id, prompt] of sessionData.pendingPrompts) {
+      if (prompt.type === 'ask_user_question') {
+        sessionData.pendingPrompts.delete(id);
+        break;
+      }
+    }
+  }
 }
 
 // ============================================
@@ -295,7 +368,9 @@ setInterval(() => {
 }, CLAUDE_STATE_SYNC_MS);
 
 // Periodic liveness check: detect dead sessions and auto-transition to replacements
+// Uses failCount grace period: 1st failure = warn (session_suspect), 3rd = dead
 const SESSION_LIVENESS_CHECK_MS = 15000;
+const PROMPT_TTL_MS = 10 * 60 * 1000; // 10 minutes — expire stale prompts with no watchers
 let livenessCheckRunning = false;
 
 setInterval(async () => {
@@ -305,17 +380,48 @@ setInterval(async () => {
     const activeProcesses = await getActiveClaude();
     const activeTtys = new Set(activeProcesses.map(p => p.tty));
 
-    // Collect dead sessions (don't mutate activeSessions during iteration)
-    const deadSessions = [];
+    // Collect sessions by liveness state (don't mutate activeSessions during iteration)
+    const deadSessions = []; // failCount >= 3, ready to clean up
     for (const [sessionId, sd] of activeSessions) {
       const tty = sd.session?.tty;
       if (tty && !activeTtys.has(tty)) {
-        deadSessions.push({ sessionId, cwd: sd.session.cwd });
+        sd.failCount++;
+
+        if (sd.failCount === 1) {
+          // First failure — warn clients but don't kill session
+          console.log(`[Liveness] Session ${sessionId.substring(0, 8)} suspect (failCount: ${sd.failCount})`);
+          broadcastToClients({ type: 'session_suspect', sessionId });
+        }
+
+        if (sd.failCount >= 3) {
+          // 3 consecutive failures (~45s) — declare dead
+          deadSessions.push({ sessionId, cwd: sd.session.cwd });
+        }
+      } else {
+        // Process alive — reset failCount and notify if recovering
+        if (sd.failCount > 0) {
+          console.log(`[Liveness] Session ${sessionId.substring(0, 8)} recovered (was failCount: ${sd.failCount})`);
+          broadcastToClients({ type: 'session_alive', sessionId });
+        }
+        sd.failCount = 0;
+      }
+
+      // Prompt TTL: expire stale prompts when no clients are watching
+      if (sd.pendingPrompts.size > 0) {
+        const hasWatchers = [...clients.values()].some(c => c.watchingSessions.has(sessionId));
+        if (!hasWatchers) {
+          const now = Date.now();
+          for (const [promptId, prompt] of sd.pendingPrompts) {
+            if (now - prompt.timestamp > PROMPT_TTL_MS) {
+              sd.pendingPrompts.delete(promptId);
+            }
+          }
+        }
       }
     }
 
     for (const { sessionId, cwd } of deadSessions) {
-      console.log(`[Liveness] Session ${sessionId.substring(0, 8)} process is dead`);
+      console.log(`[Liveness] Session ${sessionId.substring(0, 8)} declared dead (failCount >= 3)`);
 
       // Find clients watching this session before cleanup
       const watchingClients = [];
@@ -339,6 +445,20 @@ setInterval(async () => {
       const replacement = sessions.find(s => s.cwd === cwd);
 
       if (replacement) {
+        // Replacement liveness pre-check: verify replacement is actually alive
+        const replacementAlive = activeTtys.has(replacement.tty);
+        if (!replacementAlive) {
+          console.log(`[Liveness] Replacement ${replacement.id.substring(0, 8)} failed pre-check — notifying session_ended`);
+          for (const { ws, clientData } of watchingClients) {
+            clientData.watchingSessions.delete(sessionId);
+            try {
+              ws.send(JSON.stringify({ type: 'session_ended', sessionId }));
+              ws.send(JSON.stringify({ type: 'sessions', data: sessions }));
+            } catch (e) { console.error('[Liveness] ws.send failed:', e.message); }
+          }
+          continue;
+        }
+
         console.log(`[Liveness] Auto-transitioning to replacement: ${replacement.id.substring(0, 8)}`);
         const newSession = await watchSession(replacement.id);
         if (newSession) {
@@ -352,7 +472,7 @@ setInterval(async () => {
                 newSessionId: replacement.id,
                 session: newSession
               }));
-            } catch (e) { /* client disconnected */ }
+            } catch (e) { console.error('[Liveness] ws.send failed:', e.message); }
           }
         }
       } else {
@@ -362,7 +482,7 @@ setInterval(async () => {
           try {
             ws.send(JSON.stringify({ type: 'session_ended', sessionId }));
             ws.send(JSON.stringify({ type: 'sessions', data: sessions }));
-          } catch (e) { /* client disconnected */ }
+          } catch (e) { console.error('[Liveness] ws.send failed:', e.message); }
         }
       }
     }
@@ -374,6 +494,22 @@ setInterval(async () => {
 }, SESSION_LIVENESS_CHECK_MS);
 
 // Check if any other client is watching a session (excludes given ws)
+// Validate session is active and not dead (G4 — inject-race mitigation).
+// Returns session data if valid, or null after sending error to client.
+function validateActiveSession(ws, msg) {
+  if (!msg.sessionId) return null;
+  const sessionData = activeSessions.get(msg.sessionId);
+  if (!sessionData || sessionData.failCount >= 3) {
+    safeSend(ws, {
+      type: 'error',
+      message: 'Session unavailable',
+      sessionId: msg.sessionId
+    });
+    return null;
+  }
+  return sessionData;
+}
+
 function isAnyoneWatching(sessionId, excludeWs = null) {
   for (const [ws, data] of clients) {
     if (ws !== excludeWs && data.watchingSessions.has(sessionId)) return true;
@@ -386,6 +522,28 @@ function maybeUnwatchSession(sessionId, excludeWs) {
   if (!isAnyoneWatching(sessionId, excludeWs)) {
     unwatchSession(sessionId);
   }
+}
+
+// Safe WebSocket send — absorbs throws from CLOSING/CLOSED sockets (CONS-002)
+function safeSend(ws, payload) {
+  try {
+    ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
+    return true;
+  } catch (e) {
+    console.error('[safeSend] ws.send failed:', e.message);
+    return false;
+  }
+}
+
+// Send pending prompts to a specific client (CONS-008 — single source of truth)
+function sendPendingPrompts(ws, sessionId, sessionData) {
+  if (!sessionData || sessionData.pendingPrompts.size === 0) return;
+  safeSend(ws, {
+    type: 'pending_prompts',
+    sessionId,
+    prompts: Array.from(sessionData.pendingPrompts.values()),
+    lastSeq: sessionData.lastBroadcastSeq
+  });
 }
 
 // ============================================
@@ -509,8 +667,10 @@ async function handleClientMessage(ws, msg) {
 
   // Validate sessionId format when present
   if (msg.sessionId && typeof msg.sessionId === 'string') {
-    // Session IDs are either UUIDs (from JSONL files) or tty-pid format
-    if (!/^[a-f0-9-]+$/.test(msg.sessionId) || msg.sessionId.length > 100) {
+    // Session IDs are either UUIDs (from JSONL files) or tty-pid format (%N-PID on Linux).
+    // '%' is safe here: session IDs are used as Map keys only, never interpolated into
+    // shell commands or file paths (TTY paths come from the session object, not the ID).
+    if (!/^[a-f0-9%-]+$/.test(msg.sessionId) || msg.sessionId.length > 100) {
       sendError(ws, 'INVALID_SESSION_ID', 'Invalid session ID format');
       return;
     }
@@ -550,7 +710,32 @@ async function handleClientMessage(ws, msg) {
               state: claudeState
             }));
           }
-          await sendRecentHistory(ws, msg.sessionId);
+          // Send pending prompts immediately (authoritative prompt recovery)
+          sendPendingPrompts(ws, msg.sessionId, sessionData);
+
+          // If client provides fromSeq, send delta from recent events buffer
+          // and skip full history — delta is sufficient for brief disconnects
+          let deltaServed = false;
+          if (msg.fromSeq != null && sessionData) {
+            const fromSeq = Math.max(0, Math.floor(Number(msg.fromSeq)) || 0);
+            if (fromSeq > 0 && fromSeq <= sessionData.lastBroadcastSeq) {
+              const delta = sessionData.recentEvents.filter(e => e.seq > fromSeq);
+              if (delta.length > 0) {
+                safeSend(ws, {
+                  type: 'session_delta',
+                  sessionId: msg.sessionId,
+                  events: delta,
+                  lastSeq: sessionData.lastBroadcastSeq
+                });
+                deltaServed = true;
+              }
+            }
+            // fromSeq too old (evicted from buffer) or invalid — fall through to full history
+          }
+
+          if (!deltaServed) {
+            await sendRecentHistory(ws, msg.sessionId);
+          }
           await sendActiveSubagents(ws, msg.sessionId);
           // Send current context percentage so the ring starts at the right value
           if (sessionData?.contextPercentage > 0) {
@@ -590,11 +775,15 @@ async function handleClientMessage(ws, msg) {
     case 'catch_up':
       // Send recent history when client returns from background
       if (msg.sessionId) {
-        sendRecentHistory(ws, msg.sessionId);
+        sendRecentHistory(ws, msg.sessionId).catch(err => {
+          console.error('[catch_up] sendRecentHistory failed:', err.message);
+        });
       }
       break;
 
-    case 'inject':
+    case 'inject': {
+      const injectSessionData = validateActiveSession(ws, msg);
+      if (msg.sessionId && !injectSessionData) break;
       // Validate command input
       if (typeof msg.command !== 'string' || msg.command.length === 0) {
         ws.send(JSON.stringify({ type: 'inject_result', success: false, error: 'Command required' }));
@@ -661,14 +850,22 @@ async function handleClientMessage(ws, msg) {
             await injectCommandLegacy(msg.command);
             ws.send(JSON.stringify({ type: 'inject_result', success: true }));
           }
+
+          // Post-answer prompt reconciliation: clear answered prompt, re-send remaining
+          if (injectSessionData && msg.toolUseId) {
+            injectSessionData.pendingPrompts.delete(msg.toolUseId);
+          }
+          sendPendingPrompts(ws, msg.sessionId, injectSessionData);
         } catch (err) {
           console.error(`[Inject] Failed: ${err.message}`);
           ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
         }
       })();
       break;
+    }
 
     case 'select_option': {
+      if (msg.sessionId && !validateActiveSession(ws, msg)) break;
       // Navigate an interactive selector (AskUserQuestion) by sending arrow-down
       // keystrokes to reach the correct option index, then Enter to confirm.
       // Claude Code's ink-based selector ignores typed text — only arrow keys work.
@@ -746,7 +943,8 @@ async function handleClientMessage(ws, msg) {
       break;
     }
 
-    case 'escape':
+    case 'escape': {
+      if (msg.sessionId && !validateActiveSession(ws, msg)) break;
       // Use cached session first (fast), fall back to discovery (slow) if needed
       (async () => {
         try {
@@ -776,6 +974,7 @@ async function handleClientMessage(ws, msg) {
         }
       })();
       break;
+    }
 
     case 'clear_and_resume': {
       const sessionId = msg.sessionId;

@@ -246,6 +246,12 @@ function reconnect() {
 // Debug mode (toggle in Settings > Developer)
 
 function handleMessage(msg) {
+  // Seq-based dedup: drop messages with seq <= lastReceivedSeq
+  if (msg.seq != null) {
+    if (msg.seq <= lastReceivedSeq) return; // Duplicate — already processed
+    lastReceivedSeq = msg.seq;
+  }
+
   debugMsgCount++;
   // Debug ALL message types to trace the flow
   if (debugMode) {
@@ -274,7 +280,12 @@ function handleMessage(msg) {
 
         // Re-watch session if this was a reconnect
         if (pending.reconnectSession) {
-          wsSend({ action: 'watch_session', sessionId: pending.reconnectSession });
+          const watchMsg = { action: 'watch_session', sessionId: pending.reconnectSession };
+          // Include fromSeq for delta replay on brief disconnects
+          if (lastReceivedSeq > 0) {
+            watchMsg.fromSeq = lastReceivedSeq;
+          }
+          wsSend(watchMsg);
           pending.reconnectSession = null;
           showToast('Reconnected!', 'success');
         } else {
@@ -713,10 +724,74 @@ function handleMessage(msg) {
       updateModeIndicator();
       break;
 
+    case 'pending_prompts':
+      handlePendingPrompts(msg);
+      break;
+
+    case 'session_delta':
+      handleSessionDelta(msg);
+      break;
+
+    case 'session_suspect':
+      handleSessionSuspect(msg);
+      break;
+
+    case 'session_alive':
+      handleSessionAlive(msg);
+      break;
+
     case 'pong':
       if (pingTimeout) clearTimeout(pingTimeout);
       break;
   }
+}
+
+// ============================================
+// Event-based architecture message handlers
+// ============================================
+
+function handlePendingPrompts(msg) {
+  // Server-authoritative prompt recovery on connect/reconnect
+  if (msg.sessionId !== currentSessionId || !Array.isArray(msg.prompts)) return;
+  for (const prompt of msg.prompts) {
+    if (prompt.type === 'ask_user_question') {
+      showStructuredPrompt(prompt.data?.questions || prompt.data);
+    } else if (prompt.type === 'permission_request') {
+      showPromptCard({
+        type: 'permission',
+        text: `Allow ${prompt.tool}?`,
+        tool: prompt.tool,
+        toolUseId: prompt.toolUseId || null,
+        command: prompt.tool === 'Bash' ? prompt.data?.input?.command : `${prompt.tool}: ${prompt.data?.input?.file_path != null ? prompt.data.input.file_path : 'unknown'}`,
+        isDestructive: prompt.tool === 'Bash' && DESTRUCTIVE_KEYWORDS.some(k => (prompt.data?.input?.command || '').toLowerCase().includes(k))
+      });
+    }
+  }
+}
+
+function handleSessionDelta(msg) {
+  // Replay missed events from server's recentEvents buffer (brief-disconnect recovery)
+  if (msg.sessionId !== currentSessionId || !Array.isArray(msg.events)) return;
+  for (const event of msg.events) {
+    // Guard: never recurse into nested session_delta/pending_prompts (CONS-001)
+    if (event.type === 'session_delta' || event.type === 'pending_prompts') continue;
+    handleMessage(event);
+  }
+  if (msg.lastSeq != null) lastReceivedSeq = msg.lastSeq; // != null, not falsy (CONS-006)
+}
+
+function handleSessionSuspect(msg) {
+  if (msg.sessionId !== currentSessionId) return;
+  showToast('Session may be unavailable — input paused', 'error');
+  const input = document.getElementById('commandInput');
+  if (input) input.disabled = true;
+}
+
+function handleSessionAlive(msg) {
+  if (msg.sessionId !== currentSessionId) return;
+  showToast('Session recovered', 'success');
+  const input = document.getElementById('commandInput');
+  if (input) input.disabled = false;
 }
 
 // ============================================
@@ -870,6 +945,10 @@ function handleSessionReplaced(msg) {
     pendingPromptMessage = null;
     promptQueue.length = 0;
     hidePromptCard();
+    lastReceivedSeq = 0; // Reset seq tracking for new session
+    // Re-enable input in case session_suspect had disabled it
+    const replInput = document.getElementById('commandInput');
+    if (replInput) replInput.disabled = false;
 
     currentSessionId = msg.newSessionId;
     sessionState = SESSION_STATE.SWITCHING;
@@ -890,6 +969,7 @@ function handleSessionEnded(msg) {
   currentSessionId = null;
   sessionState = SESSION_STATE.IDLE;
   pendingSessionId = null;
+  lastReceivedSeq = 0; // Reset seq tracking
   document.getElementById('outputArea').innerHTML = '';
   resetSessionTokens();
   clearTasks();
