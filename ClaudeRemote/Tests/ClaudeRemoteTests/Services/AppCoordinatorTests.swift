@@ -35,7 +35,7 @@ struct AppCoordinatorTests {
         state.isAuthenticated = true
         state.isConnected = true
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad token"))
+        coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad token"), seq: nil)
         #expect(state.isAuthenticated == false)
         #expect(state.isConnected == false)
     }
@@ -47,7 +47,7 @@ struct AppCoordinatorTests {
         state.isConnected = true
         let coordinator = AppCoordinator(state: state)
         #expect(state.isAuthenticated == false)
-        coordinator.webSocketDidReceiveMessage(.authResult(success: true, error: nil))
+        coordinator.webSocketDidReceiveMessage(.authResult(success: true, error: nil), seq: nil)
         #expect(state.isAuthenticated == true)
         #expect(state.isConnected == true)
     }
@@ -63,7 +63,7 @@ struct AppCoordinatorTests {
             Session(id: "s1", name: "Session 1"),
             Session(id: "s2", name: "Session 2"),
         ]
-        coordinator.webSocketDidReceiveMessage(.sessions(data: sessions))
+        coordinator.webSocketDidReceiveMessage(.sessions(data: sessions), seq: nil)
         #expect(state.sessions.count == 2)
         #expect(state.sessions[0].id == "s1")
     }
@@ -77,7 +77,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         state.beginSessionSwitch(to: "s1")
         let session = Session(id: "s1", name: "Session 1")
-        coordinator.webSocketDidReceiveMessage(.watching(sessionId: "s1", session: session))
+        coordinator.webSocketDidReceiveMessage(.watching(sessionId: "s1", session: session), seq: nil)
         #expect(state.currentSessionId == "s1")
         #expect(state.sessionSwitchState == .active)
     }
@@ -97,7 +97,7 @@ struct AppCoordinatorTests {
             ClaudeOutputData(type: "assistant", content: "Hello"),
             ClaudeOutputData(type: "user", content: "Hi"),
         ]
-        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries))
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries), seq: nil)
         #expect(state.messages.count == 2)
         #expect(state.messages[0].type == .assistant)
         #expect(state.messages[0].content == "Hello")
@@ -114,7 +114,7 @@ struct AppCoordinatorTests {
             ClaudeOutputData(type: "assistant", content: ""),
             ClaudeOutputData(type: "assistant", content: "valid"),
         ]
-        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries))
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: entries), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].content == "valid")
     }
@@ -128,7 +128,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "Hello world")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .assistant)
         #expect(state.messages[0].content == "Hello world")
@@ -141,7 +141,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.isEmpty)
     }
 
@@ -152,7 +152,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: nil)
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.isEmpty)
     }
 
@@ -168,7 +168,7 @@ struct AppCoordinatorTests {
             tool: "Bash",
             input: ["command": .string("ls")]
         )
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .tool)
         #expect(state.messages[0].tool == "Bash")
@@ -182,7 +182,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         state.trackSentMessage("my command")
         let data = ClaudeOutputData(type: "user", content: "my command")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         // Should be deduped
         #expect(state.messages.isEmpty)
     }
@@ -194,7 +194,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "user", content: "from elsewhere")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.count == 1)
     }
 
@@ -205,7 +205,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "s1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "status_update", content: "Processing", status: "processing")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.sessionStatus == .processing)
     }
 
@@ -216,7 +216,7 @@ struct AppCoordinatorTests {
         state.confirmSessionSwitch(sessionId: "sess-1")
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "From other session")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "sess-2", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "sess-2", data: data), seq: nil)
         #expect(state.messages.isEmpty)
     }
 
@@ -227,7 +227,7 @@ struct AppCoordinatorTests {
     func sessionStatus() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil))
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil), seq: nil)
         #expect(state.sessionStatus == .waiting)
     }
 
@@ -236,7 +236,7 @@ struct AppCoordinatorTests {
     func statusUpdate() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"))
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"), seq: nil)
         #expect(state.sessionStatus == .active)
     }
 
@@ -245,7 +245,7 @@ struct AppCoordinatorTests {
     func unknownStatus() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "never_seen_before"))
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "never_seen_before"), seq: nil)
         #expect(state.sessionStatus == .unknown)
     }
 
@@ -256,7 +256,7 @@ struct AppCoordinatorTests {
     func contextPercentageNoMessage() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 42))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 42), seq: nil)
         #expect(state.messages.isEmpty)
     }
 
@@ -265,7 +265,7 @@ struct AppCoordinatorTests {
     func contextPercentageUpdatesState() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 50))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 50), seq: nil)
         #expect(state.contextPercentage == 0.5)
     }
 
@@ -275,7 +275,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         state.confirmSessionSwitch(sessionId: "sess-1")
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: "sess-2", percentage: 50))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: "sess-2", percentage: 50), seq: nil)
         #expect(state.contextPercentage == 0)
     }
 
@@ -288,7 +288,7 @@ struct AppCoordinatorTests {
         state.contextPercentage = 0.85
         state.currentToast = nil
         // Now push above 90%
-        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 92))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 92), seq: nil)
         #expect(state.contextPercentage == 0.92)
         #expect(state.currentToast != nil)
         #expect(state.currentToast?.message.contains("compact") == true)
@@ -304,7 +304,7 @@ struct AppCoordinatorTests {
         state.contextPercentage = 0.92
         state.currentToast = nil
         // Update again still above 90%
-        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 95))
+        coordinator.webSocketDidReceiveMessage(.contextPercentage(sessionId: nil, percentage: 95), seq: nil)
         #expect(state.contextPercentage == 0.95)
         // Toast should NOT fire (already was above 90%)
         #expect(state.currentToast == nil)
@@ -315,7 +315,7 @@ struct AppCoordinatorTests {
     func legacyTokenUsageIgnored() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 100_000, output: 500))
+        coordinator.webSocketDidReceiveMessage(.tokenUsage(sessionId: nil, input: 100_000, output: 500), seq: nil)
         #expect(state.contextPercentage == 0)
         #expect(state.messages.isEmpty)
     }
@@ -327,7 +327,7 @@ struct AppCoordinatorTests {
     func taskCreate() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.taskCreate(id: "t1", subject: "Do stuff", description: "Details", activeForm: "Doing stuff", status: "pending", owner: nil))
+        coordinator.webSocketDidReceiveMessage(.taskCreate(id: "t1", subject: "Do stuff", description: "Details", activeForm: "Doing stuff", status: "pending", owner: nil), seq: nil)
         #expect(state.tasks.count == 1)
         #expect(state.tasks[0].id == "t1")
         #expect(state.tasks[0].subject == "Do stuff")
@@ -339,7 +339,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         state.tasks.append(TaskItem(id: "t1", subject: "Old", status: "pending"))
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New", activeForm: "Doing new", description: "New desc", owner: nil))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "t1", status: "completed", subject: "New", activeForm: "Doing new", description: "New desc", owner: nil), seq: nil)
         #expect(state.tasks[0].subject == "New")
         #expect(state.tasks[0].status == "completed")
         #expect(state.tasks[0].activeForm == "Doing new")
@@ -351,7 +351,7 @@ struct AppCoordinatorTests {
     func taskUpdateUnknownId() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil, activeForm: nil, description: nil, owner: nil))
+        coordinator.webSocketDidReceiveMessage(.taskUpdate(taskId: "missing", status: "done", subject: nil, activeForm: nil, description: nil, owner: nil), seq: nil)
         #expect(state.tasks.isEmpty)
     }
 
@@ -362,7 +362,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         state.tasks.append(TaskItem(id: "old", subject: "Old"))
         let newTasks = [TaskItem(id: "t1", subject: "A"), TaskItem(id: "t2", subject: "B")]
-        coordinator.webSocketDidReceiveMessage(.taskList(tasks: newTasks))
+        coordinator.webSocketDidReceiveMessage(.taskList(tasks: newTasks), seq: nil)
         #expect(state.tasks.count == 2)
         #expect(state.tasks[0].id == "t1")
     }
@@ -374,7 +374,7 @@ struct AppCoordinatorTests {
     func subagentStarting() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Exploring code", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Exploring code", agentType: "Explore"), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .subagentStarting)
         #expect(state.messages[0].content == "Exploring code")
@@ -391,10 +391,10 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // First, create a pending subagent_starting message
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"), seq: nil)
         #expect(state.pendingSubagentMessages.count == 1)
         // Now correlate via subagent_start
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil), seq: nil)
         #expect(state.activeSubagents["a1"] != nil)
         #expect(state.activeSubagents["a1"]?.description == "Research")
         #expect(state.activeSubagents["a1"]?.agentType == "Explore")
@@ -412,7 +412,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         let data = ClaudeOutputData(type: "assistant", content: "Found it")
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data), seq: nil)
         #expect(state.messages.isEmpty)
     }
 
@@ -422,10 +422,10 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // Set up: starting -> start -> stop
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil), seq: nil)
         #expect(state.messages[0].subagentStatus == "running")
-        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"), seq: nil)
         #expect(state.activeSubagents["a1"]?.status == "completed")
         #expect(state.messages[0].subagentStatus == "completed")
     }
@@ -438,15 +438,15 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // 3 subagents starting
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"))
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"))
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Performance check", agentType: "Bash"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Performance check", agentType: "Bash"), seq: nil)
         #expect(state.messages.count == 3)
         #expect(state.pendingSubagentMessages.count == 3)
         // Correlate in different order
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b3", sessionId: nil, description: "Performance check", agentType: "Bash", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "b3", sessionId: nil, description: "Performance check", agentType: "Bash", teamName: nil, memberName: nil), seq: nil)
         // All should be correlated
         #expect(state.pendingSubagentMessages.isEmpty)
         #expect(state.subagentMessageMap["b1"] == 0)
@@ -463,7 +463,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // No subagentStarting was sent first
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Mystery agent", agentType: "general", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Mystery agent", agentType: "general", teamName: nil, memberName: nil), seq: nil)
         #expect(state.activeSubagents["a1"] != nil)
         #expect(state.activeSubagents["a1"]?.description == "Mystery agent")
         // No message map entry since no pending message matched
@@ -476,9 +476,9 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         // Full lifecycle: starting -> start -> tool
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil))
-        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Research", agentType: "Explore"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research", agentType: "Explore", teamName: nil, memberName: nil), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil), seq: nil)
         #expect(state.activeSubagents["a1"]?.currentTool == "Read")
         #expect(state.messages[0].subagentCurrentTool == "Read")
         #expect(state.messages[0].subagentStatus == "running")
@@ -489,8 +489,8 @@ struct AppCoordinatorTests {
     func sessionSwitchClearsSubagentState() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "test", agentType: "general"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "test", agentType: "general", teamName: nil, memberName: nil), seq: nil)
         #expect(!state.subagentMessageMap.isEmpty)
         // Switch session
         state.beginSessionSwitch(to: "new-session")
@@ -523,8 +523,8 @@ struct AppCoordinatorTests {
         // Send multiple subagent outputs
         let data1 = ClaudeOutputData(type: "assistant", content: "Result 1")
         let data2 = ClaudeOutputData(type: "tool", content: "Tool output", tool: "Bash")
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data1))
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data2))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data1), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data2), seq: nil)
         #expect(state.messages.count == initialCount)
     }
 
@@ -535,7 +535,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         state.activeSubagents["a1"] = SubagentInfo(description: "Security review", agentType: "general")
         let data = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-sub-1")
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data), seq: nil)
         // Wait for coalescing timer to flush
         try await Task.sleep(for: .milliseconds(700))
         // Permission_request should be in prompt queue — server broadcasts as fallback when auto-approve fails
@@ -556,7 +556,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         let questions = [QuestionData(question: "Which approach?", options: [QuestionOption(label: "A")])]
         let data = ClaudeOutputData(type: "ask_user_question", questions: questions)
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: data), seq: nil)
         // Questions show immediately
         #expect(coordinator.promptService.promptQueue.count == 1)
         if case .question(let qs) = coordinator.promptService.currentPrompt?.kind {
@@ -588,16 +588,16 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
 
         // Both start
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"))
-        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"))
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Security review", agentType: "Plan"), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStarting(description: "Code analysis", agentType: "Explore"), seq: nil)
         #expect(state.messages.count == 2)
         #expect(state.messages[0].subagentStatus == "starting")
         #expect(state.messages[1].subagentStatus == "starting")
         #expect(state.pendingSubagentMessages.count == 2)
 
         // Both correlate
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil))
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Security review", agentType: "Plan", teamName: nil, memberName: nil), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a2", sessionId: nil, description: "Code analysis", agentType: "Explore", teamName: nil, memberName: nil), seq: nil)
         #expect(state.messages[0].subagentStatus == "running")
         #expect(state.messages[0].subagentAgentId == "a1")
         #expect(state.messages[1].subagentStatus == "running")
@@ -605,28 +605,28 @@ struct AppCoordinatorTests {
         #expect(state.pendingSubagentMessages.isEmpty)
 
         // Tool updates on each
-        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Grep", input: nil))
-        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a2", tool: "Read", input: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Grep", input: nil), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a2", tool: "Read", input: nil), seq: nil)
         #expect(state.messages[0].subagentCurrentTool == "Grep")
         #expect(state.messages[1].subagentCurrentTool == "Read")
 
         // Outputs suppressed — message count stays at 2
         let output1 = ClaudeOutputData(type: "assistant", content: "Found vulnerability")
         let output2 = ClaudeOutputData(type: "assistant", content: "Code looks clean")
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: output1))
-        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a2", sessionId: nil, data: output2))
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a1", sessionId: nil, data: output1), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.subagentOutput(agentId: "a2", sessionId: nil, data: output2), seq: nil)
         #expect(state.messages.count == 2)
 
         // a2 finishes first
-        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a2"))
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a2"), seq: nil)
         #expect(state.messages[1].subagentStatus == "completed")
         #expect(state.messages[1].subagentCurrentTool == nil)
         #expect(state.messages[0].subagentStatus == "running")  // a1 still running
 
         // a1 gets another tool update then finishes
-        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Bash", input: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Bash", input: nil), seq: nil)
         #expect(state.messages[0].subagentCurrentTool == "Bash")
-        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"), seq: nil)
         #expect(state.messages[0].subagentStatus == "completed")
         #expect(state.messages[0].subagentCurrentTool == nil)
 
@@ -646,7 +646,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         // Simulate subagent_starting arriving as claude_output (older server / history fallback)
         let data = ClaudeOutputData(type: "subagent_starting", content: "Security review", tool: "Plan")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .subagentStarting)
         #expect(state.messages[0].content == "Security review")
@@ -665,18 +665,18 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         // subagent_starting via claude_output
         let data = ClaudeOutputData(type: "subagent_starting", content: "Research code", tool: "Explore")
-        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data))
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: nil)
         // subagent_start correlates
-        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research code", agentType: "Explore", teamName: nil, memberName: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentStart(agentId: "a1", sessionId: nil, description: "Research code", agentType: "Explore", teamName: nil, memberName: nil), seq: nil)
         #expect(state.subagentMessageMap["a1"] == 0)
         #expect(state.messages[0].subagentStatus == "running")
         #expect(state.messages[0].subagentAgentId == "a1")
         #expect(state.pendingSubagentMessages.isEmpty)
         // Tool update should propagate
-        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil))
+        coordinator.webSocketDidReceiveMessage(.subagentTool(agentId: "a1", tool: "Read", input: nil), seq: nil)
         #expect(state.messages[0].subagentCurrentTool == "Read")
         // Stop should complete the card
-        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"))
+        coordinator.webSocketDidReceiveMessage(.subagentStop(agentId: "a1"), seq: nil)
         #expect(state.messages[0].subagentStatus == "completed")
         #expect(state.messages[0].subagentCurrentTool == nil)
     }
@@ -689,7 +689,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         #expect(state.sessionMode == .defaultMode)
-        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "plan"))
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "plan"), seq: nil)
         #expect(state.sessionMode == .plan)
     }
 
@@ -698,7 +698,7 @@ struct AppCoordinatorTests {
     func modeChangeAcceptEdits() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "acceptEdits"))
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "acceptEdits"), seq: nil)
         #expect(state.sessionMode == .acceptEdits)
         #expect(state.sessionMode.label == "Accept Edits")
     }
@@ -709,7 +709,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         state.confirmSessionSwitch(sessionId: "sess-1")
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-2", mode: "plan"))
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-2", mode: "plan"), seq: nil)
         #expect(state.sessionMode == .defaultMode)
     }
 
@@ -719,7 +719,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         state.confirmSessionSwitch(sessionId: "sess-1")
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-1", mode: "plan"))
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: "sess-1", mode: "plan"), seq: nil)
         #expect(state.sessionMode == .plan)
     }
 
@@ -728,7 +728,7 @@ struct AppCoordinatorTests {
     func modeChangeUnknownMode() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "nonexistent"))
+        coordinator.webSocketDidReceiveMessage(.modeChange(sessionId: nil, mode: "nonexistent"), seq: nil)
         #expect(state.sessionMode == .defaultMode)
     }
 
@@ -738,7 +738,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         #expect(state.sessionMode == .defaultMode)
-        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: true, error: nil))
+        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: true, error: nil), seq: nil)
         // Mode should NOT change — it waits for server mode_change
         #expect(state.sessionMode == .defaultMode)
     }
@@ -748,7 +748,7 @@ struct AppCoordinatorTests {
     func modeToggleResultFailure() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: false, error: "TTY not found"))
+        coordinator.webSocketDidReceiveMessage(.modeToggleResult(success: false, error: "TTY not found"), seq: nil)
         #expect(state.currentToast?.message == "TTY not found")
         #expect(state.currentToast?.style == .warning)
     }
@@ -760,7 +760,7 @@ struct AppCoordinatorTests {
     func errorMessage() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.error(code: "500", message: "Something broke", details: nil))
+        coordinator.webSocketDidReceiveMessage(.error(code: "500", message: "Something broke", details: nil), seq: nil)
         #expect(state.messages.count == 1)
         #expect(state.messages[0].type == .statusUpdate)
         #expect(state.messages[0].content == "Error: Something broke")
@@ -773,7 +773,7 @@ struct AppCoordinatorTests {
     func pongNoOp() {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.pong(timestamp: 123456))
+        coordinator.webSocketDidReceiveMessage(.pong(timestamp: 123456), seq: nil)
         #expect(state.messages.isEmpty)
         #expect(state.tasks.isEmpty)
     }
@@ -787,7 +787,7 @@ struct AppCoordinatorTests {
         let coordinator = AppCoordinator(state: state)
         // Set after init since init calls SettingsStore.load which resets it
         state.debugMode = true
-        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"))
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"), seq: nil)
         let debugMessages = state.messages.filter { ($0.content ?? "").hasPrefix("[DEBUG]") }
         #expect(debugMessages.count == 1)
         #expect(debugMessages[0].content?.contains("status_update") == true)
@@ -799,7 +799,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         let coordinator = AppCoordinator(state: state)
         state.debugMode = false
-        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"))
+        coordinator.webSocketDidReceiveMessage(.statusUpdate(status: "active"), seq: nil)
         let debugMessages = state.messages.filter { ($0.content ?? "").hasPrefix("[DEBUG]") }
         #expect(debugMessages.isEmpty)
     }
@@ -834,7 +834,7 @@ struct AppCoordinatorTests {
         let state = AppState()
         state.isAuthenticated = true
         let coordinator = AppCoordinator(state: state)
-        coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad"))
+        coordinator.webSocketDidReceiveMessage(.authResult(success: false, error: "bad"), seq: nil)
         #expect(state.currentToast != nil)
         #expect(state.currentToast?.style == .error)
     }
@@ -855,14 +855,14 @@ struct AppCoordinatorTests {
             ClaudeOutputData(type: "permission_request", tool: "Bash",
                             input: ["command": .string("git status")], toolUseId: "tu-1"),
         ]
-        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData), seq: nil)
 
         // At this point status is still .idle — recoverFromHistory should not restore yet
         #expect(coordinator.promptService.promptQueue.isEmpty,
                 "Prompt should not appear before session status is known")
 
         // Step 2: session_status = waiting arrives (normal server ordering)
-        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil))
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil), seq: nil)
 
         // Now the prompt should be recovered
         #expect(coordinator.promptService.promptQueue.count == 1,
@@ -885,14 +885,14 @@ struct AppCoordinatorTests {
         let historyData: [ClaudeOutputData] = [
             ClaudeOutputData(type: "permission_request", tool: "Write", toolUseId: "tu-2"),
         ]
-        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData), seq: nil)
         #expect(coordinator.promptService.promptQueue.isEmpty)
 
         // claude_state reports waiting status
         let claudeState = ClaudeState(session: nil, status: "waiting", mode: nil,
                                        contextPercentage: nil, permissions: nil, subagents: nil,
                                        tasks: nil, lastActivity: nil, team: nil)
-        coordinator.webSocketDidReceiveMessage(.claudeState(sessionId: "s1", state: claudeState))
+        coordinator.webSocketDidReceiveMessage(.claudeState(sessionId: "s1", state: claudeState), seq: nil)
 
         #expect(coordinator.promptService.promptQueue.count == 1,
                 "Permission should be recovered via claude_state status=waiting")
@@ -915,13 +915,221 @@ struct AppCoordinatorTests {
             ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1"),
             ClaudeOutputData(type: "tool_result", content: "done", toolUseId: "tu-1"),
         ]
-        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData))
+        coordinator.webSocketDidReceiveMessage(.history(sessionId: "s1", data: historyData), seq: nil)
 
         // session_status = waiting arrives
-        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil))
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil), seq: nil)
 
         // No prompts should appear (the permission was answered)
         #expect(coordinator.promptService.promptQueue.isEmpty,
                 "No prompt should be recovered for answered permission")
+    }
+
+    // MARK: - Seq Dedup
+
+    @MainActor
+    @Test("duplicate seq messages are dropped")
+    func seqDedup() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        let data = ClaudeOutputData(type: "assistant", content: "Hello")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: 1)
+        #expect(state.messages.count == 1)
+        // Same seq should be dropped
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data), seq: 1)
+        #expect(state.messages.count == 1)
+        // Higher seq should pass
+        let data2 = ClaudeOutputData(type: "assistant", content: "World")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data2), seq: 2)
+        #expect(state.messages.count == 2)
+    }
+
+    @MainActor
+    @Test("nil seq messages are never dropped")
+    func nilSeqNotDropped() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        let data1 = ClaudeOutputData(type: "assistant", content: "Hello")
+        let data2 = ClaudeOutputData(type: "assistant", content: "World")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data1), seq: nil)
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data2), seq: nil)
+        #expect(state.messages.count == 2)
+    }
+
+    @MainActor
+    @Test("lastReceivedSeq tracks highest seq")
+    func lastReceivedSeqTracking() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "processing", lastActive: nil), seq: 5)
+        #expect(state.lastReceivedSeq == 5)
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "waiting", lastActive: nil), seq: 10)
+        #expect(state.lastReceivedSeq == 10)
+    }
+
+    @MainActor
+    @Test("session switch resets lastReceivedSeq")
+    func sessionSwitchResetsSeq() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "processing", lastActive: nil), seq: 50)
+        #expect(state.lastReceivedSeq == 50)
+        state.beginSessionSwitch(to: "s2")
+        #expect(state.lastReceivedSeq == 0)
+    }
+
+    // MARK: - Session Liveness
+
+    @MainActor
+    @Test("session_suspect sets isSessionSuspect and shows toast")
+    func sessionSuspect() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionSuspect(sessionId: "s1"), seq: nil)
+        #expect(state.isSessionSuspect == true)
+        #expect(state.currentToast != nil)
+        #expect(state.currentToast?.style == .warning)
+    }
+
+    @MainActor
+    @Test("session_alive clears isSessionSuspect")
+    func sessionAlive() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        state.isSessionSuspect = true
+        coordinator.webSocketDidReceiveMessage(.sessionAlive(sessionId: "s1"), seq: nil)
+        #expect(state.isSessionSuspect == false)
+        #expect(state.currentToast?.style == .success)
+    }
+
+    @MainActor
+    @Test("session_suspect from different session is ignored")
+    func sessionSuspectWrongSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionSuspect(sessionId: "s2"), seq: nil)
+        #expect(state.isSessionSuspect == false)
+    }
+
+    @MainActor
+    @Test("session switch resets isSessionSuspect")
+    func sessionSwitchResetsLiveness() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        state.isSessionSuspect = true
+        state.beginSessionSwitch(to: "s2")
+        #expect(state.isSessionSuspect == false)
+    }
+
+    // MARK: - Pending Prompts
+
+    @MainActor
+    @Test("pending_prompts routes permission to prompt service")
+    func pendingPromptsPermission() async throws {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        let promptData = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1")
+        let prompt = PendingPrompt(promptId: "tu-1", type: "permission_request", tool: "Bash", toolUseId: "tu-1", data: promptData, seq: 5, timestamp: nil)
+        coordinator.webSocketDidReceiveMessage(.pendingPrompts(sessionId: "s1", prompts: [prompt], lastSeq: 5), seq: nil)
+        // Wait for coalescing timer
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(coordinator.promptService.promptQueue.count == 1)
+    }
+
+    @MainActor
+    @Test("pending_prompts from wrong session is ignored")
+    func pendingPromptsWrongSession() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        let promptData = ClaudeOutputData(type: "permission_request", tool: "Bash", toolUseId: "tu-1")
+        let prompt = PendingPrompt(promptId: "tu-1", type: "permission_request", tool: "Bash", toolUseId: "tu-1", data: promptData, seq: 5, timestamp: nil)
+        coordinator.webSocketDidReceiveMessage(.pendingPrompts(sessionId: "s2", prompts: [prompt], lastSeq: 5), seq: nil)
+        #expect(coordinator.promptService.promptQueue.isEmpty)
+    }
+
+    // MARK: - Out-of-Order Seq (CONS-002)
+
+    @MainActor
+    @Test("out-of-order lower seq messages are dropped")
+    func outOfOrderSeqDropped() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        // Send seq=10 first
+        let data1 = ClaudeOutputData(type: "assistant", content: "First")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data1), seq: 10)
+        #expect(state.messages.count == 1)
+        #expect(state.lastReceivedSeq == 10)
+        // Send seq=5 (out of order) — should be dropped
+        let data2 = ClaudeOutputData(type: "assistant", content: "Late arrival")
+        coordinator.webSocketDidReceiveMessage(.claudeOutput(sessionId: "s1", data: data2), seq: 5)
+        #expect(state.messages.count == 1)
+        #expect(state.lastReceivedSeq == 10) // unchanged
+    }
+
+    // MARK: - sessionDelta lastSeq max (CONS-004)
+
+    @MainActor
+    @Test("sessionDelta lastSeq does not regress watermark below pending_prompts value")
+    func sessionDeltaLastSeqUsesMax() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        // Set lastReceivedSeq high via direct seq message
+        coordinator.webSocketDidReceiveMessage(.sessionStatus(sessionId: "s1", status: "processing", lastActive: nil), seq: 20)
+        #expect(state.lastReceivedSeq == 20)
+        // sessionDelta with lower lastSeq should NOT regress
+        coordinator.webSocketDidReceiveMessage(.sessionDelta(sessionId: "s1", events: [], lastSeq: 10), seq: nil)
+        #expect(state.lastReceivedSeq == 20) // not regressed
+    }
+
+    // MARK: - Wrong-session suspect toast absence (CONS-009)
+
+    @MainActor
+    @Test("session_suspect from wrong session produces no toast")
+    func sessionSuspectWrongSessionNoToast() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        state.currentToast = nil
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionSuspect(sessionId: "s2"), seq: nil)
+        #expect(state.isSessionSuspect == false)
+        #expect(state.currentToast == nil) // no toast for wrong session
+    }
+
+    // MARK: - Toast specificity (CONS-008)
+
+    @MainActor
+    @Test("session_suspect toast has correct message and style")
+    func sessionSuspectToastSpecificity() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionSuspect(sessionId: "s1"), seq: nil)
+        #expect(state.currentToast?.message == "Session may be unavailable")
+        #expect(state.currentToast?.icon == "exclamationmark.triangle")
+        #expect(state.currentToast?.style == .warning)
+    }
+
+    @MainActor
+    @Test("session_alive toast has correct message and style")
+    func sessionAliveToastSpecificity() {
+        let state = AppState()
+        state.confirmSessionSwitch(sessionId: "s1")
+        state.isSessionSuspect = true
+        let coordinator = AppCoordinator(state: state)
+        coordinator.webSocketDidReceiveMessage(.sessionAlive(sessionId: "s1"), seq: nil)
+        #expect(state.currentToast?.message == "Session recovered")
+        #expect(state.currentToast?.icon == "checkmark.circle")
+        #expect(state.currentToast?.style == .success)
     }
 }

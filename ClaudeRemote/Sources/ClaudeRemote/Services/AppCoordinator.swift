@@ -234,7 +234,15 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         print("[AppCoordinator] WebSocket error: \(error.localizedDescription)")
     }
 
-    public func webSocketDidReceiveMessage(_ message: ServerMessage) {
+    public func webSocketDidReceiveMessage(_ message: ServerMessage, seq: Int?) {
+        // Seq-based dedup: drop messages already processed.
+        // Server starts seq at 1; lastReceivedSeq starts at 0 so first message always passes.
+        if let seq {
+            if seq <= state.lastReceivedSeq { return }
+            state.lastReceivedSeq = seq
+            webSocket?.setLastReceivedSeq(seq)
+        }
+
         if state.debugMode {
             let debugContent = debugDescription(for: message)
             let debugMsg = Message(type: .statusUpdate, content: "[DEBUG] \(debugContent)")
@@ -741,6 +749,61 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             if let sessionId, sessionId != state.currentSessionId { break }
             state.milestones = milestoneDataList.map { $0.toMilestone() }
 
+        case .sessionDelta(let sessionId, let events, let lastSeq):
+            // Only process delta for the confirmed current session — not pending, to avoid
+            // corrupting state before session switch completes
+            guard sessionId == state.currentSessionId else { break }
+            let eventDecoder = JSONDecoder()
+            var decodeFailures = 0
+            for eventDict in events {
+                // Guard: prevent infinite recursion from nested session_delta/pending_prompts
+                if let typeVal = eventDict["type"], case .string(let typeStr) = typeVal,
+                   (typeStr == "session_delta" || typeStr == "pending_prompts") {
+                    continue
+                }
+                do {
+                    let eventData = try JSONSerialization.data(withJSONObject: eventDict.mapValues { $0.toAny() })
+                    let event = try eventDecoder.decode(ServerMessage.self, from: eventData)
+                    routeMessage(event)
+                } catch {
+                    decodeFailures += 1
+                    print("[AppCoordinator] session_delta event decode failed: \(error.localizedDescription)")
+                }
+            }
+            if decodeFailures > 0 && state.debugMode {
+                let debugMsg = Message(type: .statusUpdate, content: "[DEBUG] session_delta: \(decodeFailures) event(s) failed to decode")
+                state.appendMessage(debugMsg)
+            }
+            if let lastSeq {
+                state.lastReceivedSeq = max(state.lastReceivedSeq, lastSeq)
+                webSocket?.setLastReceivedSeq(state.lastReceivedSeq)
+            }
+
+        case .pendingPrompts(let sessionId, let prompts, let lastSeq):
+            // Accept prompts for current or pending session (prompts may arrive during switch),
+            // but only update seq watermark for the confirmed current session
+            guard sessionId == state.currentSessionId || sessionId == state.pendingSessionId else { break }
+            for prompt in prompts {
+                guard let data = prompt.data else { continue }
+                if data.type == "ask_user_question" || data.type == "permission_request" {
+                    promptService.handleClaudeOutput(data)
+                }
+            }
+            if let lastSeq, sessionId == state.currentSessionId {
+                state.lastReceivedSeq = max(state.lastReceivedSeq, lastSeq)
+                webSocket?.setLastReceivedSeq(state.lastReceivedSeq)
+            }
+
+        case .sessionSuspect(let sessionId):
+            guard sessionId == state.currentSessionId else { break }
+            state.isSessionSuspect = true
+            state.showToast("Session may be unavailable", icon: "exclamationmark.triangle", style: .warning)
+
+        case .sessionAlive(let sessionId):
+            guard sessionId == state.currentSessionId else { break }
+            state.isSessionSuspect = false
+            state.showToast("Session recovered", icon: "checkmark.circle", style: .success)
+
         case .pong:
             break // Handled by WebSocketService
 
@@ -858,6 +921,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .claudeState(let sid, _): return "claude_state session=\(sid ?? "nil")"
         case .milestone(_, let text, _, _): return "session_milestone text=\(text.prefix(40))"
         case .milestones(_, let milestones): return "session_milestones count=\(milestones.count)"
+        case .sessionDelta(let sid, let events, _): return "session_delta session=\(sid.prefix(8)) events=\(events.count)"
+        case .pendingPrompts(let sid, let prompts, _): return "pending_prompts session=\(sid.prefix(8)) count=\(prompts.count)"
+        case .sessionSuspect(let sid): return "session_suspect session=\(sid.prefix(8))"
+        case .sessionAlive(let sid): return "session_alive session=\(sid.prefix(8))"
         case .state: return "state"
         case .unknown(let type, _): return "unknown type=\(type)"
         }

@@ -165,7 +165,7 @@ struct WebSocketServiceDelegateTests {
             didDisconnectCode = code
         }
 
-        func webSocketDidReceiveMessage(_ message: ServerMessage) {
+        func webSocketDidReceiveMessage(_ message: ServerMessage, seq: Int?) {
             receivedMessages.append(message)
         }
 

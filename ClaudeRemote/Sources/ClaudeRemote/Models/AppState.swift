@@ -154,6 +154,14 @@ public final class AppState {
     /// Whether the app is currently in the foreground (used to suppress notifications)
     public var isInForeground = true
 
+    // MARK: - Sequence Tracking
+    /// Last received seq from server, for dedup and delta replay on reconnect
+    public var lastReceivedSeq: Int = 0
+
+    // MARK: - Session Liveness
+    /// True when the server suspects the session may be unavailable (TTY not found)
+    public var isSessionSuspect = false
+
     // MARK: - Pending State
     /// Recent user messages for deduplication (normalized content -> timestamp)
     public var recentUserMessages: [String: Date] = [:]
@@ -281,6 +289,8 @@ public final class AppState {
         sessionStatus = .idle
         sessionMode = .defaultMode
         currentActivity = nil
+        lastReceivedSeq = 0
+        isSessionSuspect = false
     }
 
     /// Confirm session switch completed

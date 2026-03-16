@@ -1297,3 +1297,146 @@ struct MilestoneDataTests {
         #expect(data.toolCount == 0)
     }
 }
+
+// MARK: - Reconnection/Recovery Message Decoding
+
+@Suite("Reconnection Message Decoding")
+struct ReconnectionMessageDecodingTests {
+
+    private func decode(_ json: String) throws -> ServerMessage {
+        let data = json.data(using: .utf8)!
+        return try JSONDecoder().decode(ServerMessage.self, from: data)
+    }
+
+    // MARK: - session_delta
+
+    @Test("Decode session_delta with events")
+    func sessionDelta() throws {
+        let msg = try decode("""
+        {
+            "type": "session_delta",
+            "sessionId": "sess-1",
+            "events": [
+                {"type": "claude_output", "sessionId": "sess-1", "data": {"type": "assistant", "content": "Hello"}},
+                {"type": "session_status", "sessionId": "sess-1", "status": "processing"}
+            ],
+            "lastSeq": 6
+        }
+        """)
+        guard case .sessionDelta(let sid, let events, let lastSeq) = msg else {
+            Issue.record("Expected sessionDelta")
+            return
+        }
+        #expect(sid == "sess-1")
+        #expect(events.count == 2)
+        #expect(lastSeq == 6)
+    }
+
+    @Test("Decode session_delta with empty events")
+    func sessionDeltaEmpty() throws {
+        let msg = try decode("""
+        {"type": "session_delta", "sessionId": "sess-1", "events": [], "lastSeq": 0}
+        """)
+        guard case .sessionDelta(_, let events, _) = msg else {
+            Issue.record("Expected sessionDelta")
+            return
+        }
+        #expect(events.isEmpty)
+    }
+
+    // MARK: - pending_prompts
+
+    @Test("Decode pending_prompts")
+    func pendingPrompts() throws {
+        let msg = try decode("""
+        {
+            "type": "pending_prompts",
+            "sessionId": "sess-1",
+            "prompts": [
+                {"promptId": "tu-1", "type": "permission_request", "tool": "Bash", "toolUseId": "tu-1", "data": {"type": "permission_request", "tool": "Bash", "content": "ls"}, "seq": 10}
+            ],
+            "lastSeq": 10
+        }
+        """)
+        guard case .pendingPrompts(let sid, let prompts, let lastSeq) = msg else {
+            Issue.record("Expected pendingPrompts")
+            return
+        }
+        #expect(sid == "sess-1")
+        #expect(prompts.count == 1)
+        #expect(prompts[0].type == "permission_request")
+        #expect(prompts[0].tool == "Bash")
+        #expect(lastSeq == 10)
+    }
+
+    @Test("Decode pending_prompts with malformed prompt uses lossy decoding")
+    func pendingPromptsLossy() throws {
+        let msg = try decode("""
+        {
+            "type": "pending_prompts",
+            "sessionId": "sess-1",
+            "prompts": [
+                {"type": "permission_request", "tool": "Bash"},
+                "not-an-object",
+                {"type": "ask_user_question", "tool": null}
+            ],
+            "lastSeq": 5
+        }
+        """)
+        guard case .pendingPrompts(_, let prompts, _) = msg else {
+            Issue.record("Expected pendingPrompts")
+            return
+        }
+        #expect(prompts.count == 2)
+    }
+
+    // MARK: - session_suspect / session_alive
+
+    @Test("Decode session_suspect")
+    func sessionSuspect() throws {
+        let msg = try decode("""
+        {"type": "session_suspect", "sessionId": "sess-1"}
+        """)
+        guard case .sessionSuspect(let sid) = msg else {
+            Issue.record("Expected sessionSuspect")
+            return
+        }
+        #expect(sid == "sess-1")
+    }
+
+    @Test("Decode session_alive")
+    func sessionAlive() throws {
+        let msg = try decode("""
+        {"type": "session_alive", "sessionId": "sess-1"}
+        """)
+        guard case .sessionAlive(let sid) = msg else {
+            Issue.record("Expected sessionAlive")
+            return
+        }
+        #expect(sid == "sess-1")
+    }
+
+    // MARK: - ClientAction watchSession with fromSeq
+
+    @Test("watchSession toJSON includes fromSeq when set")
+    func watchSessionWithFromSeq() throws {
+        let action = ClientAction.watchSession(sessionId: "s1", fromSeq: 42)
+        let json = action.toJSON()
+        #expect(json["fromSeq"] as? Int == 42)
+        #expect(json["action"] as? String == "watch_session")
+    }
+
+    @Test("watchSession toJSON omits fromSeq when nil")
+    func watchSessionWithoutFromSeq() throws {
+        let action = ClientAction.watchSession(sessionId: "s1")
+        let json = action.toJSON()
+        #expect(json["fromSeq"] == nil)
+    }
+
+    @Test("watchSession toJSON omits fromSeq when zero")
+    func watchSessionWithZeroFromSeq() throws {
+        let action = ClientAction.watchSession(sessionId: "s1", fromSeq: 0)
+        let json = action.toJSON()
+        #expect(json["fromSeq"] == nil)
+    }
+}

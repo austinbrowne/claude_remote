@@ -10,7 +10,7 @@ extension URLSessionWebSocketTask: @retroactive @unchecked Sendable {}
 public protocol WebSocketServiceDelegate: AnyObject {
     func webSocketDidConnect()
     func webSocketDidDisconnect(code: Int?)
-    func webSocketDidReceiveMessage(_ message: ServerMessage)
+    func webSocketDidReceiveMessage(_ message: ServerMessage, seq: Int?)
     func webSocketDidFailWithError(_ error: Error)
 }
 
@@ -41,6 +41,7 @@ public final class WebSocketService {
     private var reconnectTask: Task<Void, Never>?
     private var pongDeadline: Date?
     private var lastWatchedSessionId: String?
+    private var lastReceivedSeq: Int = 0
     private var intentionalDisconnect = false
 
     #if canImport(Network)
@@ -127,7 +128,15 @@ public final class WebSocketService {
 
     /// Track the last watched session for reconnection
     public func setLastWatchedSession(_ sessionId: String?) {
+        if sessionId != lastWatchedSessionId {
+            lastReceivedSeq = 0 // Reset seq when switching sessions
+        }
         lastWatchedSessionId = sessionId
+    }
+
+    /// Track the last received seq for delta replay on reconnect
+    public func setLastReceivedSeq(_ seq: Int) {
+        lastReceivedSeq = seq
     }
 
     /// Calculate reconnect delay with exponential backoff
@@ -237,9 +246,15 @@ public final class WebSocketService {
 
         guard let data = jsonString.data(using: .utf8) else { return }
 
+        // Extract seq from raw JSON envelope (server adds seq to session-scoped messages)
+        var seq: Int?
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            seq = json["seq"] as? Int
+        }
+
         do {
             let message = try decoder.decode(ServerMessage.self, from: data)
-            handleServerMessage(message)
+            handleServerMessage(message, seq: seq)
         } catch {
             // Log decode error with the raw JSON for debugging.
             // Truncate to 500 chars to avoid flooding logs with large messages.
@@ -249,7 +264,7 @@ public final class WebSocketService {
         }
     }
 
-    private func handleServerMessage(_ message: ServerMessage) {
+    private func handleServerMessage(_ message: ServerMessage, seq: Int?) {
         switch message {
         case .authResult(let success, _):
             if success {
@@ -257,9 +272,10 @@ public final class WebSocketService {
                 reconnectAttempts = 0
                 startPingTimer()
                 delegate?.webSocketDidConnect()
-                // Re-watch last session on reconnect
+                // Re-watch last session on reconnect, with fromSeq for delta replay
                 if let sessionId = lastWatchedSessionId {
-                    send(.watchSession(sessionId: sessionId))
+                    let fromSeq = lastReceivedSeq > 0 ? lastReceivedSeq : nil
+                    send(.watchSession(sessionId: sessionId, fromSeq: fromSeq))
                 }
             } else {
                 cleanup()
@@ -273,7 +289,7 @@ public final class WebSocketService {
             break
         }
 
-        delegate?.webSocketDidReceiveMessage(message)
+        delegate?.webSocketDidReceiveMessage(message, seq: seq)
     }
 
     private func startPingTimer() {

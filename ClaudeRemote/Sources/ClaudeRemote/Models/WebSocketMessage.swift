@@ -39,6 +39,10 @@ public enum ServerMessage: Sendable {
     case milestone(sessionId: String?, text: String, timestamp: String, toolCount: Int)
     case milestones(sessionId: String?, milestones: [MilestoneData])
     case state(clientId: String?, watchingSessions: [String]?, settings: [String: AnyCodableValue]?)
+    case sessionDelta(sessionId: String, events: [[String: AnyCodableValue]], lastSeq: Int?)
+    case pendingPrompts(sessionId: String, prompts: [PendingPrompt], lastSeq: Int?)
+    case sessionSuspect(sessionId: String)
+    case sessionAlive(sessionId: String)
     case unknown(type: String, raw: [String: AnyCodableValue])
 }
 
@@ -168,12 +172,23 @@ public struct SlashCommand: Decodable, Sendable, Identifiable {
     }
 }
 
+/// A pending prompt from server's authoritative state (for recovery on reconnect)
+public struct PendingPrompt: Decodable, Sendable {
+    public let promptId: String?
+    public let type: String
+    public let tool: String?
+    public let toolUseId: String?
+    public let data: ClaudeOutputData?
+    public let seq: Int?
+    public let timestamp: Int?
+}
+
 // MARK: - Client → Server Actions
 
 /// All actions the client can send to the server
 public enum ClientAction: Sendable {
     case auth(token: String)
-    case watchSession(sessionId: String)
+    case watchSession(sessionId: String, fromSeq: Int? = nil)
     case unwatchSession(sessionId: String)
     case refreshSessions
     case inject(command: String, sessionId: String, toolUseId: String? = nil)
@@ -190,8 +205,10 @@ public enum ClientAction: Sendable {
         switch self {
         case .auth(let token):
             return ["action": "auth", "token": token]
-        case .watchSession(let sessionId):
-            return ["action": "watch_session", "sessionId": sessionId]
+        case .watchSession(let sessionId, let fromSeq):
+            var dict: [String: Any] = ["action": "watch_session", "sessionId": sessionId]
+            if let fromSeq, fromSeq > 0 { dict["fromSeq"] = fromSeq }
+            return dict
         case .unwatchSession(let sessionId):
             return ["action": "unwatch_session", "sessionId": sessionId]
         case .refreshSessions:
@@ -264,6 +281,8 @@ extension ServerMessage: Decodable {
         case questions
         // permission
         case command, isDestructive
+        // session_delta / pending_prompts
+        case events, lastSeq, prompts
         // misc
         case language, content
     }
@@ -467,6 +486,29 @@ extension ServerMessage: Decodable {
             let watchingSessions = try container.decodeIfPresent([String].self, forKey: .watchingSessions)
             let settings = try container.decodeIfPresent([String: AnyCodableValue].self, forKey: .settings)
             self = .state(clientId: clientId, watchingSessions: watchingSessions, settings: settings)
+
+        case "session_delta":
+            let sessionId = try container.decode(String.self, forKey: .sessionId)
+            // decodeIfPresent: returns nil on missing key, throws on type mismatch
+            let events = (try container.decodeIfPresent([[String: AnyCodableValue]].self, forKey: .events)) ?? []
+            let lastSeq = try container.decodeIfPresent(Int.self, forKey: .lastSeq)
+            self = .sessionDelta(sessionId: sessionId, events: events, lastSeq: lastSeq)
+
+        case "pending_prompts":
+            let sessionId = try container.decode(String.self, forKey: .sessionId)
+            // Use LossyDecodableArray for per-element resilience; decodeIfPresent handles
+            // missing key gracefully (returns nil → empty array) without swallowing structural errors
+            let prompts = (try container.decodeIfPresent(LossyDecodableArray<PendingPrompt>.self, forKey: .prompts))?.elements ?? []
+            let lastSeq = try container.decodeIfPresent(Int.self, forKey: .lastSeq)
+            self = .pendingPrompts(sessionId: sessionId, prompts: prompts, lastSeq: lastSeq)
+
+        case "session_suspect":
+            let sessionId = try container.decode(String.self, forKey: .sessionId)
+            self = .sessionSuspect(sessionId: sessionId)
+
+        case "session_alive":
+            let sessionId = try container.decode(String.self, forKey: .sessionId)
+            self = .sessionAlive(sessionId: sessionId)
 
         default:
             // Forward-compat: unknown types don't crash
