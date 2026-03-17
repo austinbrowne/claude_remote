@@ -10,8 +10,6 @@ public struct AuthView: View {
     @State private var errorMessage: String?
     @State private var didAttemptAutoConnect = false
     @State private var tokenFieldFocusHint: String?
-    @State private var showSaveSheet = false
-    @State private var saveServerName = ""
 
     public init() {}
 
@@ -130,9 +128,6 @@ public struct AuthView: View {
                     coordinator.reconnect()
                 }
             }
-            .sheet(isPresented: $showSaveSheet) {
-                saveServerSheet
-            }
         }
     }
 
@@ -153,47 +148,6 @@ public struct AuthView: View {
             token = ""
             tokenFieldFocusHint = "Enter token for \(server.name)"
         }
-    }
-
-    // MARK: - Save Server Sheet
-
-    private var saveServerSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Server Name") {
-                    TextField("Name", text: $saveServerName)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.words)
-                        #endif
-                }
-            }
-            .navigationTitle("Save Server")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showSaveSheet = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let name = saveServerName.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !name.isEmpty else { return }
-                        let server = SavedServer(name: name, url: serverURL)
-                        if !SettingsStore.addSavedServer(server) {
-                            // Duplicate — update existing entry's name
-                            if var existing = SettingsStore.findSavedServer(byURL: serverURL) {
-                                existing.name = String(name.prefix(50))
-                                SettingsStore.updateSavedServer(existing)
-                            }
-                        }
-                        showSaveSheet = false
-                    }
-                    .disabled(saveServerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 
     // MARK: - Connect
@@ -250,16 +204,11 @@ public struct AuthView: View {
 
         coordinator.connect(url: wsURL, token: token)
 
-        // Offer to save this server if not already saved
+        // Auto-save this server if not already saved
         if SettingsStore.findSavedServer(byURL: canonical) == nil {
-            saveServerName = URLHelper.displayName(from: canonical).capitalized
-            // Delay showing sheet to avoid interrupting connection
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(500))
-                if state.isConnected || isConnecting {
-                    showSaveSheet = true
-                }
-            }
+            let name = URLHelper.displayName(from: canonical).capitalized
+            let server = SavedServer(name: name, url: canonical)
+            SettingsStore.addSavedServer(server)
         }
     }
 }
