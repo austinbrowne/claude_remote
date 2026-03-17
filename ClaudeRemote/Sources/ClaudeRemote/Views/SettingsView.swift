@@ -8,10 +8,24 @@ struct SettingsView: View {
     @Environment(AppState.self) private var state
     @Environment(AppCoordinator.self) private var coordinator
     @Environment(\.dismiss) private var dismiss
+    @State private var switchingServerId: UUID?
+    @State private var editingServer: SavedServer?
+    @State private var editName = ""
+    @State private var showDeleteActiveAlert = false
+    @State private var serverToDelete: SavedServer?
+
+    private var savedServers: [SavedServer] {
+        SettingsStore.loadSavedServers()
+    }
+
+    private var isSwitching: Bool {
+        coordinator.connectionState == .switching
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                serversSection
                 connectionSection
                 #if os(iOS)
                 voiceOutputSection
@@ -50,7 +64,170 @@ struct SettingsView: View {
                 #endif
             }
             .onChange(of: state.debugMode) { _, v in SettingsStore.saveDebugMode(v) }
+            .sheet(item: $editingServer) { server in
+                renameServerSheet(server: server)
+            }
+            .alert("Delete Active Server?", isPresented: $showDeleteActiveAlert) {
+                Button("Delete", role: .destructive) {
+                    if let server = serverToDelete {
+                        _ = coordinator.deleteServer(server)
+                    }
+                    serverToDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    serverToDelete = nil
+                }
+            } message: {
+                Text("This will disconnect you from the current server.")
+            }
         }
+    }
+
+    // MARK: - Servers
+
+    private var serversSection: some View {
+        Section {
+            if savedServers.isEmpty {
+                Text("No saved servers")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(savedServers) { server in
+                    serverRow(server)
+                }
+                .onDelete { offsets in
+                    let servers = savedServers
+                    for index in offsets {
+                        let server = servers[index]
+                        let isActive = (URLHelper.canonicalize(server.url) ?? server.url) == state.serverURL
+                        if isActive {
+                            serverToDelete = server
+                            showDeleteActiveAlert = true
+                        } else {
+                            SettingsStore.removeSavedServer(id: server.id)
+                        }
+                    }
+                }
+            }
+
+            Button {
+                // Disconnect and show AuthView for adding a new server
+                coordinator.disconnect()
+                state.userDidDisconnect = true
+                state.isAuthenticated = false
+                state.serverURL = ""
+                SettingsStore.saveServerURL("")
+            } label: {
+                Label("Add Server", systemImage: "plus.circle")
+            }
+        } header: {
+            HStack {
+                Text("Servers")
+                #if os(iOS)
+                Spacer()
+                if !savedServers.isEmpty {
+                    EditButton()
+                        .font(.caption)
+                }
+                #endif
+            }
+        }
+        .disabled(isSwitching)
+    }
+
+    private func serverRow(_ server: SavedServer) -> some View {
+        let canonical = URLHelper.canonicalize(server.url) ?? server.url
+        let isActive = canonical == state.serverURL && state.isConnected
+        let isThisSwitching = switchingServerId == server.id
+
+        return Button {
+            if !isActive {
+                switchToServer(server)
+            } else {
+                editingServer = server
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(server.name)
+                        .foregroundStyle(.primary)
+                    Text(server.url)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if isThisSwitching {
+                    ProgressView()
+                } else if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button {
+                editingServer = server
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+    }
+
+    private func switchToServer(_ server: SavedServer) {
+        switchingServerId = server.id
+        Task {
+            await coordinator.switchServer(server)
+            switchingServerId = nil
+        }
+    }
+
+    // MARK: - Rename Sheet
+
+    private func renameServerSheet(server: SavedServer) -> some View {
+        NavigationStack {
+            Form {
+                Section("Server Name") {
+                    TextField("Name", text: $editName)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.words)
+                        #endif
+                }
+                Section {
+                    LabeledContent("URL") {
+                        Text(server.url)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .navigationTitle("Edit Server")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { editingServer = nil }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let name = editName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !name.isEmpty else { return }
+                        var updated = server
+                        updated.name = String(name.prefix(50))
+                        SettingsStore.updateSavedServer(updated)
+                        editingServer = nil
+                    }
+                    .disabled(editName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear {
+                editName = server.name
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Connection
@@ -74,7 +251,7 @@ struct SettingsView: View {
                     Circle()
                         .fill(state.isConnected ? Color.green : Color.red)
                         .frame(width: 8, height: 8)
-                    Text(state.isConnected ? "Connected" : "Disconnected")
+                    Text(statusText)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -84,6 +261,15 @@ struct SettingsView: View {
                 state.userDidDisconnect = true
                 state.isAuthenticated = false
             }
+        }
+    }
+
+    private var statusText: String {
+        switch coordinator.connectionState {
+        case .switching: return "Switching..."
+        case .connecting: return "Connecting..."
+        case .connected: return "Connected"
+        case .disconnected: return "Disconnected"
         }
     }
 
