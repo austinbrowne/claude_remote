@@ -1,6 +1,6 @@
 # Claude Remote
 
-Mobile companion app for monitoring and controlling Claude Code sessions running in iTerm.
+Mobile companion app for monitoring and controlling Claude Code sessions. Supports macOS (iTerm/AppleScript) and Linux (tmux).
 
 ## Development
 
@@ -10,6 +10,12 @@ Always restart the server to test changes locally:
 
 ```bash
 ./restart.sh
+```
+
+### Running Tests
+
+```bash
+node --test test/*.test.js
 ```
 
 ### Server Scripts
@@ -40,19 +46,30 @@ Always restart the server to test changes locally:
 ### Architecture
 
 - `server.js` - Express + WebSocket server that:
-  - Discovers active Claude sessions from iTerm tabs
+  - Discovers active Claude sessions via platform adapter (iTerm or tmux)
   - Watches session log files for real-time updates
-  - Injects commands via AppleScript
+  - Broadcasts sequenced events with dedup and delta replay
+  - Tracks server-side pending prompt state for reconnect recovery
+  - Injects commands via platform adapter
 
-- `public/index.html` - Mobile-optimized single-page app with:
-  - Real-time session output streaming
+- `lib/platform/` - Platform adapters:
+  - `detect.js` - Auto-detects platform (darwin → macOS, linux → tmux)
+  - `macos-iterm.js` - AppleScript-based session discovery and injection
+  - `linux-tmux.js` - tmux-based session discovery and injection
+
+- `public/` - Mobile-optimized single-page app with:
+  - Real-time session output streaming via WebSocket
+  - Sequence-based dedup and cursor-based delta replay on reconnect
+  - Pending prompt recovery on reconnect
   - Voice input/output (TTS)
   - Quick action buttons
-  - Push notifications
 
 ### Key Functions
 
-- `getActiveITermSessions()` - Queries iTerm for tabs running Claude
-- `discoverSessions()` - Maps active tabs to Claude session log files
+- `getActiveClaude()` - Delegates to platform adapter to find Claude sessions
+- `discoverSessions()` - Maps active sessions to Claude JSONL log files
 - `watchSession()` - Sets up file watcher for real-time streaming
 - `getSessionStatus()` - Determines if session is waiting/processing/idle
+- `broadcastToClients()` - Broadcasts sequenced events, manages recentEvents buffer
+- `updatePromptState()` - Tracks pending prompts server-side for recovery
+- `safeSend()` - WebSocket send with try/catch for CLOSING/CLOSED sockets

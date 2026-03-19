@@ -49,6 +49,13 @@ function sendCommand() {
   const sendBtn = document.getElementById('sendBtn');
   const command = input.value.trim();
 
+  // Empty input + pending permission = quick approve (send "1" for allow once)
+  // Guard: never quick-approve destructive permissions (e.g. rm -rf, git push --force)
+  if (!command && currentPrompt?.type === 'permission' && !currentPrompt.isDestructive) {
+    respondToPrompt('y');
+    return;
+  }
+
   if (!command || sendBtn.disabled) return;
 
   // Prevent sending the exact same command within 10 seconds (stale replay protection)
@@ -250,8 +257,23 @@ function autoResize(el) {
 // ============================================
 let autocompleteIndex = -1;
 
+function updateSendButtonState() {
+  const input = document.getElementById('commandInput');
+  const sendBtn = document.getElementById('sendBtn');
+  if (!input || !sendBtn) return;
+  const isEmpty = !input.value.trim();
+  const hasPermission = currentPrompt?.type === 'permission';
+  const isDestructive = currentPrompt?.isDestructive;
+  if (isEmpty && hasPermission && !isDestructive) {
+    sendBtn.classList.add('approve');
+  } else {
+    sendBtn.classList.remove('approve');
+  }
+}
+
 function handleInput(el) {
   autoResize(el);
+  updateSendButtonState();
   const value = el.value;
 
   if (value.startsWith('/') && slashCommands.length > 0) {

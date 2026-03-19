@@ -1160,6 +1160,13 @@ body {
   background: var(--bg-tertiary);
   color: var(--text-muted);
 }
+.send-btn.approve {
+  background: var(--success);
+  color: #fff;
+}
+.send-btn.approve:active {
+  background: #2d8a4e;
+}
 
 /* Settings Panel */
 .settings-panel {

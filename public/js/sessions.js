@@ -107,6 +107,7 @@ function switchSession() {
   pending.permissionCard = null;
   pendingSubagentPermissions.forEach(p => clearTimeout(p.timeout));
   pendingSubagentPermissions.clear();
+  lastReceivedSeq = 0; // Reset seq tracking for new session
 
   wsSend({ action: 'watch_session', sessionId: sessionId });
 

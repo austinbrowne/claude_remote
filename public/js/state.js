@@ -135,6 +135,9 @@ let contextReceived = false; // True after first context_percentage message
 let clearResumeState = 'idle'; // idle | saving_state | clearing | switching | error | complete
 let clearResumeError = null;
 
+// Sequence-based dedup: track last received seq per session to drop duplicates
+let lastReceivedSeq = 0;
+
 // Catch-up debounce timer
 let _catchUpTimer = null;
 
