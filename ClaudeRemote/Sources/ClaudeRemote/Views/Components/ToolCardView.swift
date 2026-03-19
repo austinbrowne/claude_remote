@@ -4,9 +4,15 @@ import SwiftUI
 /// When a tool_result is merged into its tool_use, both input and output render in one card.
 struct ToolCardView: View {
     let message: Message
+    @Environment(AppCoordinator.self) private var coordinator
 
     @State private var isExpanded = false
     @State private var showFullResult = false
+
+    /// Whether this card shows a pending permission that can be manually approved
+    private var canManualApprove: Bool {
+        message.type == .permissionRequest && message.resultContent == nil && message.toolUseId != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,6 +65,20 @@ struct ToolCardView: View {
             }
 
             Spacer()
+
+            // Manual approve button for pending permission requests
+            if canManualApprove {
+                Button {
+                    if let toolUseId = message.toolUseId {
+                        coordinator.manualApproveToolUse(toolUseId: toolUseId)
+                    }
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.plain)
+            }
 
             // Show checkmark or error indicator when result is merged
             if message.resultContent != nil {

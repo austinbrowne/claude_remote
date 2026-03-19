@@ -17,6 +17,7 @@ public enum SettingsStore {
         static let notifyEnabled = "settings.notifyEnabled"
         static let debugMode = "settings.debugMode"
         static let serverURL = "settings.serverURL"
+        static let savedServers = "settings.savedServers"
     }
 
     // MARK: - Load
@@ -71,5 +72,53 @@ public enum SettingsStore {
 
     public static func saveServerURL(_ value: String) {
         defaults.set(value, forKey: Key.serverURL)
+    }
+
+    // MARK: - Saved Servers
+
+    /// Load saved servers from UserDefaults. Returns empty array on corrupt/missing data.
+    public static func loadSavedServers() -> [SavedServer] {
+        guard let data = defaults.data(forKey: Key.savedServers) else { return [] }
+        return (try? JSONDecoder().decode([SavedServer].self, from: data)) ?? []
+    }
+
+    /// Save the saved servers list to UserDefaults.
+    public static func saveSavedServers(_ servers: [SavedServer]) {
+        guard let data = try? JSONEncoder().encode(servers) else { return }
+        defaults.set(data, forKey: Key.savedServers)
+    }
+
+    /// Add a saved server if no duplicate URL exists. Returns true if added, false if duplicate.
+    @discardableResult
+    public static func addSavedServer(_ server: SavedServer) -> Bool {
+        var servers = loadSavedServers()
+        let canonical = URLHelper.canonicalize(server.url) ?? server.url
+        if servers.contains(where: { $0.url == canonical }) {
+            return false
+        }
+        servers.append(server)
+        saveSavedServers(servers)
+        return true
+    }
+
+    /// Update an existing saved server by ID.
+    public static func updateSavedServer(_ server: SavedServer) {
+        var servers = loadSavedServers()
+        guard let index = servers.firstIndex(where: { $0.id == server.id }) else { return }
+        servers[index] = server
+        saveSavedServers(servers)
+    }
+
+    /// Remove a saved server by ID.
+    public static func removeSavedServer(id: UUID) {
+        var servers = loadSavedServers()
+        servers.removeAll { $0.id == id }
+        saveSavedServers(servers)
+    }
+
+    /// Find an existing saved server by canonical URL.
+    public static func findSavedServer(byURL url: String) -> SavedServer? {
+        let canonical = URLHelper.canonicalize(url) ?? url
+        return loadSavedServers().first { $0.url == canonical }
     }
 }

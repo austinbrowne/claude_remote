@@ -385,7 +385,9 @@ function handleMessage(msg) {
         appendMessage({
           type: 'tool',
           tool: tool,
-          input: input
+          input: input,
+          toolUseId: msg.data.toolUseId,
+          needsApproval: true
         });
 
         // Store pending card and wait before showing (allows auto-approval to cancel)
@@ -488,10 +490,7 @@ function handleMessage(msg) {
         speak(`Using tool: ${msg.data.tool}`);
       }
 
-      // Notification
-      if (msg.data.type === 'assistant' && settings.notifyEnabled && document.hidden) {
-        sendNotification('Claude Response', msg.data.content.substring(0, 100));
-      }
+      // Notification — only for waiting/permission states, not every message
       break;
 
     case 'session_status':

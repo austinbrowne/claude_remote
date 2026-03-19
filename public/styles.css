@@ -457,49 +457,30 @@ body {
   padding-left: 10px !important;
   border-radius: 0 var(--md-shape-sm) var(--md-shape-sm) 0 !important;
 }
-.message.subagent.tool .tool-name {
-  color: var(--orange) !important;
+/* History Tool Batch — simple expandable summary for tool groups in history */
+.history-tool-batch {
+  background: var(--md-surface-2);
+  border-radius: var(--md-shape-md);
+  border: 1px solid var(--md-outline-variant);
+  padding: 0;
+  width: 100%;
+  align-self: stretch;
 }
-
-/* Tool Group — collapsible container for consecutive tool calls */
-.tool-group {
-  background: var(--md-surface-1);
-  border-radius: var(--md-shape-sm);
-  overflow: hidden;
-  margin: 4px 0;
-}
-
-.tool-group-header {
+.history-tool-batch-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 10px 14px;
   cursor: pointer;
   user-select: none;
+  color: var(--text-primary);
   font-size: 13px;
-  color: var(--text-secondary);
-  transition: background var(--md-motion-standard);
 }
-.tool-group-header:hover {
-  background: var(--md-state-hover);
-}
-.tool-group-header:active {
-  background: var(--md-state-press);
-}
-
-.tool-group-chevron {
-  transition: transform var(--md-motion-standard);
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.tool-group.expanded .tool-group-chevron {
-  transform: rotate(90deg);
-}
-
-.tool-group-label {
+.history-tool-batch-label {
   font-weight: 500;
+  white-space: nowrap;
 }
-.tool-group-summary {
+.history-tool-batch-summary {
   color: var(--text-muted);
   font-size: 12px;
   overflow: hidden;
@@ -508,46 +489,90 @@ body {
   flex: 1;
   min-width: 0;
 }
-
-.tool-group-status {
-  margin-left: auto;
+.history-tool-batch-status {
   display: flex;
-  gap: 3px;
+  gap: 2px;
+  flex-shrink: 0;
+  align-items: center;
+  margin-left: auto;
+}
+.history-tool-batch .tool-group-chevron {
+  transition: transform var(--md-motion-standard);
+  color: var(--text-muted);
   flex-shrink: 0;
 }
-.tool-group-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.history-tool-batch.expanded .tool-group-chevron {
+  transform: rotate(90deg);
 }
-.tool-group-dot.success { background: var(--success); }
-.tool-group-dot.error { background: var(--error); }
-.tool-group-dot.pending { background: var(--text-muted); }
-
-.tool-group-items {
+.history-tool-batch-details {
   display: none;
-  padding: 0 12px 8px;
+  padding: 0 14px 10px;
 }
-.tool-group.expanded .tool-group-items {
+.history-tool-batch.expanded .history-tool-batch-details {
   display: block;
 }
-
-/* Individual tool cards (inside groups) */
-.message.tool {
-  color: var(--text-secondary);
-  font-size: 13px;
+.history-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 0;
+  font-size: 13px;
   border-bottom: 1px solid var(--md-outline-variant);
 }
-.message.tool:last-child {
+.history-tool-row:last-of-type {
   border-bottom: none;
 }
-
-.message.tool .tool-name {
+.history-tool-name {
   color: var(--text-primary);
   font-weight: 500;
-  display: inline;
-  font-size: 13px;
+  white-space: nowrap;
+}
+.history-tool-path {
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.history-tool-expand {
+  padding: 8px;
+  margin: 4px 0;
+  background: var(--md-surface-1);
+  border-radius: var(--md-shape-sm);
+  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+.history-tool-expand pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Tool batch shared utility classes (used by .history-tool-batch) */
+.tool-group-check {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.tool-group-check.success { color: var(--success); }
+.tool-group-check.error { color: var(--error); }
+.tool-group-spinner {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: tool-spin 0.8s linear infinite;
+}
+@keyframes tool-spin {
+  to { transform: rotate(360deg); }
 }
 
 .message.tool_result {
@@ -555,61 +580,34 @@ body {
   font-size: 12px;
 }
 
-/* Tool result merge (inline in tool card) */
-.tool-result-inline {
-  margin-top: 6px;
-}
-.tool-result-separator {
-  height: 1px;
-  background: var(--separator);
-  margin: 6px 0;
-}
-.tool-result-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.tool-result-icon {
-  font-size: 12px;
-  color: var(--success);
-  font-weight: 600;
-}
-.tool-result-inline.error .tool-result-icon {
-  color: var(--error);
-}
-.tool-result-details {
-  display: none;
-  margin-top: 6px;
-  padding: 8px;
-  background: var(--bg-grouped);
-  border-radius: var(--md-shape-sm);
-  font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
-  font-size: 12px;
-  max-height: 150px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-}
-.message.tool.expanded .tool-result-details {
-  display: block;
-}
-.tool-status-icon {
-  font-size: 12px;
-  color: var(--success);
-  font-weight: 600;
+/* Manual approve button on pending permission tool cards */
+.tool-approve-btn {
+  background: none;
+  border: none;
+  color: var(--success, #4cd964);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
   margin-left: auto;
+  border-radius: 50%;
+  line-height: 1;
+  transition: background 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
 }
-.tool-status-icon.error {
-  color: var(--error);
+.tool-approve-btn:hover {
+  background: rgba(76, 217, 100, 0.15);
+}
+.tool-approve-btn:active {
+  transform: scale(0.9);
+  background: rgba(76, 217, 100, 0.25);
 }
 
-/* Collapsible tool messages */
-.message.tool, .message.tool_result {
+/* Collapsible tool result messages (fallback for unmatched results) */
+.message.tool_result {
   cursor: pointer;
 }
 
-.message.tool .tool-details,
 .message.tool_result .tool-details {
   display: none;
   margin-top: 8px;
@@ -624,7 +622,6 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-.message.tool.expanded .tool-details,
 .message.tool_result.expanded .tool-details {
   display: block;
 }
@@ -633,6 +630,13 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
+  padding: 4px 0;
+  border-radius: 4px;
+  transition: background var(--md-motion-standard);
+}
+.tool-summary:hover {
+  background: var(--md-state-hover);
 }
 
 .tool-chevron {
@@ -1520,6 +1524,23 @@ input::placeholder { color: var(--text-muted); }
 .prompt-card.permission .prompt-icon {
   background: rgba(255, 213, 79, 0.15);
   color: var(--md-warning);
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+}
+.prompt-card.permission .prompt-header {
+  padding: 10px 0 6px;
+}
+.prompt-card.permission .prompt-content {
+  margin-bottom: 10px;
+}
+.prompt-card.permission .prompt-command-preview {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.prompt-card.permission .prompt-freeform {
+  display: none;
 }
 .prompt-card.destructive .prompt-icon {
   background: rgba(242, 184, 181, 0.15);
@@ -1584,9 +1605,9 @@ input::placeholder { color: var(--text-muted); }
 
 .prompt-btn {
   flex: 1;
-  min-width: 80px;
-  min-height: 44px;
-  padding: 10px 16px;
+  min-width: 60px;
+  min-height: 40px;
+  padding: 8px 14px;
   border-radius: var(--md-shape-xl);
   font-size: 14px;
   font-weight: 500;

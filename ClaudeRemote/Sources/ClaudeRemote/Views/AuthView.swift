@@ -9,12 +9,17 @@ public struct AuthView: View {
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var didAttemptAutoConnect = false
+    @State private var tokenFieldFocusHint: String?
 
     public init() {}
 
     /// True when the server URL uses plain HTTP to a non-localhost host.
     private var isInsecureRemote: Bool {
         AuthHelpers.isInsecureRemote(serverURL)
+    }
+
+    private var savedServers: [SavedServer] {
+        SettingsStore.loadSavedServers()
     }
 
     public var body: some View {
@@ -28,7 +33,7 @@ public struct AuthView: View {
                         .textInputAutocapitalization(.never)
                         #endif
 
-                    SecureField("Auth Token", text: $token)
+                    SecureField(tokenFieldFocusHint ?? "Auth Token", text: $token)
                         .textContentType(.password)
 
                     if isInsecureRemote {
@@ -64,8 +69,37 @@ public struct AuthView: View {
                     .disabled(token.count < 32 || serverURL.isEmpty || isConnecting)
                 }
 
+                // MARK: - Saved Servers
                 Section {
-                    Text("The server runs on your Mac. Make sure you're on the same network.")
+                    if savedServers.isEmpty {
+                        Text("No saved servers yet")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(savedServers) { server in
+                            Button {
+                                selectSavedServer(server)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(server.name)
+                                            .foregroundStyle(.primary)
+                                        Text(server.url)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "arrow.right.circle")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Saved Servers")
+                }
+
+                Section {
+                    Text("The server runs on your Mac. Make sure you're on the same network or use a Cloudflare tunnel.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -97,24 +131,46 @@ public struct AuthView: View {
         }
     }
 
-    private func connectAction() {
+    // MARK: - Saved Server Selection
+
+    private func selectSavedServer(_ server: SavedServer) {
+        let keychain = KeychainService()
+        let canonical = URLHelper.canonicalize(server.url) ?? server.url
+        serverURL = canonical
+        tokenFieldFocusHint = nil
         errorMessage = nil
 
-        guard let url = URL(string: serverURL) else {
+        if let savedToken = keychain.load(for: canonical) {
+            token = savedToken
+            connectAction()
+        } else {
+            // No token — pre-fill URL, focus token field
+            token = ""
+            tokenFieldFocusHint = "Enter token for \(server.name)"
+        }
+    }
+
+    // MARK: - Connect
+
+    private func connectAction() {
+        errorMessage = nil
+        tokenFieldFocusHint = nil
+
+        // Use URLHelper for validation
+        if let validationError = URLHelper.validate(serverURL) {
+            errorMessage = validationError
+            return
+        }
+
+        // Canonicalize the URL
+        guard let canonical = URLHelper.canonicalize(serverURL) else {
             errorMessage = "Invalid server URL"
             return
         }
+        serverURL = canonical
 
-        // Validate URL scheme
-        guard let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            errorMessage = "URL must use http or https"
-            return
-        }
-
-        // Validate URL has a host
-        guard let host = url.host, !host.isEmpty else {
-            errorMessage = "URL must include a host"
+        guard let url = URL(string: canonical) else {
+            errorMessage = "Invalid server URL"
             return
         }
 
@@ -126,13 +182,13 @@ public struct AuthView: View {
 
         isConnecting = true
         state.userDidDisconnect = false
-        state.serverURL = serverURL
-        SettingsStore.saveServerURL(serverURL)
+        state.serverURL = canonical
+        SettingsStore.saveServerURL(canonical)
 
         // Save token to Keychain
         let keychain = KeychainService()
         do {
-            try keychain.save(token: token, for: serverURL)
+            try keychain.save(token: token, for: canonical)
         } catch {
             errorMessage = "Failed to save token"
             isConnecting = false
@@ -147,7 +203,13 @@ public struct AuthView: View {
         }
 
         coordinator.connect(url: wsURL, token: token)
-        // isAuthenticated is set by AppCoordinator when authResult(success: true) arrives
+
+        // Auto-save this server if not already saved
+        if SettingsStore.findSavedServer(byURL: canonical) == nil {
+            let name = URLHelper.displayName(from: canonical).capitalized
+            let server = SavedServer(name: name, url: canonical)
+            SettingsStore.addSavedServer(server)
+        }
     }
 }
 

@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+/// Connection state machine for server switching
+public enum ConnectionState: Sendable {
+    case disconnected
+    case connecting
+    case connected
+    case switching
+}
+
 /// Bridges WebSocketService events into AppState.
 /// Acts as the WebSocketServiceDelegate, converting server messages
 /// into model updates on the shared AppState.
@@ -10,6 +18,10 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public let state: AppState
     public let promptService: PromptService
     public private(set) var webSocket: WebSocketService?
+
+    // MARK: - Server Switching
+    public private(set) var connectionState: ConnectionState = .disconnected
+    private var switchContinuation: CheckedContinuation<Bool, Never>?
 
     #if os(iOS)
     public let speechService = SpeechService()
@@ -102,6 +114,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// Connect to the server with the given URL and token
     public func connect(url: URL, token: String) {
         disconnect()
+        if connectionState != .switching {
+            connectionState = .connecting
+        }
         let ws = WebSocketService(serverURL: url, token: token)
         ws.delegate = self
         // Preserve session watch across reconnection so the WebSocket's
@@ -136,6 +151,9 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     public func disconnect() {
         webSocket?.disconnect()
         webSocket = nil
+        if connectionState != .switching {
+            connectionState = .disconnected
+        }
     }
 
     /// Watch a session (sends watch_session to server)
@@ -166,6 +184,16 @@ public final class AppCoordinator: WebSocketServiceDelegate {
     /// Inject a command into a session
     public func injectCommand(_ command: String, sessionId: String) {
         webSocket?.send(.inject(command: command, sessionId: sessionId))
+    }
+
+    /// Manual approve a tool use from its tool card (fallback when prompt card didn't appear).
+    /// Injects '1' (allow once) and cleans up any matching prompt from the queue.
+    public func manualApproveToolUse(toolUseId: String) {
+        guard let sessionId = state.currentSessionId else { return }
+        // Clean up matching prompt from queue/minimized to prevent double-response
+        promptService.dismissPermission(toolUseId: toolUseId)
+        // Inject '1' (allow once) with toolUseId for accurate routing
+        webSocket?.send(.inject(command: "1", sessionId: sessionId, toolUseId: toolUseId))
     }
 
     /// Send escape (Ctrl+C) to a session
@@ -202,6 +230,101 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         webSocket?.send(.clearAndResume(sessionId: sessionId))
     }
 
+    // MARK: - Server Switching
+
+    /// Switch to a different saved server. Validates before disconnecting.
+    /// Returns true if the switch succeeded, false if it failed (with auto-rollback).
+    @discardableResult
+    public func switchServer(_ server: SavedServer) async -> Bool {
+        // Only switch from connected state
+        guard connectionState == .connected else { return false }
+
+        // 1. VALIDATE FIRST (still connected to old server)
+        guard let canonicalURL = URLHelper.canonicalize(server.url) else {
+            state.showToast("Invalid server URL", icon: "xmark.circle", style: .error)
+            return false
+        }
+
+        guard let httpURL = URL(string: canonicalURL),
+              let wsURL = WebSocketService.webSocketURL(from: httpURL) else {
+            state.showToast("Invalid server URL", icon: "xmark.circle", style: .error)
+            return false
+        }
+
+        let keychain = KeychainService()
+        guard let token = keychain.load(for: canonicalURL) else {
+            // No token — navigate to AuthView with URL pre-filled
+            state.serverURL = canonicalURL
+            SettingsStore.saveServerURL(canonicalURL)
+            state.isAuthenticated = false
+            state.userDidDisconnect = false
+            return false
+        }
+
+        // 2. Enter switching state (disables UI)
+        let previousURL = state.serverURL
+        connectionState = .switching
+
+        // 3. Disconnect from current
+        disconnect()
+        state.clearMessages()
+
+        // 4. Connect to new
+        state.serverURL = canonicalURL
+        SettingsStore.saveServerURL(canonicalURL)
+        connect(url: wsURL, token: token)
+
+        // 5. Await result with timeout
+        let connected = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            self.switchContinuation = continuation
+
+            // Timeout after 10 seconds
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                if self.connectionState == .switching {
+                    self.switchContinuation?.resume(returning: false)
+                    self.switchContinuation = nil
+                }
+            }
+        }
+
+        if connected {
+            connectionState = .connected
+            state.showToast("Switched to \(server.name)", icon: "checkmark.circle", style: .success)
+            return true
+        } else {
+            // ROLLBACK — reconnect to previous server
+            state.showToast("Could not reach \(server.name)", icon: "wifi.slash", style: .error)
+            state.serverURL = previousURL
+            SettingsStore.saveServerURL(previousURL)
+
+            if let prevHTTP = URL(string: previousURL),
+               let prevWS = WebSocketService.webSocketURL(from: prevHTTP),
+               let prevToken = keychain.load(for: previousURL) {
+                connectionState = .connecting
+                connect(url: prevWS, token: prevToken)
+            } else {
+                connectionState = .disconnected
+            }
+            return false
+        }
+    }
+
+    /// Delete a saved server. If it's the active server, disconnects first.
+    /// Returns true if the active server was deleted (caller should show AuthView).
+    public func deleteServer(_ server: SavedServer) -> Bool {
+        let isActive = (URLHelper.canonicalize(server.url) ?? server.url) == state.serverURL
+        if isActive {
+            disconnect()
+            state.isAuthenticated = false
+            state.serverURL = ""
+            SettingsStore.saveServerURL("")
+            state.clearMessages()
+        }
+        SettingsStore.removeSavedServer(id: server.id)
+        return isActive
+    }
+
     /// Sync current settings to the server
     public func syncSettings() {
         var settings: [String: AnyCodableValue] = [
@@ -221,12 +344,17 @@ public final class AppCoordinator: WebSocketServiceDelegate {
 
     public func webSocketDidConnect() {
         state.isConnected = true
-        state.showToast("Connected", icon: "wifi", style: .success)
+        if connectionState != .switching {
+            state.showToast("Connected", icon: "wifi", style: .success)
+        }
     }
 
     public func webSocketDidDisconnect(code: Int?) {
         state.isConnected = false
-        state.showToast("Disconnected", icon: "wifi.slash", style: .warning)
+        if connectionState != .switching {
+            connectionState = .disconnected
+            state.showToast("Disconnected", icon: "wifi.slash", style: .warning)
+        }
     }
 
     public func webSocketDidFailWithError(_ error: Error) {
@@ -250,6 +378,13 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         case .authResult(let success, let error):
             if success {
                 state.isAuthenticated = true
+                if connectionState == .switching {
+                    // Resolve the switch continuation
+                    switchContinuation?.resume(returning: true)
+                    switchContinuation = nil
+                } else {
+                    connectionState = .connected
+                }
                 // If a notification tap triggered a session switch while disconnected,
                 // retry it now that we're authenticated
                 if let pendingId = state.pendingSessionId, state.sessionSwitchState == .switching {
@@ -258,6 +393,12 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             } else {
                 state.isAuthenticated = false
                 state.isConnected = false
+                if connectionState == .switching {
+                    switchContinuation?.resume(returning: false)
+                    switchContinuation = nil
+                } else {
+                    connectionState = .disconnected
+                }
                 state.showToast(error ?? "Authentication failed", icon: "lock.slash", style: .error)
                 #if os(iOS)
                 HapticService.error()
