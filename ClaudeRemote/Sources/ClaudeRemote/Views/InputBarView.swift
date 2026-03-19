@@ -521,6 +521,10 @@ enum InputBarHelpers {
               let prompt = currentPrompt else {
             return false
         }
+        // Never quick-approve destructive permissions (e.g. rm -rf, git push --force)
+        if case .permission(_, _, let isDestructive) = prompt.kind, isDestructive {
+            return false
+        }
         return prompt.kind.isPermission
     }
 

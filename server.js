@@ -670,7 +670,7 @@ async function handleClientMessage(ws, msg) {
     // Session IDs are either UUIDs (from JSONL files) or tty-pid format (%N-PID on Linux).
     // '%' is safe here: session IDs are used as Map keys only, never interpolated into
     // shell commands or file paths (TTY paths come from the session object, not the ID).
-    if (!/^[a-f0-9%-]+$/.test(msg.sessionId) || msg.sessionId.length > 100) {
+    if (!/^([a-f0-9-]{8,}|%\d+(-\d+)?)$/.test(msg.sessionId) || msg.sessionId.length > 100) {
       sendError(ws, 'INVALID_SESSION_ID', 'Invalid session ID format');
       return;
     }
@@ -858,7 +858,7 @@ async function handleClientMessage(ws, msg) {
           sendPendingPrompts(ws, msg.sessionId, injectSessionData);
         } catch (err) {
           console.error(`[Inject] Failed: ${err.message}`);
-          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: err.message }));
+          ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: 'Command injection failed' }));
         }
       })();
       break;

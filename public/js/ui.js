@@ -50,7 +50,8 @@ function sendCommand() {
   const command = input.value.trim();
 
   // Empty input + pending permission = quick approve (send "1" for allow once)
-  if (!command && currentPrompt?.type === 'permission') {
+  // Guard: never quick-approve destructive permissions (e.g. rm -rf, git push --force)
+  if (!command && currentPrompt?.type === 'permission' && !currentPrompt.isDestructive) {
     respondToPrompt('y');
     return;
   }
@@ -262,7 +263,8 @@ function updateSendButtonState() {
   if (!input || !sendBtn) return;
   const isEmpty = !input.value.trim();
   const hasPermission = currentPrompt?.type === 'permission';
-  if (isEmpty && hasPermission) {
+  const isDestructive = currentPrompt?.isDestructive;
+  if (isEmpty && hasPermission && !isDestructive) {
     sendBtn.classList.add('approve');
   } else {
     sendBtn.classList.remove('approve');
