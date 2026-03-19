@@ -9,7 +9,7 @@ const crypto = require('crypto');
 const {
   SPINNER_VERBS, MAX_READ_SIZE, HISTORY_LINE_LIMIT, ErrorCodes,
   getRandomSpinnerVerb, stripAnsi, formatMcpToolName, sanitizeMcpInput,
-  sendError, secureCompare
+  sendError, secureCompare, calculateContextPercentage
 } = require('./lib/utils');
 const { discoverCommands } = require('./lib/commands');
 const {
@@ -1249,16 +1249,20 @@ async function sendRecentHistory(ws, sessionId) {
 
     const lines = content.split('\n').filter(line => line.trim());
 
-    // Read context percentage from statusline file (replaces JSONL token scanning)
-    try {
-      const ctxFile = `/tmp/claude-ctx-${sessionId}`;
-      const ctxContent = await fsp.readFile(ctxFile, 'utf8');
-      const pct = parseInt(ctxContent.trim(), 10);
-      if (!isNaN(pct) && sessionData) {
-        sessionData.contextPercentage = Math.max(0, Math.min(pct, 100));
-      }
-    } catch (e) {
-      // File may not exist yet — context percentage stays at 0
+    // Calculate context percentage from the last assistant message's token usage.
+    // Scan backwards through lines to find the most recent usage data.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const entry = JSON.parse(lines[i]);
+        if (entry.type === 'assistant' && entry.message?.usage) {
+          const pct = calculateContextPercentage(entry.message.usage, entry.message.model);
+          if (pct !== null && sessionData) {
+            sessionData.contextPercentage = pct;
+            if (entry.message.model) sessionData.model = entry.message.model;
+          }
+          break;
+        }
+      } catch (e) { /* skip unparseable lines */ }
     }
 
     // Scan lines BEFORE the history window for task state and milestones —
