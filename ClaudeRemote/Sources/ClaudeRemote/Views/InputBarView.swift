@@ -30,6 +30,15 @@ struct InputBarView: View {
         InputBarHelpers.canSend(text: inputText, currentSessionId: state.currentSessionId)
     }
 
+    /// True when input is empty and there's a pending permission — send button becomes quick-approve
+    private var isQuickApprove: Bool {
+        InputBarHelpers.isQuickApprove(
+            text: inputText,
+            currentSessionId: state.currentSessionId,
+            currentPrompt: coordinator.promptService.currentPrompt
+        )
+    }
+
     /// Filtered slash command suggestions based on current input
     private var suggestions: [SlashCommand] {
         InputBarHelpers.suggestions(text: inputText, commands: state.slashCommands, maxCount: Self.maxSuggestions)
@@ -136,13 +145,7 @@ struct InputBarView: View {
                             }
                         }
 
-                    Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(canSend ? .blue : .secondary)
-                    }
-                    .disabled(!canSend)
-                    .frame(width: 44, height: 44)
+                    sendButton
                 }
             }
             .padding(.horizontal, 12)
@@ -175,6 +178,28 @@ struct InputBarView: View {
         .onChange(of: coordinator.promptService.currentPrompt) { _, _ in updateFallbackApproval() }
         .onChange(of: state.currentSessionId) { _, _ in updateFallbackApproval() }
         .onChange(of: coordinator.promptService.lastRespondedAt) { _, _ in updateFallbackApproval() }
+    }
+
+    // MARK: - Send Button
+
+    @ViewBuilder
+    private var sendButton: some View {
+        if isQuickApprove {
+            Button(action: quickApprove) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.green)
+            }
+            .frame(width: 44, height: 44)
+        } else {
+            Button(action: send) {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(canSend ? .blue : .secondary)
+            }
+            .disabled(!canSend)
+            .frame(width: 44, height: 44)
+        }
     }
 
     // MARK: - Question Suggestion Chips
@@ -458,6 +483,13 @@ struct InputBarView: View {
         #endif
     }
 
+    private func quickApprove() {
+        coordinator.promptService.respondPermission(.allow)
+        #if os(iOS)
+        HapticService.medium()
+        #endif
+    }
+
     private func escape() {
         guard let sessionId = state.currentSessionId else { return }
         coordinator.escapeSession(sessionId)
@@ -481,6 +513,15 @@ enum InputBarHelpers {
     static func canSend(text: String, currentSessionId: String?) -> Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         && currentSessionId != nil
+    }
+
+    static func isQuickApprove(text: String, currentSessionId: String?, currentPrompt: PromptItem?) -> Bool {
+        guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              currentSessionId != nil,
+              let prompt = currentPrompt else {
+            return false
+        }
+        return prompt.kind.isPermission
     }
 
     static func suggestions(text: String, commands: [SlashCommand], maxCount: Int) -> [SlashCommand] {

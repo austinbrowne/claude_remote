@@ -6,6 +6,11 @@ public enum PromptKind: Sendable, Equatable {
     case permission(tool: String?, command: String?, isDestructive: Bool)
     case question(questions: [QuestionData])
     case planExit
+
+    public var isPermission: Bool {
+        if case .permission = self { return true }
+        return false
+    }
 }
 
 /// The user's response to a plan exit prompt

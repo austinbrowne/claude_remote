@@ -140,6 +140,7 @@ function showPromptCard(prompt) {
   const title = document.getElementById('promptTitle');
 
   currentPrompt = prompt;
+  if (typeof updateSendButtonState === 'function') updateSendButtonState();
   promptMessageIndex = document.querySelectorAll('.message').length;
   hideFallbackApproval();
 
@@ -633,6 +634,7 @@ function hidePromptCard() {
   updateActionButtons();
   updatePromptQueueBadge();
   checkFallbackApproval();
+  if (typeof updateSendButtonState === 'function') updateSendButtonState();
 
   // Show next queued prompt if any
   if (promptQueue.length > 0) {
@@ -671,6 +673,7 @@ function dismissPrompt() {
   updatePromptQueueBadge();
   updateMinimizedIndicator();
   checkFallbackApproval();
+  if (typeof updateSendButtonState === 'function') updateSendButtonState();
 
   // Show next queued prompt if any
   if (promptQueue.length > 0) {
