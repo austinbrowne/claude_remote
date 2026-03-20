@@ -871,31 +871,6 @@ async function handleClientMessage(ws, msg) {
             injectSessionData.pendingPrompts.delete(msg.toolUseId);
           }
           sendPendingPrompts(ws, msg.sessionId, injectSessionData);
-
-          // Terminal panes: capture pane output after injection so user sees the result
-          if (injectSessionData?.session?.isTerminal && injectTty) {
-            setTimeout(async () => {
-              try {
-                const adapter = require('./lib/platform/detect').getPlatformAdapter();
-                if (typeof adapter.capturePane === 'function') {
-                  const output = await adapter.capturePane(injectTty, 30);
-                  if (output.trim()) {
-                    broadcastToClients({
-                      type: 'claude_output',
-                      sessionId: msg.sessionId,
-                      data: {
-                        type: 'assistant',
-                        content: '```\n' + output.trimEnd() + '\n```',
-                        timestamp: new Date().toISOString()
-                      }
-                    });
-                  }
-                }
-              } catch (e) {
-                console.debug(`[Terminal] Pane capture failed: ${e.message}`);
-              }
-            }, 500); // Small delay to let the command execute
-          }
         } catch (err) {
           console.error(`[Inject] Failed: ${err.message}`);
           ws.send(JSON.stringify({ type: 'inject_result', success: false, code: ErrorCodes.INJECT_FAILED, error: 'Command injection failed' }));

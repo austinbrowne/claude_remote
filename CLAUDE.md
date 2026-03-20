@@ -2,6 +2,10 @@
 
 Mobile companion app for monitoring and controlling Claude Code sessions. Supports macOS (iTerm/AppleScript) and Linux (tmux).
 
+## Planning Rules
+
+- **All features must target both web and iOS simultaneously.** Never plan web-first or iOS-first — both clients must be implemented in the same plan and same PR.
+
 ## Development
 
 ### After Any Code Change

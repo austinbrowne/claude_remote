@@ -1,0 +1,467 @@
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41
+      throw new Error(`Platform override "${override}" requires ${binary}, but it is not installed.`);
+            ^
+
+Error: Platform override "linux" requires tmux, but it is not installed.
+    at getPlatformAdapter (/Users/dazz/Git_Repos/claude_remote/lib/platform/detect.js:41:13)
+    at getActiveClaude (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:14:10)
+    at discoverSessions (/Users/dazz/Git_Repos/claude_remote/lib/session-discovery.js:91:33)
+    at Server.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:1534:26)
+    at Object.onceWrapper (node:events:622:28)
+    at Server.emit (node:events:520:22)
+    at emitListeningNT (node:net:2051:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:523:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:654:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:653:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:523:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:763:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:640:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:523:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:763:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:640:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:685:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:684:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:685:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:684:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:685:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:684:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:685:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:684:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at /Users/dazz/Git_Repos/claude_remote/server.js:685:9
+    at Set.forEach (<anonymous>)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:684:35)
+    at WebSocket.emit (node:events:520:22)
+    at WebSocket.emitClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:273:10)
+    at Socket.socketOnClose (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1346:15)
+    at Socket.emit (node:events:508:20)
+    at TCP.<anonymous> (node:net:350:12)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at onReady (/Users/dazz/Git_Repos/claude_remote/server.js:1364:13)
+    at Timeout.<anonymous> (/Users/dazz/Git_Repos/claude_remote/lib/terminal-manager.js:152:26)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509
+      sessionData.watcher.close();
+                          ^
+
+TypeError: Cannot read properties of null (reading 'close')
+    at unwatchSession (/Users/dazz/Git_Repos/claude_remote/lib/watcher.js:509:27)
+    at maybeUnwatchSession (/Users/dazz/Git_Repos/claude_remote/server.js:553:5)
+    at handleClientMessage (/Users/dazz/Git_Repos/claude_remote/server.js:794:7)
+    at WebSocket.<anonymous> (/Users/dazz/Git_Repos/claude_remote/server.js:671:7)
+    at WebSocket.emit (node:events:508:20)
+    at Receiver.receiverOnMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/websocket.js:1225:20)
+    at Receiver.emit (node:events:508:20)
+    at Receiver.dataMessage (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:596:14)
+    at Receiver.getData (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:496:10)
+    at Receiver.startLoop (/Users/dazz/Git_Repos/claude_remote/node_modules/ws/lib/receiver.js:167:16)
+
+Node.js v25.8.1
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Platform] CLAUDE_REMOTE_PLATFORM="linux" overrides detected platform "darwin"
+[Inject] Failed: Failed to copy to clipboard
+[Inject] Failed: Failed to copy to clipboard
+[Inject] Failed: Failed to copy to clipboard
