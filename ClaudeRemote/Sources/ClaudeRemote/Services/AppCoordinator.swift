@@ -325,6 +325,35 @@ public final class AppCoordinator: WebSocketServiceDelegate {
         return isActive
     }
 
+    // MARK: - Terminal Management
+
+    /// Create a new tmux terminal window, optionally in a specific repo
+    public func newTerminal(repoName: String? = nil, startClaude: Bool = false) {
+        webSocket?.send(.newTerminal(repoName: repoName, startClaude: startClaude))
+    }
+
+    /// Start Claude in a terminal pane
+    public func startClaude(sessionId: String) {
+        webSocket?.send(.startClaude(sessionId: sessionId))
+    }
+
+    /// Fetch repo list from server via HTTP
+    public func fetchRepos() async -> [RepoItem] {
+        guard !state.serverURL.isEmpty,
+              let url = URL(string: state.serverURL + "/repos") else { return [] }
+        let keychain = KeychainService()
+        guard let token = keychain.load(for: state.serverURL) else { return [] }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let response = try JSONDecoder().decode(RepoListResponse.self, from: data)
+            return response.repos
+        } catch {
+            return []
+        }
+    }
+
     /// Sync current settings to the server
     public func syncSettings() {
         var settings: [String: AnyCodableValue] = [
@@ -793,13 +822,8 @@ public final class AppCoordinator: WebSocketServiceDelegate {
             // Remove old session from list
             state.sessions.removeAll { $0.id == oldSessionId }
 
-            // Switch to the new session in-place
-            state.beginSessionSwitch(to: newSessionId)
-            state.confirmSessionSwitch(sessionId: newSessionId)
-            promptService.clearQueue()
-            promptService.sessionId = newSessionId
-            webSocket?.setLastWatchedSession(newSessionId)
-            state.clearAndResumeState = .switching
+            // Switch to the new session — send watch_session to get fresh history
+            watchSession(newSessionId)
 
         case .clearAndResumeProgress(_, let step, let progressMessage):
             switch step {

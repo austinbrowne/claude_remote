@@ -183,6 +183,8 @@ public enum ClientAction: Sendable {
     case modeToggle(sessionId: String)
     case updateSettings(settings: [String: AnyCodableValue])
     case clearAndResume(sessionId: String)
+    case newTerminal(repoName: String?, startClaude: Bool = false)
+    case startClaude(sessionId: String)
     case ping
 
     /// Encode to JSON dictionary for sending over WebSocket
@@ -218,6 +220,13 @@ public enum ClientAction: Sendable {
             return dict
         case .clearAndResume(let sessionId):
             return ["action": "clear_and_resume", "sessionId": sessionId]
+        case .newTerminal(let repoName, let startClaude):
+            var dict: [String: Any] = ["action": "new_terminal"]
+            if let repoName { dict["repoName"] = repoName }
+            if startClaude { dict["startClaude"] = true }
+            return dict
+        case .startClaude(let sessionId):
+            return ["action": "start_claude", "sessionId": sessionId]
         case .ping:
             return ["action": "ping"]
         }

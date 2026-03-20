@@ -19,6 +19,10 @@ const {
 } = require('./lib/command-injection');
 const { createFileApiRouter } = require('./lib/file-api');
 const {
+  createWindow, listRepos, resolveRepoPath, awaitClaudeStart,
+  checkNewTerminalRate, checkStartClaudeRate
+} = require('./lib/terminal-manager');
+const {
   CLAUDE_DIR, getActiveClaude, getGitBranch, loadAllowedTools,
   needsPermission, discoverSessions, getSessionStatus
 } = require('./lib/session-discovery');
@@ -34,6 +38,18 @@ if (!AUTH_TOKEN || AUTH_TOKEN.length < 32) {
   console.error('ERROR: Set AUTH_TOKEN environment variable (minimum 32 characters)');
   console.error('Generate one with: openssl rand -hex 32');
   process.exit(1);
+}
+
+// Validate REPOS_PATH at startup
+if (process.env.REPOS_PATH) {
+  try {
+    require('fs').accessSync(process.env.REPOS_PATH);
+    console.log(`[Config] REPOS_PATH: ${process.env.REPOS_PATH}`);
+  } catch {
+    console.warn(`[Config] WARNING: REPOS_PATH="${process.env.REPOS_PATH}" does not exist`);
+  }
+} else {
+  console.warn('[Config] REPOS_PATH not set — repo picker disabled');
 }
 
 // Parser state for cross-entry correlations (subagent descriptions, task IDs)
@@ -1226,6 +1242,131 @@ async function handleClientMessage(ws, msg) {
         connectedAt: clientData.connectedAt
       }));
       break;
+
+    case 'new_terminal': {
+      if (!checkNewTerminalRate(clientData.id)) {
+        sendError(ws, ErrorCodes.RATE_LIMITED, 'Too many terminals created — max 5 per minute');
+        break;
+      }
+      try {
+        let targetDir = process.env.HOME || '/tmp';
+        if (msg.repoName) {
+          if (typeof msg.repoName !== 'string') {
+            sendError(ws, 'INVALID_INPUT', 'repoName must be a string');
+            break;
+          }
+          const resolved = resolveRepoPath(msg.repoName);
+          if (!resolved) {
+            sendError(ws, 'INVALID_INPUT', 'Invalid repo name');
+            break;
+          }
+          targetDir = resolved;
+        }
+        await createWindow('claude', targetDir);
+        // Wait for tmux to register the pane, then discover sessions
+        await new Promise(r => setTimeout(r, 500));
+        const newSessions = await discoverSessions();
+        // Find the new terminal pane by CWD match
+        const newTerminal = newSessions.find(s => s.cwd === targetDir && s.isTerminal);
+        // Broadcast updated session list
+        for (const [clientWs, cd] of clients) {
+          if (clientWs.readyState === clientWs.OPEN) {
+            safeSend(clientWs, { type: 'sessions', data: newSessions });
+          }
+        }
+        ws.send(JSON.stringify({ type: 'new_terminal_result', success: true, sessionId: newTerminal?.id || null }));
+        // Auto-start Claude only when explicitly requested (repo picker flow)
+        if (msg.startClaude && newTerminal) {
+          const termSession = await watchSession(newTerminal.id);
+          if (termSession) {
+            await injectCommandToTty('claude --effort high', termSession.tty);
+            awaitClaudeStart(targetDir, {
+              onReady: async () => {
+                unwatchSession(newTerminal.id);
+                const sessions = await discoverSessions();
+                const claudeSession = sessions.find(s => s.cwd === targetDir && !s.isTerminal);
+                for (const [clientWs, cd] of clients) {
+                  if (clientWs.readyState === clientWs.OPEN) {
+                    safeSend(clientWs, { type: 'sessions', data: sessions });
+                    if (claudeSession && cd.watchingSessions.has(newTerminal.id)) {
+                      safeSend(clientWs, {
+                        type: 'session_replaced',
+                        oldSessionId: newTerminal.id,
+                        newSessionId: claudeSession.id,
+                        session: claudeSession
+                      });
+                    }
+                  }
+                }
+              },
+              onTimeout: () => {
+                safeSend(ws, { type: 'start_claude_result', success: false, error: 'Claude did not start within 10s' });
+              }
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[Terminal] new_terminal failed:', err.message);
+        ws.send(JSON.stringify({ type: 'new_terminal_result', success: false, error: 'Failed to create terminal' }));
+      }
+      break;
+    }
+
+    case 'start_claude': {
+      if (!checkStartClaudeRate(clientData.id)) {
+        sendError(ws, ErrorCodes.RATE_LIMITED, 'Please wait before starting another Claude session');
+        break;
+      }
+      if (typeof msg.sessionId !== 'string') {
+        sendError(ws, 'INVALID_INPUT', 'sessionId must be a string');
+        break;
+      }
+      const startSd = activeSessions.get(msg.sessionId);
+      if (!startSd?.session?.isTerminal) {
+        ws.send(JSON.stringify({ type: 'start_claude_result', success: false, error: 'Not a terminal pane' }));
+        break;
+      }
+      try {
+        await injectCommandToTty('claude --effort high', startSd.session.tty);
+        ws.send(JSON.stringify({ type: 'start_claude_result', success: true, waiting: true }));
+
+        // Event-driven: watch for JSONL file to appear
+        const oldSessionId = msg.sessionId;
+        const oldCwd = startSd.session.cwd;
+        awaitClaudeStart(oldCwd, {
+          onReady: async () => {
+            // Unwatch the old terminal session
+            unwatchSession(oldSessionId);
+
+            const sessions = await discoverSessions();
+            // Find the new Claude session by CWD match
+            const newSession = sessions.find(s => s.cwd === oldCwd && !s.isTerminal);
+
+            for (const [clientWs, cd] of clients) {
+              if (clientWs.readyState === clientWs.OPEN) {
+                safeSend(clientWs, { type: 'sessions', data: sessions });
+                // Tell clients watching the old terminal to switch to the new Claude session
+                if (newSession && cd.watchingSessions.has(oldSessionId)) {
+                  safeSend(clientWs, {
+                    type: 'session_replaced',
+                    oldSessionId,
+                    newSessionId: newSession.id,
+                    session: newSession
+                  });
+                }
+              }
+            }
+          },
+          onTimeout: () => {
+            safeSend(ws, { type: 'start_claude_result', success: false, error: 'Claude did not start within 10s' });
+          }
+        });
+      } catch (err) {
+        console.error('[Terminal] start_claude failed:', err.message);
+        ws.send(JSON.stringify({ type: 'start_claude_result', success: false, error: 'Failed to start Claude' }));
+      }
+      break;
+    }
   }
 }
 
@@ -1488,6 +1629,25 @@ app.use(createFileApiRouter({
 // Basic health check - no sensitive info
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// List git repos (requires authentication)
+app.get('/repos', async (req, res) => {
+  const auth = req.headers.authorization;
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!secureCompare(token, AUTH_TOKEN)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const result = await listRepos();
+    if (result.error) {
+      return res.status(result.repos.length === 0 ? 500 : 200).json(result);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('[Repos] Error:', err.message);
+    res.status(500).json({ error: 'Failed to list repos' });
+  }
 });
 
 // Detailed health requires authentication
