@@ -493,6 +493,20 @@ setInterval(async () => {
   }
 }, SESSION_LIVENESS_CHECK_MS);
 
+// Clean up stale WebSocket connections that haven't pinged in 60 seconds.
+// Prevents duplicate broadcasts when iOS app reconnects without closing old connection.
+const CLIENT_STALE_MS = 60000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [clientWs, clientData] of clients) {
+    if (now - clientData.lastPing > CLIENT_STALE_MS && clientWs.readyState === clientWs.OPEN) {
+      console.log(`[Client] Closing stale connection: ${clientData.id} (no ping in ${Math.round((now - clientData.lastPing) / 1000)}s)`);
+      clientWs.close(4003, 'Stale connection');
+      clients.delete(clientWs);
+    }
+  }
+}, 30000);
+
 // Check if any other client is watching a session (excludes given ws)
 // Validate session is active and not dead (G4 — inject-race mitigation).
 // Returns session data if valid, or null after sending error to client.
@@ -574,6 +588,7 @@ wss.on('connection', (ws, req) => {
     clients.set(ws, {
       id: clientId,
       connectedAt: Date.now(),
+      lastPing: Date.now(),
       watchingSessions: new Set(),
       settings: {
         ttsEnabled: false,
@@ -1220,9 +1235,12 @@ async function handleClientMessage(ws, msg) {
       Object.assign(clientData.settings, msg.settings);
       break;
 
-    case 'ping':
+    case 'ping': {
+      const cd = clients.get(ws);
+      if (cd) cd.lastPing = Date.now();
       ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
       break;
+    }
 
     case 'get_state':
       ws.send(JSON.stringify({
