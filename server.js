@@ -1210,10 +1210,16 @@ async function handleClientMessage(ws, msg) {
     }
 
     case 'mode_toggle':
-      // Send Shift+Tab to cycle modes (requires activating iTerm)
+      // Send Shift+Tab to cycle modes — pass target so hybrid adapter can route correctly
       (async () => {
         try {
-          await sendModeToggle();
+          let toggleTty = activeSessions.get(msg.sessionId)?.session?.tty;
+          if (!toggleTty && msg.sessionId) {
+            const sessions = await discoverSessions();
+            const found = sessions.find(s => s.id === msg.sessionId);
+            toggleTty = found?.tty;
+          }
+          await sendModeToggle(toggleTty);
           ws.send(JSON.stringify({ type: 'mode_toggle_result', success: true }));
         } catch (err) {
           console.error(`[Mode Toggle] Failed: ${err.message}`);
@@ -1370,7 +1376,7 @@ async function handleClientMessage(ws, msg) {
   }
 }
 
-const HISTORY_READ_SIZE = 200 * 1024; // Read last 200KB for history (not entire file)
+const HISTORY_READ_SIZE = 500 * 1024; // Read last 500KB for history (not entire file)
 
 async function sendRecentHistory(ws, sessionId) {
   const sessionData = activeSessions.get(sessionId);
@@ -1424,16 +1430,27 @@ async function sendRecentHistory(ws, sessionId) {
       } catch (e) { /* skip unparseable lines */ }
     }
 
+    // Filter out non-displayable metadata lines before applying the history limit.
+    // Without this, file-history-snapshot and progress entries consume most of the
+    // 100-line window, leaving very few actual conversation messages.
+    const SKIP_TYPES = new Set(['file-history-snapshot', 'progress', 'agent_progress', 'hook_progress', 'last-prompt', 'queue-operation']);
+    const displayableLines = lines.filter(line => {
+      try {
+        const entry = JSON.parse(line);
+        return !SKIP_TYPES.has(entry.type);
+      } catch { return false; }
+    });
+
     // Scan lines BEFORE the history window for task state and milestones —
     // tasks/milestones created early in the session may be outside the
     // HISTORY_LINE_LIMIT display window.
     // parseLogEntry accumulates task_create/task_update into sessionData.tasks.
-    const recentLines = lines.slice(-HISTORY_LINE_LIMIT);
-    if (sessionData && lines.length > HISTORY_LINE_LIMIT) {
+    const recentLines = displayableLines.slice(-HISTORY_LINE_LIMIT);
+    if (sessionData && displayableLines.length > HISTORY_LINE_LIMIT) {
       sessionData.tasks.clear();
       sessionData.milestones = [];
       sessionData.toolBurstCount = 0;
-      const olderLines = lines.slice(0, -HISTORY_LINE_LIMIT);
+      const olderLines = displayableLines.slice(0, -HISTORY_LINE_LIMIT);
       for (const line of olderLines) {
         try {
           const entry = JSON.parse(line);
