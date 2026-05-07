@@ -25,9 +25,13 @@ function processMainBatch(allItems, pendingMainPermissions) {
       .map(i => i.toolUseId)
   );
 
-  // Phase 2: Flush deferred permissions from previous poll cycle
-  for (const [toolUseId] of pendingMainPermissions) {
+  // Phase 2: Resolve deferred permissions from previous poll cycle that got
+  // a tool_result in this batch (cross-batch auto-approved). Convert to 'tool'
+  // so the command card still shows, matching Phase 3 same-batch behavior.
+  const crossBatchAutoApproved = [];
+  for (const [toolUseId, deferredItem] of pendingMainPermissions) {
     if (resolvedToolUseIds.has(toolUseId)) {
+      crossBatchAutoApproved.push({ ...deferredItem, type: 'tool' });
       pendingMainPermissions.delete(toolUseId);
     }
   }
@@ -37,7 +41,7 @@ function processMainBatch(allItems, pendingMainPermissions) {
   }
 
   // Phase 3: Classify new items
-  const filteredItems = [];
+  const filteredItems = [...crossBatchAutoApproved];
   for (const item of allItems) {
     if (item.type === 'permission_request' && item.toolUseId) {
       if (resolvedToolUseIds.has(item.toolUseId)) {
@@ -105,29 +109,42 @@ describe('Main watcher deferred permissions', () => {
     assert.equal(pending.size, 0, 'should be cleared after broadcast');
   });
 
-  it('cross-batch auto-resolved: deferred then silently removed by tool_result', () => {
+  it('cross-batch auto-resolved: deferred permission converts to tool before its result', () => {
     const pending = new Map();
 
     // Batch 1: permission arrives
     processMainBatch(
-      [{ type: 'permission_request', tool: 'WebFetch', toolUseId: 'tu_cross' }],
+      [{ type: 'permission_request', tool: 'Bash', toolUseId: 'tu_cross', input: { command: 'ls' } }],
       pending
     );
     assert.equal(pending.size, 1);
 
     // Batch 2: tool_result arrives — auto-approved between poll cycles
     const batch2 = processMainBatch(
-      [{ type: 'tool_result', toolUseId: 'tu_cross', content: 'fetched' }],
+      [{ type: 'tool_result', toolUseId: 'tu_cross', content: 'a.txt b.txt' }],
       pending
     );
-    // The deferred permission should be silently removed, not broadcast
-    const permBroadcasts = batch2.filter(b => b.data.type === 'permission_request');
-    assert.equal(permBroadcasts.length, 0, 'resolved permission should not broadcast');
     assert.equal(pending.size, 0, 'should be removed from pending');
 
-    // The tool_result itself still passes through
+    // No permission_request broadcast (the user doesn't need to approve)
+    const permBroadcasts = batch2.filter(b => b.data.type === 'permission_request');
+    assert.equal(permBroadcasts.length, 0, 'resolved permission should not broadcast as permission_request');
+
+    // The deferred request must be converted to a 'tool' event so the iOS UI
+    // shows the bash command card (otherwise tool_result is orphaned).
+    const tools = batch2.filter(b => b.data.type === 'tool' && b.data.toolUseId === 'tu_cross');
+    assert.equal(tools.length, 1, 'deferred permission should convert to tool event');
+    assert.equal(tools[0].data.tool, 'Bash');
+    assert.equal(tools[0].data.input?.command, 'ls', 'original input must survive conversion');
+
+    // The tool_result still passes through
     const results = batch2.filter(b => b.data.type === 'tool_result');
     assert.equal(results.length, 1);
+
+    // Order: tool must be broadcast before its tool_result so iOS merges correctly
+    const toolIdx = batch2.findIndex(b => b.data.type === 'tool' && b.data.toolUseId === 'tu_cross');
+    const resultIdx = batch2.findIndex(b => b.data.type === 'tool_result' && b.data.toolUseId === 'tu_cross');
+    assert.ok(toolIdx < resultIdx, 'tool event must broadcast before tool_result');
   });
 
   it('mixed batch: one auto-approved in-batch, one deferred', () => {
