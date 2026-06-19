@@ -266,6 +266,88 @@ function updateSessionDrawer(sessions) {
     });
     list.appendChild(row);
   });
+
+  // Add action buttons at bottom
+  const actions = document.createElement('div');
+  actions.className = 'session-drawer-actions';
+
+  const newTermBtn = document.createElement('button');
+  newTermBtn.className = 'session-drawer-action-btn';
+  newTermBtn.innerHTML = '<span class="icon">+</span> New Terminal';
+  newTermBtn.addEventListener('click', () => {
+    newTermBtn.disabled = true;
+    newTermBtn.textContent = 'Creating...';
+    wsSend({ action: 'new_terminal' });
+    setTimeout(() => { newTermBtn.disabled = false; newTermBtn.innerHTML = '<span class="icon">+</span> New Terminal'; }, 3000);
+  });
+  actions.appendChild(newTermBtn);
+
+  const newClaudeBtn = document.createElement('button');
+  newClaudeBtn.className = 'session-drawer-action-btn claude';
+  newClaudeBtn.innerHTML = '<span class="icon">▶</span> New Claude Session';
+  newClaudeBtn.addEventListener('click', () => {
+    closeSessionDrawer();
+    openRepoPicker();
+  });
+  actions.appendChild(newClaudeBtn);
+
+  list.appendChild(actions);
+}
+
+// ============================================
+// Repo Picker
+// ============================================
+let repoPickerOpen = false;
+
+function openRepoPicker() {
+  const modal = document.getElementById('repoPickerModal');
+  if (!modal) return;
+  repoPickerOpen = true;
+  modal.classList.remove('hidden');
+  const list = document.getElementById('repoPickerList');
+  list.innerHTML = '<div class="repo-picker-loading">Loading repos...</div>';
+
+  // Fetch repos via HTTP
+  const token = localStorage.getItem('claude_remote_token') || '';
+  fetch('/repos', { headers: { 'Authorization': `Bearer ${token}` } })
+    .then(r => r.json())
+    .then(data => {
+      if (!repoPickerOpen) return; // Dismissed during fetch
+      list.innerHTML = '';
+      if (data.error && data.repos.length === 0) {
+        list.innerHTML = `<div class="repo-picker-empty">${escapeHtml(data.error)}</div>`;
+        return;
+      }
+      if (data.repos.length === 0) {
+        list.innerHTML = '<div class="repo-picker-empty">No git repos found in configured path</div>';
+        return;
+      }
+      data.repos.forEach(repo => {
+        const row = document.createElement('div');
+        row.className = 'repo-picker-row';
+        row.textContent = repo.name;
+        row.addEventListener('click', () => {
+          row.classList.add('loading');
+          row.textContent = repo.name + ' — starting...';
+          // Disable all rows
+          list.querySelectorAll('.repo-picker-row').forEach(r => r.style.pointerEvents = 'none');
+          wsSend({ action: 'new_terminal', repoName: repo.name });
+          // Server auto-starts Claude in the new terminal and sends session_replaced
+          closeRepoPicker();
+        });
+        list.appendChild(row);
+      });
+    })
+    .catch(() => {
+      if (!repoPickerOpen) return;
+      list.innerHTML = '<div class="repo-picker-empty">Failed to load repos</div>';
+    });
+}
+
+function closeRepoPicker() {
+  repoPickerOpen = false;
+  const modal = document.getElementById('repoPickerModal');
+  if (modal) modal.classList.add('hidden');
 }
 
 function setupSessionDrawerSwipe() {

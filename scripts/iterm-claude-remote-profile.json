@@ -1,0 +1,11 @@
+{
+  "Profiles": [
+    {
+      "Name": "Claude Remote",
+      "Guid": "claude-remote-tmux-profile",
+      "Command": "/opt/homebrew/bin/tmux -CC new-session -A -s claude",
+      "Custom Command": "Yes",
+      "Tags": ["tmux", "claude"]
+    }
+  ]
+}

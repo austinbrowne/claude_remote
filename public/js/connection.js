@@ -315,6 +315,10 @@ function handleMessage(msg) {
       // Update mobile header and hide splash
       updateSessionLabel();
       document.getElementById('sessionPickerSplash')?.classList.add('hidden');
+      // Show "Start Claude" button for terminal sessions
+      if (typeof updateStartClaudeButton === 'function') {
+        updateStartClaudeButton(msg.session?.isTerminal === true);
+      }
       // Replay buffered output messages that arrived during state transition
       if (sessionState === SESSION_STATE.ACTIVE) {
         // Replay all buffered claude_output messages in order
@@ -507,6 +511,24 @@ function handleMessage(msg) {
 
     case 'token_usage':
       handleTokenUsage(msg);
+      break;
+
+    case 'start_claude_result':
+      if (msg.success && msg.waiting) {
+        showToast('Claude starting...', 'success');
+      } else if (!msg.success) {
+        showToast(msg.error || 'Failed to start Claude', 'error');
+        const scBtn = document.getElementById('startClaudeBtn');
+        if (scBtn) { scBtn.disabled = false; scBtn.textContent = '▶ Start Claude Session'; }
+      }
+      break;
+
+    case 'new_terminal_result':
+      if (msg.success) {
+        showToast('Terminal created', 'success');
+      } else {
+        showToast(msg.error || 'Failed to create terminal', 'error');
+      }
       break;
 
     case 'task_create':

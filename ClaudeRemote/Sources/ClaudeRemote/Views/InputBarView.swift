@@ -49,6 +49,14 @@ struct InputBarView: View {
         InputBarHelpers.questionChips(from: coordinator.promptService.currentPrompt)
     }
 
+    /// Whether the current session is a terminal pane (not a Claude session)
+    private var isTerminalSession: Bool {
+        guard let sessionId = state.currentSessionId else { return false }
+        return state.sessions.first { $0.id == sessionId }?.isTerminal == true
+    }
+
+    @State private var isStartingClaude = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Autocomplete suggestions
@@ -65,6 +73,34 @@ struct InputBarView: View {
             if showFallbackApproval {
                 fallbackApprovalRow
                     .animation(.easeInOut(duration: 0.25), value: showFallbackApproval)
+            }
+
+            // Start Claude button for terminal panes
+            if isTerminalSession {
+                Button {
+                    guard let sessionId = state.currentSessionId else { return }
+                    isStartingClaude = true
+                    coordinator.startClaude(sessionId: sessionId)
+                    #if os(iOS)
+                    HapticService.medium()
+                    #endif
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(12))
+                        isStartingClaude = false
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "play.circle.fill")
+                        Text(isStartingClaude ? "Starting Claude..." : "Start Claude Session")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(isStartingClaude)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
             }
 
             VStack(spacing: 6) {

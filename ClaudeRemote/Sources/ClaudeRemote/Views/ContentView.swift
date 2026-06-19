@@ -25,6 +25,7 @@ struct MainView: View {
     @State private var showSettings = false
     @State private var showTaskList = false
     @State private var showDocumentViewer = false
+    @State private var showRepoPicker = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
@@ -88,30 +89,34 @@ struct MainView: View {
 
     private var sidebar: some View {
         Group {
-            if state.sessions.isEmpty {
-                VStack(spacing: 16) {
-                    Image(systemName: "terminal")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("No active sessions")
-                        .font(.title3)
-                    Text("Start a Claude Code session in iTerm to see it here.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+            VStack(spacing: 0) {
+                if state.sessions.isEmpty {
+                    VStack(spacing: 16) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("No active sessions")
+                            .font(.title3)
+                        Text("Create a terminal or start a Claude session.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                    .frame(maxHeight: .infinity)
+                } else {
+                    List(state.sessions, selection: $selectedSessionId) { session in
+                        SessionRow(
+                            session: session,
+                            isSelected: session.id == state.currentSessionId
+                        )
+                        .tag(session.id)
+                    }
+                    .refreshable {
+                        coordinator.refreshSessions()
+                    }
                 }
-                .padding()
-            } else {
-                List(state.sessions, selection: $selectedSessionId) { session in
-                    SessionRow(
-                        session: session,
-                        isSelected: session.id == state.currentSessionId
-                    )
-                    .tag(session.id)
-                }
-                .refreshable {
-                    coordinator.refreshSessions()
-                }
+                sessionActionButtons
             }
         }
         .navigationTitle("Sessions")
@@ -126,6 +131,58 @@ struct MainView: View {
                     Image(systemName: "gearshape")
                 }
             }
+        }
+    }
+
+    // MARK: - Session Action Buttons
+
+    private var sessionActionButtons: some View {
+        VStack(spacing: 10) {
+            Divider()
+            Button {
+                coordinator.newTerminal()
+                #if os(iOS)
+                HapticService.light()
+                #endif
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "terminal")
+                        .font(.body)
+                    Text("New Terminal")
+                        .font(.body)
+                        .fontWeight(.medium)
+                    Spacer()
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(.secondary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showRepoPicker = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.body)
+                    Text("New Claude Session")
+                        .font(.body)
+                        .fontWeight(.medium)
+                    Spacer()
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .background(.green.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.green)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .sheet(isPresented: $showRepoPicker) {
+            RepoPickerView()
         }
     }
 

@@ -26,6 +26,7 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
     public let logFile: String?
     public let tty: String?
     public let pid: Int?
+    public let isTerminal: Bool
 
     public init(
         id: String,
@@ -36,7 +37,8 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         lastActive: String? = nil,
         logFile: String? = nil,
         tty: String? = nil,
-        pid: Int? = nil
+        pid: Int? = nil,
+        isTerminal: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -47,6 +49,11 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         self.logFile = logFile
         self.tty = tty
         self.pid = pid
+        self.isTerminal = isTerminal
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, status, cwd, branch, lastActive, logFile, tty, pid, isTerminal
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,6 +66,7 @@ public struct Session: Codable, Identifiable, Sendable, Equatable {
         lastActive = try container.decodeIfPresent(String.self, forKey: .lastActive)
         logFile = try container.decodeIfPresent(String.self, forKey: .logFile)
         tty = try container.decodeIfPresent(String.self, forKey: .tty)
+        isTerminal = try container.decodeIfPresent(Bool.self, forKey: .isTerminal) ?? false
         if let intPid = try? container.decodeIfPresent(Int.self, forKey: .pid) {
             pid = intPid
         } else if let strPid = try? container.decodeIfPresent(String.self, forKey: .pid) {

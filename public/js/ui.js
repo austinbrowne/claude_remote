@@ -257,6 +257,30 @@ function autoResize(el) {
 // ============================================
 let autocompleteIndex = -1;
 
+// Show/hide the "Start Claude" button based on terminal session status
+function updateStartClaudeButton(isTerminal) {
+  const btn = document.getElementById('startClaudeBtn');
+  if (!btn) return;
+  if (isTerminal) {
+    btn.classList.remove('hidden');
+  } else {
+    btn.classList.add('hidden');
+  }
+}
+
+function startClaudeInTerminal() {
+  const btn = document.getElementById('startClaudeBtn');
+  if (!btn || btn.disabled || !currentSessionId) return;
+  btn.disabled = true;
+  btn.textContent = 'Starting Claude...';
+  wsSend({ action: 'start_claude', sessionId: currentSessionId });
+  // Reset after timeout
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '▶ Start Claude Session';
+  }, 12000);
+}
+
 function updateSendButtonState() {
   const input = document.getElementById('commandInput');
   const sendBtn = document.getElementById('sendBtn');
